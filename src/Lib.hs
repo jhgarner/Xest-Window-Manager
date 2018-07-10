@@ -14,6 +14,7 @@ import Data.Bits
 import Foreign.Marshal.Alloc
 import Control.Monad
 import Control.Monad.Trans.Reader
+import Data.List
 
 
 data IterationState = IS {display :: Display
@@ -27,51 +28,33 @@ someFunc = do
   display <- openDisplay ":99"
   let rootWindow = defaultRootWindow display
   selectInput display rootWindow (substructureNotifyMask .|. substructureRedirectMask)
-  forever . allocaXEvent $ handleEvent display
+  mainLoop display 0
 
-handleEvent :: Display -> XEventPtr -> IO ()
-handleEvent d ep = do
-  nextEvent d ep
-  e <- getEvent ep
-  xe <- get_EventType ep
-  case xe of
-    _ | createNotify == xe -> print "Creating"
-      | destroyNotify == xe -> print "Destroying"
-      | reparentNotify == xe -> print "parenting"
-      | configureRequest == xe -> configureResponse d e
-      | mapRequest == xe -> mapResponse d e
-      | otherwise -> print "Unknown"
+mapResponse :: IterationState -> IO Int
+mapResponse IS {..} = mapWindow display (ev_window event) >> print "Mapping" >> return numWindows
 
-configureResponse :: Display -> Event -> IO ()
-configureResponse d e = configureWindow d (ev_window e) (ev_value_mask e) wc >> print "Configuring"
-  where wc = WindowChanges (ev_x e) (ev_y e) (ev_width e) (ev_height e) (ev_border_width e) (ev_above e) (ev_detail e)
-
-mapResponse :: Display -> Event -> IO ()
-mapResponse d e = mapWindow d (ev_window e) >> print "Mapping"
-
--- configureResponse :: IterationState -> IO ()
--- configureResponse IS {..} = configureWindow display (ev_window event) (ev_value_mask event) wc >> print "Configuring"
---   where wc = WindowChanges (ev_x e) (ev_y e) (ev_width e) (ev_height e) (ev_border_width e) (ev_above e) (ev_detail e)
+-- TODO Probably move all of this to map?
+configureResponse :: IterationState -> IO Int
+configureResponse IS {..} = configureWindow display (ev_window event) (ev_value_mask event) wc >> moveWindow display (ev_window event) (fromIntegral numWindows * 100) 0 >> print numWindows >> return (numWindows + 1)
+  where wc = WindowChanges (1000) (ev_y event) (ev_width event) (ev_height event) (ev_border_width event) (ev_above event) (ev_detail event)
 
 
--- mainLoop :: Display -> Int -> IO ()
--- mainLoop d numW= allocaXEvent $ \xPtr -> do
---   nextEvent d xPtr
---   e <- getEvent xPtr
---   eType <- get_EventType xPtr
---   IS {..} <- ask
---   newS <- handleEvents event
---   mainLoop newS
+mainLoop :: Display -> Int -> IO ()
+mainLoop d numW = (allocaXEvent $ \xPtr -> do
+  nextEvent d xPtr
+  e <- getEvent xPtr
+  eType <- get_EventType xPtr
+  case find ((==) eType . fst) handlers of
+    Nothing -> print "Unknown" >> return numW
+    Just (_, f) -> f $ IS d numW e
+  ) >>= mainLoop d
 
--- -- handleEvents :: ReaderT IterationState IO ()
--- -- handleEvents = do
--- --   IS {..} <- ask
-
--- someEvent :: Display -> Event -> theState -> IO ()
--- someEvent = undefined
+someEvent :: Display -> Event -> theState -> IO ()
+someEvent = undefined
 
 
--- handlers :: [(EventType, IterationState -> IO Int)]
--- handlers = [(createNotify, \IS {..} -> print "Creating" >> return numWindows)
---            , (destroyNotify, \IS {..} -> print "Destroying" >> return (numWindows - 1))]
---            --, (configureNotify, )]
+handlers :: [(EventType, IterationState -> IO Int)]
+handlers = [(createNotify, \IS {..} -> print "Creating" >> return numWindows)
+           , (destroyNotify, \IS {..} -> print "Destroying" >> return (numWindows - 1))
+           , (configureRequest, configureResponse)
+           , (mapRequest, mapResponse)]
