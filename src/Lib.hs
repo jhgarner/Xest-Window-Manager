@@ -1,4 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Lib
     ( someFunc
@@ -11,17 +13,19 @@ import Graphics.X11.Xlib.Event
 import Graphics.X11.Xlib.Extras
 import Graphics.X11.Types
 import Data.Bits
-import Foreign.Marshal.Alloc
-import Control.Monad
-import Control.Monad.Trans.Reader
 import Data.List
-
+import Data.Text
+import Data.Text.IO as T
+import Control.Monad.IO.Class
+import Control.Monad.Reader
 
 data IterationState = IS {display :: Display
                          , numWindows :: Int
                          , event :: Event
                          }
 
+newtype Xest a = Xest {runXest :: ReaderT IterationState IO a}
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader IterationState)
 
 someFunc :: IO ()
 someFunc = do
@@ -30,31 +34,45 @@ someFunc = do
   selectInput display rootWindow (substructureNotifyMask .|. substructureRedirectMask)
   mainLoop display 0
 
-mapResponse :: IterationState -> IO Int
-mapResponse IS {..} = mapWindow display (ev_window event) >> print "Mapping" >> return numWindows
+mapResponse :: Xest Int
+mapResponse = do
+  IS {..} <- ask
+  liftIO $ do
+    (mapWindow display (ev_window event))
+    moveWindow display (ev_window event) (fromIntegral numWindows * 100) 0
+    print "Mapping"
+    return $ numWindows + 1
 
--- TODO Probably move all of this to map?
-configureResponse :: IterationState -> IO Int
-configureResponse IS {..} = configureWindow display (ev_window event) (ev_value_mask event) wc >> moveWindow display (ev_window event) (fromIntegral numWindows * 100) 0 >> print numWindows >> return (numWindows + 1)
-  where wc = WindowChanges (1000) (ev_y event) (ev_width event) (ev_height event) (ev_border_width event) (ev_above event) (ev_detail event)
+configureResponse :: Xest Int
+configureResponse = do
+  IS {..} <- ask
+  let wc = WindowChanges (ev_x event) (ev_y event) (ev_width event) (ev_height event) (ev_border_width event) (ev_above event) (ev_detail event)
+  liftIO $ do
+    configureWindow display (ev_window event) (ev_value_mask event) wc
+    print numWindows
+    return numWindows
 
+destroyAction :: Xest Int
+destroyAction = doNothing "Destroying" >>= return . (-) 1
 
 mainLoop :: Display -> Int -> IO ()
 mainLoop d numW = (allocaXEvent $ \xPtr -> do
   nextEvent d xPtr
   e <- getEvent xPtr
   eType <- get_EventType xPtr
-  case find ((==) eType . fst) handlers of
+  case Data.List.find ((==) eType . fst) handlers of
     Nothing -> print "Unknown" >> return numW
-    Just (_, f) -> f $ IS d numW e
+    Just (_, f) -> runReaderT (runXest f) (IS d numW e)
   ) >>= mainLoop d
 
-someEvent :: Display -> Event -> theState -> IO ()
-someEvent = undefined
-
-
-handlers :: [(EventType, IterationState -> IO Int)]
-handlers = [(createNotify, \IS {..} -> print "Creating" >> return numWindows)
-           , (destroyNotify, \IS {..} -> print "Destroying" >> return (numWindows - 1))
+handlers :: [(EventType, Xest Int)]
+handlers = [(createNotify, doNothing "Destroying")
+           , (destroyNotify, destroyAction)
            , (configureRequest, configureResponse)
            , (mapRequest, mapResponse)]
+
+doNothing :: Text -> Xest Int
+doNothing t = do
+  IS {..} <- ask
+  liftIO $ T.putStrLn t
+  return numWindows

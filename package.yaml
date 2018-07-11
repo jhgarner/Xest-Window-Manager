@@ -23,6 +23,8 @@ dependencies:
 - base >= 4.7 && < 5
 - X11
 - transformers
+- text
+- mtl
 
 library:
   source-dirs: src
