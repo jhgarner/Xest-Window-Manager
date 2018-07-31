@@ -2,82 +2,103 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Lib
-    ( startWM
-    ) where
+  ( startWM
+  ) where
 
-import Core
 import ClassyPrelude
-import Graphics.X11.Xlib.Display
-import Graphics.X11.Xlib.Window
-import Graphics.X11.Xlib.Event
-import Graphics.X11.Xlib.Extras
-import Graphics.X11.Xlib.Screen
-import Graphics.X11.Xlib.Types
-import Graphics.X11.Types
-import Data.Bits
+import Config
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State.Class
 import Control.Monad.Trans.State.Strict
+import Core
+import Data.Bits
 import Foreign.C.Types
+import Graphics.X11.Types
+import Graphics.X11.Xlib.Display
+import Graphics.X11.Xlib.Event
+import Graphics.X11.Xlib.Extras
+import Graphics.X11.Xlib.Misc
+import Graphics.X11.Xlib.Screen
+import Graphics.X11.Xlib.Types
+import Graphics.X11.Xlib.Window
 
 startWM :: IO ()
 startWM = do
   display <- openDisplay ":99"
   let rootWindow = defaultRootWindow display
-  selectInput display rootWindow (substructureNotifyMask .|. substructureRedirectMask)
-  mainLoop display . ES $ Vertical []
+  selectInput
+    display
+    rootWindow
+    (substructureNotifyMask .|. substructureRedirectMask .|. keyPressMask)
+  grabKey display 133 anyModifier rootWindow False grabModeAsync grabModeAsync
+  c <- getConfig ""
+  initKeyBindings display rootWindow c
+  mainLoop display c . ES $ Horizontal []
 
 -- The recursive main loop of the function
-mainLoop :: Display -> EventState -> IO ()
-mainLoop d es = (allocaXEvent $ \xPtr -> do
-  nextEvent d xPtr
-  e <- getEvent xPtr
-  eType <- get_EventType xPtr
-  let screen = defaultScreenOfDisplay d
-  case find ((==) eType . fst) handlers of
-    Nothing -> say "Unknown" >> return es
-    Just (_, f) -> runReaderT (runXest f) (IS d es e (widthOfScreen screen, heightOfScreen screen))
-  ) >>= mainLoop d
+mainLoop :: Display -> [KeyBinding] -> EventState -> IO ()
+mainLoop d c es =
+  allocaXEvent
+    (\xPtr -> do
+       nextEvent d xPtr
+       e <- getEvent xPtr
+       eType <- get_EventType xPtr
+       let screen = defaultScreenOfDisplay d
+       runReaderT
+         (runXest (handler e >>= render))
+         (IS d es (widthOfScreen screen, heightOfScreen screen) c)) >>=
+  mainLoop d c
 
+-- Acts on events
+handler :: Event -> Xest EventState
 -- Called on window creation
-mapResponse :: Xest EventState
-mapResponse = do
-  (IS display ES{..} event resolution) <- ask
-  let remainingList = addWindow (ev_window event) wins
-  liftIO $ mapWindow display (ev_window event)
-  placeWindows remainingList
-  return $ ES remainingList
-
+handler MapRequestEvent {..} = do
+  IS display ES {..} (w, h) _ <- ask
+  tWin <- manage ev_window
+  liftIO $ mapWindow display ev_window
+  return . ES $ addWindow tWin wins
 -- Called on window destruction
-unmapAction :: Xest EventState
-unmapAction = do
-  IS display ES{..} event resolution <- ask
-  let remainingList = deleteWindow (ev_window event) wins
-  placeWindows remainingList
-  return $ ES remainingList
-
-
--- Essentially just an identity function
-configureResponse :: Xest EventState
-configureResponse = do
+-- TODO handle minimizing as unmapping
+handler UnmapEvent {..} = do
+  IS display ES {..} (w, h) _ <- ask
+  tWin <- manage ev_window
+  return . ES $ deleteWindow tWin wins
+-- Tell the window it can configure itself however it wants
+handler e@ConfigureRequestEvent {..} = do
   IS {..} <- ask
-  let wc = WindowChanges (ev_x event) (ev_y event) (ev_width event) (ev_height event) (ev_border_width event) (ev_above event) (ev_detail event)
   liftIO $ do
-    configureWindow display (ev_window event) (ev_value_mask event) wc
+    configureWindow display ev_window ev_value_mask wc
     return eventState
-
--- A list of event handlers
-handlers :: [(EventType, Xest EventState)]
-handlers = [(createNotify, doNothing "Creating")
-           , (destroyNotify, doNothing "Destroying")
-           , (configureRequest, configureResponse)
-           , (unmapNotify, unmapAction)
-           , (mapRequest, mapResponse)]
-
--- A simple handler for printing and returning
-doNothing :: Text -> Xest EventState
-doNothing t = do
+  where
+    wc =
+      WindowChanges
+        ev_x
+        ev_y
+        ev_width
+        ev_height
+        ev_border_width
+        ev_above
+        ev_detail
+-- Run any key configurations
+handler e@KeyEvent {..} = do
   IS {..} <- ask
-  liftIO $ say t
-  return eventState
+  ks <- liftIO $ keycodeToKeysym display ev_keycode 0
+  case find (\(KeyBinding k _) -> ks == k) config of
+    Nothing -> return eventState
+    Just (KeyBinding _ ls) -> parseActions ls
+-- Basically just id
+handler _ = asks eventState
+
+-- Utilities
+manage :: Window -> Xest Tiler
+manage w = do
+  IS {..} <- ask
+  liftIO $ selectInput display w keyPressMask
+  return $ Wrap w
+
+render :: EventState -> Xest EventState
+render (ES t) = do
+  IS display _ (w, h) _ <- ask
+  placeWindows (Rect 0 0 w h) t
+  return $ ES t
