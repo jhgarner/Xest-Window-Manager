@@ -14,17 +14,20 @@ import Graphics.X11.Xlib.Extras
 import Graphics.X11.Xlib.Misc
 import Graphics.X11.Xlib.Types
 import Data.Maybe
+import System.Process
 
 -- Interprets actions
 parseActions :: [Action] -> Xest EventState
 parseActions l = do
   ES {..} <- asks eventState
-  return . ES $ foldl' parse desktop l
+  newDesktop <- foldl' parse (return desktop) l
+  return $ ES newDesktop
   where
-    parse acc (ChangeLayoutTo t) =
+    parse accIO (ChangeLayoutTo t) = accIO >>= \acc ->
       case popWindow acc of
-        (Nothing, _) -> t
-        (Just w, ws) -> parse ws . ChangeLayoutTo $ addWindow w t
+        (Nothing, _) -> return t
+        (Just w, ws) -> parse (return ws) . ChangeLayoutTo $ addWindow w t
+    parse acc (RunCommand s) = acc >>= \t -> liftIO $ spawnCommand s >> return t
     parse acc DoNothing = acc
 
 -- TODO Get the configuration from a file

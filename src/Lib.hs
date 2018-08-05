@@ -83,7 +83,7 @@ handler e@ConfigureRequestEvent {..} = do
 handler e@KeyEvent {..} = do
   IS {..} <- ask
   ks <- liftIO $ keycodeToKeysym display ev_keycode 0
-  case find (\(KeyBinding k _) -> ks == k) config of
+  case find (\(KeyBinding k _) -> ks == k && ev_event_type == keyPress) config of
     Nothing -> return eventState
     Just (KeyBinding _ ls) -> parseActions ls
 -- Basically just id

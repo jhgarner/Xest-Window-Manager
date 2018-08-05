@@ -26,6 +26,7 @@ dependencies:
 - transformers
 - text
 - mtl
+- process
 
 library:
   source-dirs: src

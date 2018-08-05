@@ -31,6 +31,7 @@ data KeyBinding =
 
 data Action
   = ChangeLayoutTo Tiler
+  | RunCommand String
   | DoNothing
   deriving (Read, Show)
 
