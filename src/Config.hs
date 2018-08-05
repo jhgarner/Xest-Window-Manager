@@ -19,7 +19,7 @@ import Data.Maybe
 parseActions :: [Action] -> Xest EventState
 parseActions l = do
   ES {..} <- asks eventState
-  return . ES $ foldl' parse wins l
+  return . ES $ foldl' parse desktop l
   where
     parse acc (ChangeLayoutTo t) =
       case popWindow acc of
@@ -29,8 +29,8 @@ parseActions l = do
 
 -- TODO Get the configuration from a file
 getConfig :: Text -> IO [KeyBinding]
-getConfig _ =
-  maybe (undefined :: IO [KeyBinding]) return $ readMay "[KeyBinding 118 [ChangeLayoutTo (Vertical [])], KeyBinding 104 [ChangeLayoutTo (Horizontal [])]]"
+getConfig _ = readFileUtf8 "config.conf" >>=
+  maybe (undefined :: IO [KeyBinding]) return . readMay 
 
 -- Turn on global keybind watching
 initKeyBindings :: Display -> Window -> [KeyBinding] -> IO ()

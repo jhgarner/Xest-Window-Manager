@@ -57,13 +57,12 @@ handler MapRequestEvent {..} = do
   IS display ES {..} (w, h) _ <- ask
   tWin <- manage ev_window
   liftIO $ mapWindow display ev_window
-  return . ES $ addWindow tWin wins
+  return . ES $ addWindow tWin desktop
 -- Called on window destruction
 -- TODO handle minimizing as unmapping
 handler UnmapEvent {..} = do
   IS display ES {..} (w, h) _ <- ask
-  tWin <- manage ev_window
-  return . ES $ deleteWindow tWin wins
+  return . ES $ deleteWindow (Wrap ev_window) desktop
 -- Tell the window it can configure itself however it wants
 handler e@ConfigureRequestEvent {..} = do
   IS {..} <- ask

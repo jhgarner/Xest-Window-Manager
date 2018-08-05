@@ -36,7 +36,7 @@ data Action
 
 -- Elements of the global state modifiable by an event
 newtype EventState = ES
-  { wins :: Tiler
+  { desktop :: Tiler
   }
 
 data Rect = Rect
