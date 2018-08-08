@@ -28,18 +28,18 @@ startWM = do
     root
     (substructureNotifyMask .|. substructureRedirectMask .|. keyPressMask)
   grabKey display 133 anyModifier root False grabModeAsync grabModeAsync
-  c <- getConfig ""
+  c <- getConfig "config.conf"
   initKeyBindings display root c
-  mainLoop display c . ES $ Horizontal []
+  mainLoop display c . ES $ Horizontal [] -- joseph dislikkes
 
 -- The recursive main loop of the function
-mainLoop :: Display -> [KeyBinding] -> EventState -> IO ()
+mainLoop :: Display -> Conf -> EventState -> IO ()
 mainLoop d c es =
   allocaXEvent
     (\xPtr -> do
-       nextEvent d xPtr
-       e <- getEvent xPtr
-       let screen = defaultScreenOfDisplay d
+       nextEvent d xPtr -- attach pointer for event to display
+       e <- getEvent xPtr -- dereference from pointer
+       let screen = defaultScreenOfDisplay d -- TODO change for extra monitor
        runReaderT
          (runXest (handler e >>= render))
          (IS d es (widthOfScreen screen, heightOfScreen screen) c)) >>=
@@ -89,10 +89,10 @@ handler KeyEvent {..} = do
 handler _ = asks eventState
 
 -- Utilities
+-- Would be used for reparenting (title bar)
 manage :: Window -> Xest Tiler
 manage w = do
   IS {..} <- ask
-  liftIO $ selectInput display w keyPressMask
   return $ Wrap w
 
 render :: EventState -> Xest EventState

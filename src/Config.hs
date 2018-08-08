@@ -22,19 +22,18 @@ parseActions l = do
   return $ ES newDesktop
   where
     parse accIO (ChangeLayoutTo t) = accIO >>= \acc ->
-      case popWindow acc of
+      case popWindow acc of -- change to not reverse
         (Nothing, _) -> return t
         (Just w, ws) -> parse (return ws) . ChangeLayoutTo $ addWindow w t
     parse acc (RunCommand s) = acc >>= \t -> liftIO $ spawnCommand s >> return t
     parse acc DoNothing = acc
 
--- TODO Get the configuration from a file
-getConfig :: Text -> IO [KeyBinding]
-getConfig _ = readFileUtf8 "config.conf" >>=
-  maybe (error "Failed to parse \"config.conf\"" :: IO [KeyBinding]) return . readMay
+getConfig :: FilePath -> IO Conf
+getConfig file = readFileUtf8 file >>=
+    maybe (error "Failed to parse \"config.conf\"" :: IO Conf) return . readMay
 
 -- Turn on global keybind watching
-initKeyBindings :: Display -> Window -> [KeyBinding] -> IO ()
+initKeyBindings :: Display -> Window -> Conf -> IO ()
 initKeyBindings display rootWindow =
   mapM_ $ \(KeyBinding ks _) -> do
     k <- keysymToKeycode display ks

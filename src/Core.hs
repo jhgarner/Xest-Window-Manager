@@ -19,12 +19,13 @@ data IterationState = IS
   { display :: Display
   , eventState :: EventState
   , dimensions :: (Dimension, Dimension)
-  , config :: [KeyBinding]
+  , config :: Conf
   }
 
+type Conf = [KeyBinding]
+
 data KeyBinding =
-  KeyBinding KeySym
-             [Action]
+  KeyBinding KeySym [Action]
   deriving (Read, Show)
 
 data Action
@@ -55,13 +56,15 @@ data Tiler
 
 -- Adds a new window to a Tiler
 addWindow :: Tiler -> Tiler -> Tiler
-addWindow w (Horizontal a) = Horizontal $ w : a
-addWindow w (Vertical a) = Vertical $ w : a
+addWindow w (Horizontal a) = Horizontal $ a ++ [w]
+addWindow w (Vertical a) = Vertical $ a ++ [w]
+addWindow _ a = a
 
 -- Deletes a Window from a Tiler
 deleteWindow :: Tiler -> Tiler -> Tiler
 deleteWindow w (Horizontal a) = Horizontal $ delete w a
 deleteWindow w (Vertical a) = Vertical $ delete w a
+deleteWindow _ a = a
 
 -- Used to force the Tiler to give up control over a window.
 -- For example, if the Window is moving to a different workplace.
@@ -70,6 +73,7 @@ popWindow (Horizontal (a:as)) = (Just a, Horizontal as)
 popWindow (Horizontal []) = (Nothing, Horizontal [])
 popWindow (Vertical (a:as)) = (Just a, Vertical as)
 popWindow (Vertical []) = (Nothing, Vertical [])
+popWindow a = (Nothing, a)
 
 -- Allow the Tiler to move windows wherever they need to be
 placeWindows :: Rect -> Tiler -> Xest ()
@@ -77,37 +81,25 @@ placeWindows Rect {..} (Wrap win) = do
   IS {..} <- ask
   liftIO $ moveWindow display win x y
   liftIO $ resizeWindow display win w h
-  
+
 placeWindows Rect {..} (Horizontal ws) =
   foldl'
     (\acc (i, t) ->
-       acc >>
-       placeWindows
-         (Rect
-            ((fromIntegral w `div` numWins * i) + x)
-            y
-            (w `div` fromIntegral numWins)
-            h)
-         t)
-    (pure ()) $
-  ClassyPrelude.zip ((-) numWins <$> [1 ..]) ws
+       acc >> placeWindows
+       (Rect ((fromIntegral w `div` numWins * i) + x) y
+             (w `div` fromIntegral numWins) h) t)
+    (pure ()) $ zip [0..] ws
   where
-    numWins = fromIntegral $ ClassyPrelude.length ws
-    
+    numWins = fromIntegral $ length ws
+
 placeWindows Rect {..} (Vertical ws) =
   foldl'
     (\acc (i, t) ->
-       acc >>
-       placeWindows
-         (Rect
-            x
-            (fromIntegral h `div` numWins * i + y)
-            w
-            (h `div` fromIntegral numWins))
-         t)
-    (pure ()) $
-  zip ((-) numWins <$> [1 ..]) ws
+       acc >> placeWindows
+       (Rect x (fromIntegral h `div` numWins * i + y)
+             w (h `div` fromIntegral numWins)) t)
+    (pure ()) $ zip [0..] ws
   where
     numWins = fromIntegral $ length ws
-    
+
 placeWindows _ _ = return ()
