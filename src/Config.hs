@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Config
   ( getConfig
@@ -9,11 +10,8 @@ module Config
 import ClassyPrelude
 import Core
 import Graphics.X11.Types
-import Graphics.X11.Xlib.Display
-import Graphics.X11.Xlib.Extras
 import Graphics.X11.Xlib.Misc
 import Graphics.X11.Xlib.Types
-import Data.Maybe
 import System.Process
 
 -- Interprets actions
@@ -33,7 +31,7 @@ parseActions l = do
 -- TODO Get the configuration from a file
 getConfig :: Text -> IO [KeyBinding]
 getConfig _ = readFileUtf8 "config.conf" >>=
-  maybe (undefined :: IO [KeyBinding]) return . readMay 
+  maybe (error "Failed to parse \"config.conf\"" :: IO [KeyBinding]) return . readMay
 
 -- Turn on global keybind watching
 initKeyBindings :: Display -> Window -> [KeyBinding] -> IO ()

@@ -1,5 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Lib
   ( startWM
@@ -7,13 +8,8 @@ module Lib
 
 import ClassyPrelude
 import Config
-import Control.Monad.IO.Class
-import Control.Monad.Reader
-import Control.Monad.State.Class
-import Control.Monad.Trans.State.Strict
 import Core
 import Data.Bits
-import Foreign.C.Types
 import Graphics.X11.Types
 import Graphics.X11.Xlib.Display
 import Graphics.X11.Xlib.Event
@@ -26,14 +22,14 @@ import Graphics.X11.Xlib.Window
 startWM :: IO ()
 startWM = do
   display <- openDisplay ":99"
-  let rootWindow = defaultRootWindow display
+  let root = defaultRootWindow display
   selectInput
     display
-    rootWindow
+    root
     (substructureNotifyMask .|. substructureRedirectMask .|. keyPressMask)
-  grabKey display 133 anyModifier rootWindow False grabModeAsync grabModeAsync
+  grabKey display 133 anyModifier root False grabModeAsync grabModeAsync
   c <- getConfig ""
-  initKeyBindings display rootWindow c
+  initKeyBindings display root c
   mainLoop display c . ES $ Horizontal []
 
 -- The recursive main loop of the function
@@ -43,7 +39,6 @@ mainLoop d c es =
     (\xPtr -> do
        nextEvent d xPtr
        e <- getEvent xPtr
-       eType <- get_EventType xPtr
        let screen = defaultScreenOfDisplay d
        runReaderT
          (runXest (handler e >>= render))
@@ -51,20 +46,22 @@ mainLoop d c es =
   mainLoop d c
 
 -- Acts on events
-handler :: Event -> Xest EventState
 -- Called on window creation
+handler :: Event -> Xest EventState
 handler MapRequestEvent {..} = do
-  IS display ES {..} (w, h) _ <- ask
+  IS display ES {..} _ _ <- ask
   tWin <- manage ev_window
   liftIO $ mapWindow display ev_window
   return . ES $ addWindow tWin desktop
+
 -- Called on window destruction
 -- TODO handle minimizing as unmapping
 handler UnmapEvent {..} = do
-  IS display ES {..} (w, h) _ <- ask
+  ES {..} <- asks eventState
   return . ES $ deleteWindow (Wrap ev_window) desktop
+
 -- Tell the window it can configure itself however it wants
-handler e@ConfigureRequestEvent {..} = do
+handler ConfigureRequestEvent {..} = do
   IS {..} <- ask
   liftIO $ do
     configureWindow display ev_window ev_value_mask wc
@@ -79,13 +76,15 @@ handler e@ConfigureRequestEvent {..} = do
         ev_border_width
         ev_above
         ev_detail
+
 -- Run any key configurations
-handler e@KeyEvent {..} = do
+handler KeyEvent {..} = do
   IS {..} <- ask
   ks <- liftIO $ keycodeToKeysym display ev_keycode 0
   case find (\(KeyBinding k _) -> ks == k && ev_event_type == keyPress) config of
     Nothing -> return eventState
     Just (KeyBinding _ ls) -> parseActions ls
+
 -- Basically just id
 handler _ = asks eventState
 
@@ -98,6 +97,6 @@ manage w = do
 
 render :: EventState -> Xest EventState
 render (ES t) = do
-  IS display _ (w, h) _ <- ask
+  (w, h) <- asks dimensions
   placeWindows (Rect 0 0 w h) t
   return $ ES t

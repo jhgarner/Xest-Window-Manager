@@ -1,13 +1,11 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Core where
 
 import ClassyPrelude
-import Control.Monad.State.Class
-import Control.Monad.Trans.State.Strict
 import Graphics.X11.Types
-import Graphics.X11.Xlib.Extras
 import Graphics.X11.Xlib.Types
 import Graphics.X11.Xlib.Window
 
@@ -79,6 +77,7 @@ placeWindows Rect {..} (Wrap win) = do
   IS {..} <- ask
   liftIO $ moveWindow display win x y
   liftIO $ resizeWindow display win w h
+  
 placeWindows Rect {..} (Horizontal ws) =
   foldl'
     (\acc (i, t) ->
@@ -91,9 +90,10 @@ placeWindows Rect {..} (Horizontal ws) =
             h)
          t)
     (pure ()) $
-  zip ((-) numWins <$> [1 ..]) ws
+  ClassyPrelude.zip ((-) numWins <$> [1 ..]) ws
   where
-    numWins = fromIntegral $ length ws
+    numWins = fromIntegral $ ClassyPrelude.length ws
+    
 placeWindows Rect {..} (Vertical ws) =
   foldl'
     (\acc (i, t) ->
@@ -109,3 +109,5 @@ placeWindows Rect {..} (Vertical ws) =
   zip ((-) numWins <$> [1 ..]) ws
   where
     numWins = fromIntegral $ length ws
+    
+placeWindows _ _ = return ()
