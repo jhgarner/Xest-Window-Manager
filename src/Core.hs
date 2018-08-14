@@ -17,6 +17,7 @@ newtype Xest a = Xest
 -- Immutable state for one iteration of the main loop. Mutates between iterations
 data IterationState = IS
   { display :: Display
+  , rootWin :: Window
   , eventState :: EventState
   , dimensions :: (Dimension, Dimension)
   , config :: Conf
@@ -25,18 +26,25 @@ data IterationState = IS
 type Conf = [KeyBinding]
 
 data KeyBinding =
-  KeyBinding KeySym [Action]
+  KeyBinding KeyCode [Action] Mode
   deriving (Read, Show)
 
 data Action
   = ChangeLayoutTo Tiler
   | RunCommand String
+  | ChangeModeTo Mode
   | DoNothing
   deriving (Read, Show)
 
+data Mode
+  = InsertMode
+  | NormalMode
+  deriving (Read, Show, Eq)
+
 -- Elements of the global state modifiable by an event
-newtype EventState = ES
+data EventState = ES
   { desktop :: Tiler
+  , currentMode :: Mode
   }
 
 data Rect = Rect

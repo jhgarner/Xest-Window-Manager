@@ -3,7 +3,6 @@
 
 module Config
   ( getConfig
-  , initKeyBindings
   , parseActions
   ) where
 
@@ -17,24 +16,18 @@ import System.Process
 -- Interprets actions
 parseActions :: [Action] -> Xest EventState
 parseActions l = do
-  ES {..} <- asks eventState
-  newDesktop <- foldl' parse (return desktop) l
-  return $ ES newDesktop
+  es <- asks eventState
+  foldl' (\acc a -> (acc >>= flip parse a)) (return es) l
   where
-    parse accIO (ChangeLayoutTo t) = accIO >>= \acc ->
-      case popWindow acc of -- change to not reverse
-        (Nothing, _) -> return t
-        (Just w, ws) -> parse (return ws) . ChangeLayoutTo $ addWindow w t
-    parse acc (RunCommand s) = acc >>= \t -> liftIO $ spawnCommand s >> return t
-    parse acc DoNothing = acc
+    parse :: EventState -> Action -> Xest EventState
+    parse acc (ChangeLayoutTo t) =
+      case popWindow $ desktop acc of -- change to not reverse
+        (Nothing, _) -> return acc { desktop = t }
+        (Just w, ws) -> parse (acc { desktop = ws }) . ChangeLayoutTo $ addWindow w t
+    parse acc (RunCommand s) = liftIO $ spawnCommand s >> return acc
+    parse acc (ChangeModeTo m) = return acc { currentMode = m }
+    parse acc DoNothing = return acc
 
 getConfig :: FilePath -> IO Conf
 getConfig file = readFileUtf8 file >>=
     maybe (error "Failed to parse \"config.conf\"" :: IO Conf) return . readMay
-
--- Turn on global keybind watching
-initKeyBindings :: Display -> Window -> Conf -> IO ()
-initKeyBindings display rootWindow =
-  mapM_ $ \(KeyBinding ks _) -> do
-    k <- keysymToKeycode display ks
-    grabKey display k anyModifier rootWindow False grabModeAsync grabModeAsync

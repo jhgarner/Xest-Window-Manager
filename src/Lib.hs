@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Lib
   ( startWM
@@ -19,6 +20,8 @@ import Graphics.X11.Xlib.Screen
 import Graphics.X11.Xlib.Types
 import Graphics.X11.Xlib.Window
 
+data Void
+
 startWM :: IO ()
 startWM = do
   display <- openDisplay ":99"
@@ -29,36 +32,35 @@ startWM = do
     (substructureNotifyMask .|. substructureRedirectMask .|. keyPressMask)
   grabKey display 133 anyModifier root False grabModeAsync grabModeAsync
   c <- getConfig "config.conf"
-  initKeyBindings display root c
-  mainLoop display c . ES $ Horizontal [] -- joseph dislikkes
+  -- initKeyBindings display root c
+  mainLoop display root c $ ES (Horizontal []) InsertMode
 
 -- The recursive main loop of the function
-mainLoop :: Display -> Conf -> EventState -> IO ()
-mainLoop d c es =
-  allocaXEvent
-    (\xPtr -> do
-       nextEvent d xPtr -- attach pointer for event to display
-       e <- getEvent xPtr -- dereference from pointer
-       let screen = defaultScreenOfDisplay d -- TODO change for extra monitor
-       runReaderT
-         (runXest (handler e >>= render))
-         (IS d es (widthOfScreen screen, heightOfScreen screen) c)) >>=
-  mainLoop d c
+mainLoop :: Display -> Window -> Conf -> EventState -> IO a
+mainLoop d w c es = runReaderT (runXest loop) state >>= mainLoop d w c
+  where screen = defaultScreenOfDisplay d
+        state = IS d w es (widthOfScreen screen, heightOfScreen screen) c
+        loop = do
+          render
+          rebindKeys
+          ptr <- liftIO . allocaXEvent $ \p -> nextEvent d p >> getEvent p
+          handler ptr
 
 -- Acts on events
 -- Called on window creation
 handler :: Event -> Xest EventState
 handler MapRequestEvent {..} = do
-  IS display ES {..} _ _ <- ask
+  display <- asks display
+  ES {..} <- asks eventState
   tWin <- manage ev_window
   liftIO $ mapWindow display ev_window
-  return . ES $ addWindow tWin desktop
+  return $ ES (addWindow tWin desktop) currentMode
 
 -- Called on window destruction
 -- TODO handle minimizing as unmapping
 handler UnmapEvent {..} = do
   ES {..} <- asks eventState
-  return . ES $ deleteWindow (Wrap ev_window) desktop
+  return $ ES (deleteWindow (Wrap ev_window) desktop) currentMode
 
 -- Tell the window it can configure itself however it wants
 handler ConfigureRequestEvent {..} = do
@@ -79,11 +81,11 @@ handler ConfigureRequestEvent {..} = do
 
 -- Run any key configurations
 handler KeyEvent {..} = do
-  IS {..} <- ask
-  ks <- liftIO $ keycodeToKeysym display ev_keycode 0
-  case find (\(KeyBinding k _) -> ks == k && ev_event_type == keyPress) config of
+  eventState@ES {..} <- asks eventState
+  config <- asks config
+  case find (\(KeyBinding k _ _) -> ev_keycode == k && ev_event_type == keyPress) config of
     Nothing -> return eventState
-    Just (KeyBinding _ ls) -> parseActions ls
+    Just (KeyBinding _ ls _) -> parseActions ls
 
 -- Basically just id
 handler _ = asks eventState
@@ -95,8 +97,21 @@ manage w = do
   IS {..} <- ask
   return $ Wrap w
 
-render :: EventState -> Xest EventState
-render (ES t) = do
+-- Renders/moves windows
+render :: Xest ()
+render = do
   (w, h) <- asks dimensions
+  ES t m <- asks eventState
   placeWindows (Rect 0 0 w h) t
-  return $ ES t
+
+-- Chang the keybindings depending on the mode
+rebindKeys :: Xest ()
+rebindKeys = do
+  ES {..} <- asks eventState
+  kb <- asks config
+  d <- asks display
+  w <- asks rootWin
+  liftIO . forM_ kb $ toggleModel currentMode d w
+  where toggleModel m d w (KeyBinding k _ km) =
+          if m == km then grabKey d k anyModifier w False grabModeAsync grabModeAsync
+          else ungrabKey d k anyModifier w
