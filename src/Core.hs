@@ -1,6 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Core where
 
@@ -8,6 +10,8 @@ import ClassyPrelude
 import Graphics.X11.Types
 import Graphics.X11.Xlib.Types
 import Graphics.X11.Xlib.Window
+import Control.Lens
+
 
 -- An MTL thing because why not? (Not rhetorical)
 newtype Xest a = Xest
@@ -41,18 +45,11 @@ data Mode
   | NormalMode
   deriving (Read, Show, Eq)
 
--- Elements of the global state modifiable by an event
-data EventState = ES
-  { desktop :: Tiler
-  , currentMode :: Mode
-  }
-
-data Rect = Rect
-  { x :: Position
-  , y :: Position
-  , w :: Dimension
-  , h :: Dimension
-  }
+data ModeState
+  = NewModeState
+  | TempModeState
+  | LongModeState
+  deriving (Read, Show, Eq)
 
 -- A list of tiling algorithms and the data they store
 data Tiler
@@ -61,6 +58,21 @@ data Tiler
   | Wrap Window
   | Empty
   deriving (Eq, Read, Show)
+
+-- Elements of the global state modifiable by an event
+data EventState = ES
+  { _desktop :: Tiler
+  , _currentMode :: Mode
+  , _keyParser :: KeyBinding -> Bool -> Xest EventState -- TODO replace with pattern synonym
+  }
+makeLenses ''EventState
+
+data Rect = Rect
+  { x :: Position
+  , y :: Position
+  , w :: Dimension
+  , h :: Dimension
+  }
 
 -- Adds a new window to a Tiler
 addWindow :: Tiler -> Tiler -> Tiler
