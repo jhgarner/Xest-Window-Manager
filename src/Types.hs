@@ -1,33 +1,38 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NoImplicitPrelude          #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 module Types where
 
-import Control.Lens
-import ClassyPrelude
-import Graphics.X11.Xlib.Types
-import Graphics.X11.Types
-import Graphics.X11.Xlib.Extras
+import           ClassyPrelude
+import           Control.Lens
+import           Control.Monad.State.Lazy
+import           Graphics.X11.Types
+import           Graphics.X11.Xlib.Extras
+import           Graphics.X11.Xlib.Types
 
 -- An MTL thing because why not? (Not rhetorical)
 newtype Xest a = Xest
-  { runXest :: ReaderT IterationState IO a
-  } deriving (Functor, Applicative, Monad, MonadIO, MonadReader IterationState)
+  { _runXest :: ReaderT IterationState (StateT EventState IO) a
+  } deriving (Functor, Applicative, Monad, MonadIO, MonadReader IterationState, MonadState EventState)
+
+runXest :: IterationState -> EventState -> Xest a -> IO (a, EventState)
+runXest r s x = runStateT (runReaderT (_runXest x) r) s
 
 -- Immutable state for one iteration of the main loop. Mutates between iterations
 data IterationState = IS
-  { display :: Display
-  , rootWin :: Window
+  { display    :: Display
+  , rootWin    :: Window
   , dimensions :: (Dimension, Dimension)
-  , config :: Conf
+  , config     :: Conf
   , actionTodo :: Maybe Action
   }
 
 -- The user provided configuration. Uses Read for parsing
-data Conf = Conf { keyBindings :: [Trigger_ KeyTrigger]
+data Conf = Conf { keyBindings  :: [Trigger_ KeyTrigger]
                  , definedModes :: [Mode]
                  }
   deriving (Read, Show)
@@ -57,6 +62,7 @@ data Events
   = KeyboardEvent (Trigger_ KeyTrigger) Bool -- TODO use something other than Bool for keyPressed
   | ModeEvent (Trigger_ ModeTrigger) (Trigger_ ModeTrigger) -- Old mode followed by new mode
   | XorgEvent Event
+  | ActionEvent [Action]
   | NoEvent
 
 
@@ -67,6 +73,8 @@ data Action
   | ChangeModeTo Mode
   | ShowWindow String
   | HideWindow String
+  | ZoomInInput
+  | ZoomOutInput
   | Done
   deriving (Read, Show, Eq)
 
@@ -75,25 +83,35 @@ type Actions = [Action]
 
 
 -- Modes similar to modes in vim
-data Mode = NewMode { modeName :: Text
+data Mode = NewMode { modeName     :: Text
                     , introActions :: Actions
-                    , exitActions :: Actions
+                    , exitActions  :: Actions
                     }
   deriving (Read, Show, Eq)
+
 
 -- A list of tiling algorithms and the data they store
 data Tiler
   = Vertical [Tiler]
   | Horizontal [Tiler]
   | Wrap Window
-  | Empty
+  | EmptyTiler
+  | InputController Tiler
   deriving (Eq, Read, Show)
+
+type instance Element Tiler = Tiler
+instance MonoFunctor Tiler where
+  omap f (Horizontal a)      = Horizontal $ f <$> a
+  omap f (Vertical a)        = Vertical $ f <$> a
+  omap f (InputController t) = f t
+  omap _ t@(Wrap _)          = t
+  omap _ EmptyTiler          = EmptyTiler
 
 -- Elements of the global state modifiable by an event
 data EventState = ES
-  { _desktop :: Tiler
+  { _desktop     :: Tiler
   , currentMode_ :: Mode
-  , _keyParser :: Events -> EventState -> Xest (Events, EventState) -- TODO replace with pattern synonym
+  , _keyParser   :: Events -> Xest Events -- TODO replace with pattern synonym
   }
 
 makeLenses ''EventState

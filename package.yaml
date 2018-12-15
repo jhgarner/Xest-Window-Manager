@@ -28,6 +28,7 @@ dependencies:
 - mtl
 - process
 - lens
+- dunai
 
 library:
   source-dirs: src
