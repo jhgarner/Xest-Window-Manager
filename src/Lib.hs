@@ -55,14 +55,14 @@ mainLoop iState@IS{..} eventState = runXest iState eventState (recurse []) >> sa
     -- When there are no actions to perform, find new ones
     recurse [] = do
       gets _desktop >>= liftIO . print
-      _ <- render <$> get
+      get >>= render
       ptr <- liftIO . allocaXEvent $ \p -> nextEvent display p >> getEvent p
       recurse [XorgEvent ptr]
     -- When there are actions to perform, do them and add the results to the list of actions
     recurse (a:as) = do
+      liftIO $ print (a:as)
       es <- get
       newEvent <- view keyParser es a
-      placeWindows (uncurry (Rect 0 0) dimensions) (_desktop es)
       recurse $ as ++ newEvent
 
 -- | Grabs the config file from a path and attempts to read it

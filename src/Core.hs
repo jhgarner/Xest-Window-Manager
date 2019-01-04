@@ -99,10 +99,8 @@ placeWindows _ EmptyTiler = return ()
 -- TODO actually make this a better function
 checkEvent :: Either (Tiler -> Tiler) (Tiler -> Tiler) -> Tiler -> Tiler
 checkEvent (Left e) (InputController t) = InputController $ checkEvent (Right e) t
-checkEvent le@(Left _) (Horizontal h) = foldr (\a x -> nxt x $ checkEvent le a) (Horizontal []) h
-  where nxt (Horizontal horiz) newH = Horizontal $ newH:horiz
-checkEvent le@(Left _) (Vertical h) = foldr (\a x -> nxt x $ checkEvent le a) (Vertical []) h
-  where nxt (Vertical horiz) newH = Vertical $ newH:horiz
+checkEvent le@(Left _) (Horizontal h) = Horizontal $ map (checkEvent le) h
+checkEvent le@(Left _) (Vertical h) = Vertical $ map (checkEvent le) h
 checkEvent (Right action) t = action t
 checkEvent _ wt@(Wrap _) = wt
 checkEvent _ EmptyTiler = EmptyTiler
@@ -182,6 +180,7 @@ handler (XorgEvent UnmapEvent {..}) = do
 -- Tell the window it can configure itself however it wants
 -- We send back the Configure Request unmodified
 handler (XorgEvent ConfigureRequestEvent {..}) = do
+  liftIO $ say "COnfiguring window"
   IS {..} <- ask
   liftIO $ configureWindow display ev_window ev_value_mask wc
   return []
@@ -205,7 +204,7 @@ handler (XorgEvent KeyEvent {..}) = do
     Just kt -> [KeyboardEvent kt (ev_event_type == keyPress)]
 
 -- Handle all other xorg events as noops
-handler (XorgEvent _) = return []
+handler (XorgEvent _) = liftIO (say "Strange code") >> return []
 
 -- Run a shell command
 handler (RunCommand s) = liftIO (spawnCommand s) >> return []
