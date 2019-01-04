@@ -1,10 +1,9 @@
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE RankNTypes        #-}
 {-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections     #-}
 
 
 module Core where
@@ -170,9 +169,8 @@ handler (XorgEvent MapRequestEvent {..}) = do
   liftIO $ mapWindow display ev_window
   -- Essentially, this adds the new window to whatever tiler comes after inputController
   -- If you've zoomed the inputController in, you get nesting as a result
-  modify $ \es -> set desktop (checkEvent (Left $ addWindow tWin) $ view desktop es) $ es
+  modify $ \es -> set desktop (checkEvent (Left $ addFocused tWin) $ view desktop es) es
   return []
-  where addWindow newT oldT = addFocused newT oldT
 
 -- Called on window destruction
 -- TODO handle minimizing as unmapping
@@ -269,9 +267,9 @@ handler (ChangeLayoutTo newT) = do
   modify $ \es -> set desktop (checkEvent (Left changeLayout) $ view desktop es) es
   return []
   where changeLayout ot = doPopping ot newT
-        doPopping ot t = 
+        doPopping ot t =
           case popWindow ot of
-            (Nothing, _) -> t
+            (Nothing, _)     -> t
             (Just win, wins) -> doPopping wins $ addUnFocused win t
 
 -- Random stuff --

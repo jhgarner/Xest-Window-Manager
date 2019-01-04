@@ -13,7 +13,7 @@ import           Control.Monad.State.Lazy
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Types
-import        Text.Read
+import           Text.Read
 
 -- | A standard mtl monad with Reader and State
 newtype Xest a = Xest

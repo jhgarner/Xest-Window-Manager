@@ -1,29 +1,29 @@
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 module Lib
   ( startWM
   ) where
 
-import ClassyPrelude
-import Core
-import Types
-import Data.Bits
-import Control.Lens
-import Control.Monad.State.Lazy
-import Graphics.X11.Types
-import Graphics.X11.Xlib.Display
-import Graphics.X11.Xlib.Event
-import Graphics.X11.Xlib.Screen
-import Graphics.X11.Xlib.Extras
+import           ClassyPrelude
+import           Control.Lens
+import           Control.Monad.State.Lazy
+import           Core
+import           Data.Bits
+import           Graphics.X11.Types
+import           Graphics.X11.Xlib.Display
+import           Graphics.X11.Xlib.Event
+import           Graphics.X11.Xlib.Extras
+import           Graphics.X11.Xlib.Screen
+import           Types
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
 startWM = do
   -- Grab a display to capture. The chosen display cannot have a WM already running.
   -- TODO use variables to determine display number
-  display <- openDisplay ":99" 
+  display <- openDisplay ":99"
 
   -- Find and register ourselves with the root window
   -- These two masks allow us to intercept various Xorg events useful for a WM
@@ -38,7 +38,7 @@ startWM = do
       -- TODO don't use impure functions here
       initialMode = head . impureNonNull $ definedModes c
       iState = IS display root (widthOfScreen screen, heightOfScreen screen) c Nothing
-      
+
   -- Grabs the initial keybindings
   _ <- runXest iState (error "No event state") $ rebindKeys initialMode
 
