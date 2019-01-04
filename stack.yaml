@@ -27,7 +27,7 @@
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver: lts-11.16
+resolver: lts-12.26
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -47,7 +47,7 @@ packages:
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
-extra-deps: ["dunai-0.4.0.0"]
+extra-deps: ["ghc-8.6.1@sha256:1a092288ce47a25f993830b71760382e6c16fc0d4692787e185463b85022f840"]
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

@@ -13,8 +13,9 @@ import           Control.Monad.State.Lazy
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Types
+import        Text.Read
 
--- An MTL thing because why not? (Not rhetorical)
+-- | A standard mtl monad with Reader and State
 newtype Xest a = Xest
   { _runXest :: ReaderT IterationState (StateT EventState IO) a
   } deriving (Functor, Applicative, Monad, MonadIO, MonadReader IterationState, MonadState EventState)
@@ -22,7 +23,7 @@ newtype Xest a = Xest
 runXest :: IterationState -> EventState -> Xest a -> IO (a, EventState)
 runXest r s x = runStateT (runReaderT (_runXest x) r) s
 
--- Immutable state for one iteration of the main loop. Mutates between iterations
+-- | Immutable state. TODO consider changing the name
 data IterationState = IS
   { display    :: Display
   , rootWin    :: Window
@@ -31,42 +32,24 @@ data IterationState = IS
   , actionTodo :: Maybe Action
   }
 
--- The user provided configuration. Uses Read for parsing
-data Conf = Conf { keyBindings  :: [Trigger_ KeyTrigger]
+-- | The user provided configuration. Uses Read for parsing
+-- TODO make this less terrible for config writers
+data Conf = Conf { keyBindings  :: [KeyTrigger]
                  , definedModes :: [Mode]
                  }
   deriving (Read, Show)
 
 
--- A list of triggers. Each trigger corresponds to an event
-data Trigger
-  = KeyTrigger
-  | ModeTrigger
-  | XorgTrigger
-  deriving (Eq, Read, Show)
+-- Create some junk instantiations for auto-deriving later
+instance Read Event where
+  readsPrec = error "Don't read events"
+instance Eq Event where
+  (==) = error "Don't compare events"
 
--- Each trigger type requires certain parameters to be filled in by the "caller"
--- Each type instance defines those parameters
-type family Trigger_ (a :: Trigger)
+-- | Convenience type for keyEvents
+type KeyTrigger = (KeyCode, Mode, Actions)
 
--- (The key pressed, the mode where the binding is active, the action to execute)
-type instance Trigger_ KeyTrigger = (KeyCode, Mode, Actions)
--- Takes no parameters
-type instance Trigger_ XorgTrigger = ()
--- (The relevant mode, the intro actions, the exit actions)
-type instance Trigger_ ModeTrigger = (Mode, Actions, Actions)
-
-
--- An event fills in the trigger parameters and optionally includes additional ones
-data Events
-  = KeyboardEvent (Trigger_ KeyTrigger) Bool -- TODO use something other than Bool for keyPressed
-  | ModeEvent (Trigger_ ModeTrigger) (Trigger_ ModeTrigger) -- Old mode followed by new mode
-  | XorgEvent Event
-  | ActionEvent [Action]
-  | NoEvent
-
-
--- A command to be executed
+-- | Actions/events to be performed
 data Action
   = ChangeLayoutTo Tiler
   | RunCommand String
@@ -75,14 +58,15 @@ data Action
   | HideWindow String
   | ZoomInInput
   | ZoomOutInput
-  | Done
+  | KeyboardEvent KeyTrigger Bool -- TODO use something other than Bool for keyPressed
+  | XorgEvent Event
   deriving (Read, Show, Eq)
 
--- A series of commands to be executed
+-- | A series of commands to be executed
 type Actions = [Action]
 
 
--- Modes similar to modes in vim
+-- | Modes similar to modes in vim
 data Mode = NewMode { modeName     :: Text
                     , introActions :: Actions
                     , exitActions  :: Actions
@@ -90,7 +74,30 @@ data Mode = NewMode { modeName     :: Text
   deriving (Read, Show, Eq)
 
 
--- A list of tiling algorithms and the data they store
+{- |
+A list of tiling algorithms and the data they store
+
+Tiler Laws
+
+Tilers are not black holes
+a `addFocused` w != a
+
+deleteWindow undoes an add
+a `addFocused` w `deleteWindow` w == a
+
+delete is a noop if w is not in a
+a `deleteWindow` w (where w is not in a) == a
+
+addFocused undoes a pop
+let (w, b) = popWindow a in a == b `addFocused` w
+
+Nested Tilers are searched
+let b = a `addFocused` w
+    d = c `addFocused` b
+    in d `deleteWindow` w == c `addFocused` a
+
+Adds a new Tiler and make it focused
+-}
 data Tiler
   = Vertical [Tiler]
   | Horizontal [Tiler]
@@ -99,6 +106,8 @@ data Tiler
   | InputController Tiler
   deriving (Eq, Read, Show)
 
+-- | Make tiler a monofunctor (a functor that can only hold one thing)
+-- TODO can we make Tiler a real Functor?
 type instance Element Tiler = Tiler
 instance MonoFunctor Tiler where
   omap f (Horizontal a)      = Horizontal $ f <$> a
@@ -107,16 +116,17 @@ instance MonoFunctor Tiler where
   omap _ t@(Wrap _)          = t
   omap _ EmptyTiler          = EmptyTiler
 
--- Elements of the global state modifiable by an event
+-- | The mutable state
 data EventState = ES
-  { _desktop     :: Tiler
-  , currentMode_ :: Mode
-  , _keyParser   :: Events -> Xest Events -- TODO replace with pattern synonym
+  { _desktop     :: Tiler -- ^ The root Tiler
+  , _currentMode :: Mode
+  , _keyParser   :: Action -> Xest Actions -- ^ The handler
   }
 
+-- We use lenses for convenience
 makeLenses ''EventState
 
--- A rectangle
+-- | A simple rectangle
 data Rect = Rect
   { x :: Position
   , y :: Position

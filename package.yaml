@@ -28,7 +28,6 @@ dependencies:
 - mtl
 - process
 - lens
-- dunai
 
 library:
   source-dirs: src
@@ -42,6 +41,10 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     - -Wall
+    - -Wcompat
+    - -Wincomplete-record-updates
+    - -Wincomplete-uni-patterns
+    - -Wredundant-constraints
     dependencies:
     - neXtWM
 
