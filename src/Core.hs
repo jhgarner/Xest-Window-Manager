@@ -204,7 +204,7 @@ handler (XorgEvent KeyEvent {..}) = do
     Just kt -> [KeyboardEvent kt (ev_event_type == keyPress)]
 
 -- Handle all other xorg events as noops
-handler (XorgEvent _) = liftIO (say "Strange code") >> return []
+handler (XorgEvent _) = return []
 
 -- Run a shell command
 handler (RunCommand s) = liftIO (spawnCommand s) >> return []

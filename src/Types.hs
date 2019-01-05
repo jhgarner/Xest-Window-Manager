@@ -1,9 +1,9 @@
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude          #-}
-{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Types where
 
@@ -37,12 +37,10 @@ data IterationState = IS
 data Conf = Conf { keyBindings  :: [KeyTrigger]
                  , definedModes :: [Mode]
                  }
-  deriving (Read, Show)
+  deriving (Show)
 
 
--- Create some junk instantiations for auto-deriving later
-instance Read Event where
-  readsPrec = error "Don't read events"
+-- Create a junk instantiations for auto-deriving later
 instance Eq Event where
   (==) = error "Don't compare events"
 
@@ -60,7 +58,7 @@ data Action
   | ZoomOutInput
   | KeyboardEvent KeyTrigger Bool -- TODO use something other than Bool for keyPressed
   | XorgEvent Event
-  deriving (Read, Show, Eq)
+  deriving (Show, Eq)
 
 -- | A series of commands to be executed
 type Actions = [Action]
@@ -71,7 +69,7 @@ data Mode = NewMode { modeName     :: Text
                     , introActions :: Actions
                     , exitActions  :: Actions
                     }
-  deriving (Read, Show, Eq)
+  deriving (Show, Eq)
 
 
 {- |
@@ -104,7 +102,7 @@ data Tiler
   | Wrap Window
   | EmptyTiler
   | InputController Tiler
-  deriving (Eq, Read, Show)
+  deriving (Eq, Show)
 
 -- | Make tiler a monofunctor (a functor that can only hold one thing)
 -- TODO can we make Tiler a real Functor?

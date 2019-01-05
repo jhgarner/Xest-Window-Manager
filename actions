@@ -1,0 +1,2 @@
+let Tilers = ./tilers
+in < ChangeLayoutTo : { _1 : Tilers } | RunCommand : { _1 : Text } | ChangeModeTo : { _1 : Text } | ShowWindow : { _1 : Text } | HideWindow : { _1 : Text } | ZoomInInput : {} | ZoomOutInput : {} >

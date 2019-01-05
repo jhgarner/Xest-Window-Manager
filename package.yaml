@@ -28,6 +28,7 @@ dependencies:
 - mtl
 - process
 - lens
+- dhall
 
 library:
   source-dirs: src

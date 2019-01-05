@@ -7,6 +7,7 @@ module Lib
   ) where
 
 import           ClassyPrelude
+import           Config
 import           Control.Lens
 import           Control.Monad.State.Lazy
 import           Core
@@ -31,7 +32,7 @@ startWM = do
   selectInput display root (substructureNotifyMask .|. substructureRedirectMask)
 
   -- Read the config file
-  c <- getConfig "config.conf"
+  c <- readConfig display "./config.conf"
 
   -- Perform various pure actions for getting the iteration state
   let screen = defaultScreenOfDisplay display
@@ -69,6 +70,6 @@ mainLoop iState@IS{..} eventState = runXest iState eventState (recurse []) >> sa
 -- TODO Add real parsing and error handling
 -- One idea is creating a new ReadE class and implement it for generics
 -- So that parsing can continue to be auto-derived
-getConfig :: FilePath -> IO Conf
-getConfig file = readFileUtf8 file >>=
-    maybe (error "Failed to parse \"config.conf\"" :: IO Conf) return . readMay
+-- getConfig :: FilePath -> IO Conf
+-- getConfig file = readFileUtf8 file >>=
+--     maybe (error "Failed to parse \"config.conf\"" :: IO Conf) return . readMay
