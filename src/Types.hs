@@ -105,7 +105,8 @@ data Tiler
   deriving (Eq, Show)
 
 -- | Make tiler a monofunctor (a functor that can only hold one thing)
--- TODO can we make Tiler a real Functor?
+-- can we make Tiler a real Functor? No because what if we wanted to
+-- store Tilers inside of Tilers. The type would get weird.
 type instance Element Tiler = Tiler
 instance MonoFunctor Tiler where
   omap f (Horizontal a)      = Horizontal $ f <$> a
@@ -113,6 +114,38 @@ instance MonoFunctor Tiler where
   omap f (InputController t) = f t
   omap _ t@(Wrap _)          = t
   omap _ EmptyTiler          = EmptyTiler
+
+-- TODO This looks like something a computer could derive
+instance MonoFoldable Tiler where
+  ofoldl' f initial (Horizontal ls) = foldl' f initial ls
+  ofoldl' f initial (Vertical ls) = foldl' f initial ls
+  ofoldl' f initial (InputController t) = foldl' f initial t
+  ofoldl' _ initial (Wrap _) = initial
+  ofoldl' _ initial EmptyTiler = initial
+
+  ofoldl1Ex' f (Horizontal ls) = ofoldl1Ex' f ls
+  ofoldl1Ex' f (Vertical ls) = ofoldl1Ex' f ls
+  ofoldl1Ex' f (InputController t) = ofoldl1Ex' f t
+  ofoldl1Ex' _ (Wrap _) = error "Data.MonoTraversable.headEx: empty"
+  ofoldl1Ex' _ EmptyTiler = error "Data.MonoTraversable.headEx: empty"
+
+  ofoldr1Ex f (Horizontal ls) = ofoldr1Ex f ls
+  ofoldr1Ex f (Vertical ls) = ofoldr1Ex f ls
+  ofoldr1Ex f (InputController t) = ofoldr1Ex f t
+  ofoldr1Ex _ (Wrap _) = error "Data.MonoTraversable.headEx: empty"
+  ofoldr1Ex _ EmptyTiler = error "Data.MonoTraversable.headEx: empty"
+
+  ofoldr f initial (Horizontal ls) = foldr f initial ls
+  ofoldr f initial (Vertical ls) = foldr f initial ls
+  ofoldr f initial (InputController t) = foldr f initial t
+  ofoldr _ initial (Wrap _) = initial
+  ofoldr _ initial EmptyTiler = initial
+
+  ofoldMap f (Horizontal ls) = foldMap f ls
+  ofoldMap f (Vertical ls) = foldMap f ls
+  ofoldMap f (InputController t) = foldMap f t
+  ofoldMap _ (Wrap _) = mempty
+  ofoldMap _ EmptyTiler = mempty
 
 -- | The mutable state
 data EventState = ES

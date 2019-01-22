@@ -23,9 +23,9 @@ data Conf = Conf { keyBindings  :: [KeyTrigger]
 confToType :: Display -> Conf -> IO T.Conf
 confToType display (Conf kb dm) = do
   -- Convert the defined modes to a map of modeNames to modes
-  mapModes <- return $ foldl' (\mm m -> insertMap (modeName m) m mm) (mempty) dm
+  let mapModes = foldl' (\mm m -> insertMap (modeName m) m mm) mempty dm
+      definedModes = map (modeToType mapModes) dm
   keyBindings <- traverse (keyTriggerToType display mapModes) kb
-  definedModes <- return $ map (modeToType mapModes) dm
   return T.Conf {..}
 
 -- | Switch key from KeyCode to Text and make mode a Text as well

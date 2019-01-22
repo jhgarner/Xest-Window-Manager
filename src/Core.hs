@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
@@ -43,11 +44,22 @@ addUnFocused w t@(Wrap _)          = Horizontal [t, w]
 addUnFocused w EmptyTiler          = w
 
 -- | Deletes a Window from a Tiler
-deleteWindow :: Tiler -> Tiler -> Tiler
+deleteWindow :: Window -> Tiler -> Tiler
 deleteWindow w (Horizontal a) = Horizontal $ filterMap' (/= EmptyTiler) (deleteWindow w) a
 deleteWindow w (Vertical a) = Vertical $ filterMap' (/= EmptyTiler) (deleteWindow w) a
 deleteWindow w (InputController a) = InputController $ deleteWindow w a
-deleteWindow w a = if w == a then EmptyTiler else a
+deleteWindow w t@(Wrap a) = if w == a then EmptyTiler else t
+deleteWindow _ EmptyTiler = EmptyTiler
+
+-- | Deletes a Window from a Tiler
+deleteTiler :: Tiler -> Tiler -> Tiler
+deleteTiler t root
+  | t == root = EmptyTiler
+  | otherwise = case root of
+      (Horizontal a) -> Horizontal $ filterMap' (/= EmptyTiler) (deleteTiler t) a
+      (Vertical a) -> Vertical $ filterMap' (/= EmptyTiler) (deleteTiler t) a
+      (InputController a) -> InputController $ deleteTiler t a
+      a -> a
 
 
 -- | Used to force the Tiler to give up control over the focused window.
@@ -174,7 +186,7 @@ handler (XorgEvent MapRequestEvent {..}) = do
 -- TODO handle minimizing as unmapping
 handler (XorgEvent UnmapEvent {..}) = do
   -- Remove the destroyed window from our tree
-  modify $ \es -> desktop .~ deleteWindow (Wrap ev_window) (_desktop es) $ es
+  modify $ \es -> desktop .~ deleteWindow ev_window (_desktop es) $ es
   return []
 
 -- Tell the window it can configure itself however it wants
@@ -251,7 +263,17 @@ handler ZoomInInput = do
         reorder other = reorder `omap` other
 
 -- Move the input controller towards the root
-handler ZoomOutInput = error "Zoom out not implemented"
+handler ZoomOutInput = do
+  root <- gets $ view desktop
+  modify . set desktop $ reorder root
+  return []
+  where
+    reorder t = case findIC t of
+                  Nothing -> reorder `omap` t
+                  Just inner -> InputController . addFocused inner $ deleteTiler (InputController inner) t
+    findIC = foldl' (\acc a -> acc <|> isIC a) Nothing
+    isIC (InputController t) = Just t
+    isIC _ = Nothing
 
 -- Change the given mode to something else
 handler (ChangeModeTo newM) = do
