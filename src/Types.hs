@@ -17,10 +17,10 @@ import           Control.Monad.State.Lazy
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Types
-import Data.Functor.Foldable.TH
-import Data.Functor.Foldable
-import Text.Show.Deriving
-import Data.Eq.Deriving
+import           Data.Functor.Foldable.TH
+import           Data.Functor.Foldable
+import           Text.Show.Deriving
+import           Data.Eq.Deriving
 
 data FocusedList a = FL {focusedElement :: Int, elements :: Vector a}
   deriving (Eq, Show, Functor, Foldable, Traversable)

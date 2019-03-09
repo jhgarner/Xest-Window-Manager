@@ -4,15 +4,18 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE DeriveAnyClass   #-}
 
-module Config (readConfig) where
+module Config
+  ( readConfig
+  )
+where
 
 import           ClassyPrelude
 import           Dhall
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types
-import qualified Types                   as T
+import qualified Types                         as T
 import qualified Data.Vector                   as V
-import Data.Functor.Foldable
+import           Data.Functor.Foldable
 
 -- Mirror many of the datatypes from Types but with easy to parse versions
 -- | Same as Type
@@ -25,10 +28,10 @@ data Conf = Conf { keyBindings  :: [KeyTrigger]
 confToType :: Display -> Conf -> IO T.Conf
 confToType display (Conf kb dm) = do
   -- Convert the defined modes to a map of modeNames to modes
-  let mapModes = foldl' (\mm m -> insertMap (modeName m) m mm) mempty dm
+  let mapModes     = foldl' (\mm m -> insertMap (modeName m) m mm) mempty dm
       definedModes = map (modeToType mapModes) dm
   keyBindings <- traverse (keyTriggerToType display mapModes) kb
-  return T.Conf {..}
+  return T.Conf { .. }
 
 -- | Switch key from KeyCode to Text and make mode a Text as well
 data KeyTrigger = KeyTrigger { key     :: Text
@@ -39,7 +42,7 @@ data KeyTrigger = KeyTrigger { key     :: Text
 
 -- | Similar to confToType. Needs display to convert the key symbol to a number and mm to convert Text to a Mode
 keyTriggerToType :: Display -> Map Text Mode -> KeyTrigger -> IO T.KeyTrigger
-keyTriggerToType display mm (KeyTrigger k m as)= do
+keyTriggerToType display mm (KeyTrigger k m as) = do
   kc <- keysymToKeycode display $ stringToKeysym (unpack k)
   return (kc, modeToType mm $ getMode m mm, map (actionToType mm) as)
 
@@ -57,12 +60,13 @@ data Action
 -- | See other *ToType functions
 actionToType :: Map Text Mode -> Action -> T.Action
 actionToType _ (ChangeLayoutTo t) = T.ChangeLayoutTo $ tilerToType t
-actionToType _ (RunCommand a) = T.RunCommand $ unpack a
-actionToType _ (ShowWindow a) = T.ShowWindow $ unpack a
-actionToType _ (HideWindow a) = T.HideWindow $ unpack a
-actionToType _ ZoomInInput = T.ZoomInInput
-actionToType _ ZoomOutInput = T.ZoomOutInput
-actionToType modeList (ChangeModeTo a) = T.ChangeModeTo . modeToType modeList $ getMode a modeList
+actionToType _ (RunCommand     a) = T.RunCommand $ unpack a
+actionToType _ (ShowWindow     a) = T.ShowWindow $ unpack a
+actionToType _ (HideWindow     a) = T.HideWindow $ unpack a
+actionToType _ ZoomInInput        = T.ZoomInInput
+actionToType _ ZoomOutInput       = T.ZoomOutInput
+actionToType modeList (ChangeModeTo a) =
+  T.ChangeModeTo . modeToType modeList $ getMode a modeList
 
 
 -- | Remove Tilers the user shouldn't be creating
@@ -85,11 +89,14 @@ data Mode = NewMode { modeName     :: Text
 
 -- | See other *ToType functions
 modeToType :: Map Text Mode -> Mode -> T.Mode
-modeToType m (NewMode a b c) = T.NewMode a (actionToType m <$> b) (actionToType m <$> c)
+modeToType m (NewMode a b c) =
+  T.NewMode a (actionToType m <$> b) (actionToType m <$> c)
 
 -- | *IMPURE* Lookup a mode and crash if it doesn't exist
 getMode :: Text -> Map Text Mode -> Mode
-getMode s modeList = fromMaybe (error $ "Mode " ++ unpack s ++ " is not defined") $ lookup s modeList
+getMode s modeList =
+  fromMaybe (error $ "Mode " ++ unpack s ++ " is not defined")
+    $ lookup s modeList
 
 -- | A simple function to wrap everything else up
 readConfig :: Display -> Text -> IO T.Conf
