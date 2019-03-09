@@ -29,6 +29,10 @@ dependencies:
 - process
 - lens
 - dhall
+- vector
+- recursion-schemes
+- free
+- deriving-compat
 
 library:
   source-dirs: src

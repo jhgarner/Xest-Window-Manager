@@ -11,6 +11,8 @@ import           Dhall
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types
 import qualified Types                   as T
+import qualified Data.Vector                   as V
+import Data.Functor.Foldable
 
 -- Mirror many of the datatypes from Types but with easy to parse versions
 -- | Same as Type
@@ -70,9 +72,9 @@ data Tiler
   deriving (Eq, Generic, Show, Interpret)
 
 -- | See other *ToType functions
-tilerToType :: Tiler -> T.Tiler
-tilerToType Vertical   = T.Vertical []
-tilerToType Horizontal = T.Horizontal []
+tilerToType :: Tiler -> Fix T.Tiler
+tilerToType Vertical   = Fix . T.Vertical $ T.FL 0 V.empty
+tilerToType Horizontal = Fix . T.Horizontal $ T.FL 0 V.empty
 
 -- | Pretty much the same as T.Mode already
 data Mode = NewMode { modeName     :: Text

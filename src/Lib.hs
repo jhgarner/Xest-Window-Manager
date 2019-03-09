@@ -18,6 +18,9 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Screen
 import           Types
+import           Data.Functor.Foldable
+import           Data.List(iterate)
+import         qualified Data.Vector as V
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
@@ -29,7 +32,7 @@ startWM = do
   -- Find and register ourselves with the root window
   -- These two masks allow us to intercept various Xorg events useful for a WM
   let root = defaultRootWindow display
-  selectInput display root (substructureNotifyMask .|. substructureRedirectMask)
+  selectInput display root (substructureNotifyMask .|. substructureRedirectMask .|. enterWindowMask)
 
   -- Read the config file
   c <- readConfig display "./config.conf"
@@ -44,32 +47,27 @@ startWM = do
   _ <- runXest iState (error "No event state") $ rebindKeys initialMode
 
   -- Execute the main loop. Will never return unless Xest exits
-  mainLoop iState $ ES (InputController $ Horizontal []) initialMode handler
+  mainLoop iState $ ES (Fix . InputController . Fix . Horizontal $ FL 0 V.empty) initialMode handler
 
 -- | Performs the event loop recursion inside of the Xest Monad
 -- The return value of one iteration becomes the input for the next
 mainLoop :: IterationState -> EventState -> IO ()
-mainLoop iState@IS{..} eventState = runXest iState eventState (recurse []) >> say "Exiting"
+mainLoop iState@IS{..} eventState = runXest iState eventState (iterateM recurse []) >> say "Exiting"
   where
+    iterateM f initial = sequence $ iterate (>>= f) $ return initial
+
     -- Performs the actual looping
     recurse :: Actions -> Xest Actions
     -- When there are no actions to perform, find new ones
     recurse [] = do
       gets _desktop >>= liftIO . print
+      liftIO $ putStrLn ""
       get >>= render
       ptr <- liftIO . allocaXEvent $ \p -> nextEvent display p >> getEvent p
-      recurse [XorgEvent ptr]
+      return [XorgEvent ptr]
+
     -- When there are actions to perform, do them and add the results to the list of actions
     recurse (a:as) = do
-      liftIO $ print (a:as)
       es <- get
       newEvent <- view keyParser es a
-      recurse $ as ++ newEvent
-
--- | Grabs the config file from a path and attempts to read it
--- TODO Add real parsing and error handling
--- One idea is creating a new ReadE class and implement it for generics
--- So that parsing can continue to be auto-derived
--- getConfig :: FilePath -> IO Conf
--- getConfig file = readFileUtf8 file >>=
---     maybe (error "Failed to parse \"config.conf\"" :: IO Conf) return . readMay
+      return $ as ++ newEvent
