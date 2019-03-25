@@ -53,7 +53,7 @@ startWM = do
 
   -- Execute the main loop. Will never return unless Xest exits
   mainLoop iState $ ES
-    (Fix . InputController . Fix . Horizontal $ FL 0 V.empty)
+    (Fix . InputController . Fix . Directional X $ FL 0 V.empty)
     initialMode
     handler
 

@@ -1,13 +1,11 @@
-{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveFoldable             #-}
+{-# LANGUAGE DeriveTraversable          #-}
 {-# LANGUAGE NoImplicitPrelude          #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE RankNTypes               #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings          #-}
 
 module Types where
 
@@ -27,9 +25,11 @@ data FocusedList a = FL {focusedElement :: Int, elements :: Vector a}
 deriveShow1 ''FocusedList
 deriveEq1 ''FocusedList
 
+data Axis = X | Y | Z
+  deriving (Eq, Show)
+
 data Tiler a
-  = Vertical (FocusedList a)
-  | Horizontal (FocusedList a)
+  = Directional Axis (FocusedList a)
   | Wrap Window
   | EmptyTiler
   | InputController a

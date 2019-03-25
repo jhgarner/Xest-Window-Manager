@@ -1,9 +1,5 @@
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms   #-}
-{-# LANGUAGE RankNTypes        #-}
 {-# LANGUAGE RecordWildCards   #-}
 
 
@@ -33,213 +29,8 @@ import qualified Data.Vector                   as V
 import qualified Data.Vector.Mutable           as MV
 import           Data.Functor.Foldable
 import           Data.Either                    ( )
+import           Tiler
 
-
--- Tiler Handling Code --
-
--- | Add a new Tiler at the given location. Is the opposite of popping.
-add :: Direction -> Focus -> Fix Tiler -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-add Front Focused w (Horizontal FL {..}) =
-  Horizontal $ FL 0 (V.cons w elements)
-add Front Focused w (Vertical FL {..}) = Vertical $ FL 0 (V.cons w elements)
-add Front Focused w t@(Wrap _) = Horizontal . FL 0 $ fromList [w, Fix t]
-add Back Focused w (Horizontal FL {..}) =
-  Horizontal $ FL (V.length elements) (V.snoc elements w)
-add Back Focused w (Vertical FL {..}) =
-  Vertical $ FL (V.length elements) (V.snoc elements w)
-add Back Focused w t@(Wrap _) = Horizontal . FL 1 $ fromList [Fix t, w]
-
-add Front Unfocused w (Horizontal FL {..}) =
-  Horizontal $ FL (focusedElement + 1) (V.cons w elements)
-add Front Unfocused w (Vertical FL {..}) =
-  Vertical $ FL (focusedElement + 1) (V.cons w elements)
-add Front Unfocused w t@(Wrap _) = Horizontal . FL 1 $ fromList [w, Fix t]
-add Back Unfocused w (Horizontal FL {..}) =
-  Horizontal $ FL focusedElement (V.snoc elements w)
-add Back Unfocused w (Vertical FL {..}) =
-  Vertical $ FL focusedElement (V.snoc elements w)
-add Back Unfocused w t@(Wrap _) = Horizontal . FL 0 $ fromList [Fix t, w]
-
-add _ _ _ (InputController _) =
-  error "Tried to add a window to an Input controller but that isn't allowed"
-add _ _ (Fix w) EmptyTiler = w
-
--- | Remove a Tiler if it exists
--- TODO Figure out whether I want to pass around Fixes or Tilers here
-remove :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Fix Tiler
-remove toDelete = Fix . reduce . isEqual
-  where isEqual t = if t == toDelete then EmptyTiler else t
-
--- | Removes empty Tilers and EmptyTilers
-reduce :: Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-reduce (Horizontal FL {..}) = if V.length newVec == 0
-  then EmptyTiler
-  else Horizontal $ FL shiftFoc newVec
- where
-  newVec   = filter (\(Fix a) -> a /= EmptyTiler) elements
-  shiftFoc = if focusedElement >= V.length newVec
-    then V.length newVec - 1
-    else focusedElement
-reduce (Vertical FL {..}) = if V.length newVec == 0
-  then EmptyTiler
-  else Vertical $ FL shiftFoc newVec
- where
-  newVec   = filter (\(Fix a) -> a /= EmptyTiler) elements
-  shiftFoc = if focusedElement >= V.length newVec
-    then V.length newVec - 1
-    else focusedElement
-reduce t@(InputController _) = t
-reduce t@(Wrap            _) = t
-reduce EmptyTiler            = EmptyTiler
-
-
--- | A combination of top and pop if you're coming from c++.
--- fst . popWindow is like top and snd . popWindow is like pop
-popWindow
-  :: Either Direction Focus
-  -> Fix Tiler
-  -> (Maybe (Fix Tiler), Tiler (Fix Tiler))
-popWindow (Left Front) (Fix (Horizontal FL {..})) =
-  (elements V.!? 0, Horizontal $ FL newFocused newTiler)
- where
-  newTiler = if V.null elements then elements else V.tail elements
-  newFocused =
-    if focusedElement == 0 then focusedElement else focusedElement - 1
-popWindow (Left Back) (Fix (Horizontal FL {..})) =
-  (safeLast, Horizontal $ FL newFocused newTiler)
- where
-  safeLast   = elements V.!? (V.length elements - 1)
-  newTiler   = if V.null elements then elements else V.init elements
-  newFocused = if focusedElement == V.length elements - 1
-    then focusedElement - 1
-    else focusedElement
-popWindow (Right Focused) (Fix (Horizontal FL {..})) =
-  (safeAt, Horizontal $ FL newFocused newTiler)
- where
-  safeAt   = elements V.!? focusedElement
-  newTiler = if V.null elements
-    then elements
-    else V.ifilter (\i _ -> i /= focusedElement) elements
-  newFocused = if focusedElement + 1 == V.length elements
-    then focusedElement - 1
-    else focusedElement
-
-popWindow (Left Front) (Fix (Vertical FL {..})) =
-  (elements V.!? 0, Vertical $ FL newFocused newTiler)
- where
-  newTiler = if V.null elements then elements else V.tail elements
-  newFocused =
-    if focusedElement == 0 then focusedElement else focusedElement - 1
-popWindow (Left Back) (Fix (Vertical FL {..})) =
-  (safeLast, Vertical $ FL newFocused newTiler)
- where
-  safeLast   = elements V.!? (V.length elements - 1)
-  newTiler   = if V.null elements then elements else V.init elements
-  newFocused = if focusedElement == V.length elements - 1
-    then focusedElement - 1
-    else focusedElement
-popWindow (Right Focused) (Fix (Vertical FL {..})) =
-  (safeAt, Vertical $ FL newFocused newTiler)
- where
-  safeAt   = elements V.!? focusedElement
-  newTiler = if V.null elements
-    then elements
-    else V.ifilter (\i _ -> i /= focusedElement) elements
-  newFocused = if focusedElement + 1 == V.length elements
-    then focusedElement - 1
-    else focusedElement
-
-popWindow _ (Fix (InputController _)) =
-  error "Tried to pop an InputController but that isn't allowed"
-popWindow _ (Fix t@(Wrap _)) = (Just $ Fix t, EmptyTiler)
-popWindow _ (Fix EmptyTiler) = (Nothing, EmptyTiler)
-
-
--- | Render a given tiler. Operates in a continuous passing style so we can pretend like
--- catamorphisms operate from the root down to the leaves
-placeWindows :: Tiler (Rect -> Xest ()) -> Rect -> Xest ()
--- | Wraps place their wrapped window filling all available space
-placeWindows (Wrap win) Rect {..} = do
-  IS {..} <- ask
-  liftIO $ moveWindow display win x y
-  liftIO $ resizeWindow display win w h
-
--- | Place tilers horizontally with equal space
-placeWindows (Horizontal FL { elements = e }) Rect {..} = V.ifoldl'
-  (\acc i f -> acc >> f (location (fromIntegral i)))
-  (pure ())
-  e
- where
-  numWins = fromIntegral $ V.length e -- Find the number of windows in ts
-  location i = Rect (newX i) y (w `div` fromIntegral numWins) h
-  newX i = (fromIntegral w `div` numWins * i) + x
-
--- | Same but for Vertical alignment
-placeWindows (Vertical FL { elements = e }) Rect {..} = V.ifoldl'
-  (\acc i f -> acc >> f (location (fromIntegral i)))
-  (pure ())
-  e
- where
-  numWins = fromIntegral $ V.length e -- Find the number of windows in ts
-  location i = Rect x (newY i) w (h `div` fromIntegral numWins)
-  newY i = fromIntegral h `div` numWins * i + y
-
--- | Has no effect on the placement
-placeWindows (InputController f) r = f r
--- | Can't be placed but will still take up space in other Tilers
-placeWindows EmptyTiler          _ = return ()
-
--- | Given something that wants to modify a Tiler,
--- apply it to the first Tiler after the inputController
-applyInput
-  :: (Tiler (Fix Tiler) -> Tiler (Fix Tiler)) -> Tiler (Fix Tiler) -> Fix Tiler
-applyInput f (InputController (Fix t)) = Fix . InputController . Fix $ f t
-applyInput _ t                         = Fix t
-
--- | Modify the focused Tiler in another Tiler based on a function
-modFocused :: (Fix Tiler -> Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-modFocused f (Horizontal FL {..}) = Horizontal $ FL focusedElement newVec
- where
-  oldFoc = elements V.! focusedElement
-  newVec = V.modify (\v -> MV.write v focusedElement $ f oldFoc) elements
-modFocused f (Vertical FL {..}) = Vertical $ FL focusedElement newVec
- where
-  oldFoc = elements V.! focusedElement
-  newVec = V.modify (\v -> MV.write v focusedElement $ f oldFoc) elements
-modFocused f (   InputController t) = InputController $ f t
-modFocused _ wp@(Wrap            _) = wp
-modFocused _ EmptyTiler             = EmptyTiler
-
-
--- | Change the focus of a Tiler
-focus :: Fix Tiler -> Fix Tiler -> Fix Tiler
-focus newF (Fix (Horizontal FL {..})) = Fix . Horizontal $ FL newIndex elements
-  where newIndex = fromMaybe focusedElement $ V.findIndex (== newF) elements
-focus newF (Fix (Vertical FL {..})) = Fix . Vertical $ FL newIndex elements
-  where newIndex = fromMaybe focusedElement $ V.findIndex (== newF) elements
-focus _ t@(Fix (InputController _)) = t
-focus _ t@(Fix (Wrap            _)) = t
-focus _ t@(Fix EmptyTiler         ) = t
-
--- | Given a window to focus, try to focus it. Should be called with cata.
-focusWindow
-  :: Window -> Tiler (Fix Tiler, (Bool, Bool)) -> (Fix Tiler, (Bool, Bool))
-focusWindow w (Wrap w') = (Fix $ Wrap w', (False, w == w'))
-focusWindow _ (InputController (t, (_, False))) = (t, (True, False))
-focusWindow _ (InputController (t, (_, True))) =
-  (Fix $ InputController t, (False, False))
-focusWindow _ t = case (hasController, hasWind) of
-  (True , True) -> (Fix . InputController $ dropExtra, (False, False))
-  (False, True) -> (focus findFocused dropExtra, (False, True))
-  bs            -> (dropExtra, bs)
- where
-  hasController    = any (fst . snd) t
-  hasWind          = any (snd . snd) t
-  dropExtra        = Fix $ fmap fst t
-  Just findFocused = foldl'
-    (\acc (ct, (_, b)) -> acc <|> if b then Just ct else Nothing)
-    Nothing
-    t
 
 -- Event Handlers --
 
@@ -308,8 +99,7 @@ handler (XorgEvent MapRequestEvent {..}) = do
   return []
 
 -- Called on window destruction
--- TODO handle minimizing as unmapping
-handler (XorgEvent UnmapEvent {..}) = do
+handler (XorgEvent DestroyWindowEvent {..}) = do
   -- Remove the destroyed window from our tree
   modify $ \es -> desktop .~ cata (remove $ Wrap ev_window) (_desktop es) $ es
   return []
@@ -419,31 +209,22 @@ handler (ChangeModeTo newM) = do
 
 -- Change the layout of whatever comes after the input controller to something else
 handler (ChangeLayoutTo (Fix newT)) = do
-  modify
-    $ \es -> set desktop (cata (applyInput changeLayout) $ view desktop es) es
+  root <- gets $ view desktop
+  modify $ set desktop (cata (applyInput $ changeLayout newT) root)
   return []
+
+-- | Move all of the Tilers from root to newT
+changeLayout :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
+changeLayout newT root = unfix $ doPopping root newT
  where
-  changeLayout ot = unfix $ doPopping ot newT
   doPopping ot t = case popWindow (Left Front) (Fix ot) of
     (Nothing , _   ) -> Fix t
     (Just win, wins) -> doPopping wins $ add Back (isFocused win) win t
   isFocused t = if t == focused then Focused else Unfocused
   focused =
-    fromMaybe (Fix EmptyTiler) . fst . popWindow (Right Focused) $ Fix newT
+    fromMaybe (Fix EmptyTiler) . fst . popWindow (Right Focused) $ Fix root
 
 -- Random stuff --
-
--- | filterMap over monoFoldables
--- Check out classyPrelude and monotraversal libraries for more info
-filterMap'
-  :: (MonoFoldable (f a), Applicative f, Monoid (f b))
-  => (b -> Bool)
-  -> (Element (f a) -> b)
-  -> f a
-  -> f b
-filterMap' p f = foldl' folder mempty
- where
-  folder acc a = let b = f a in if p b then acc `mappend` pure (f a) else acc
 
 -- Would be used for reparenting (title bar)
 manage :: Window -> Xest (Fix Tiler)

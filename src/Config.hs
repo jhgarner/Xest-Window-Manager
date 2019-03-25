@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
@@ -73,12 +74,14 @@ actionToType modeList (ChangeModeTo a) =
 data Tiler
   = Vertical
   | Horizontal
+  | Workspace
   deriving (Eq, Generic, Show, Interpret)
 
 -- | See other *ToType functions
 tilerToType :: Tiler -> Fix T.Tiler
-tilerToType Vertical   = Fix . T.Vertical $ T.FL 0 V.empty
-tilerToType Horizontal = Fix . T.Horizontal $ T.FL 0 V.empty
+tilerToType Vertical   = Fix . T.Directional T.Y $ T.FL 0 V.empty
+tilerToType Horizontal = Fix . T.Directional T.X $ T.FL 0 V.empty
+tilerToType Workspace = Fix . T.Directional T.Z $ T.FL 0 V.empty
 
 -- | Pretty much the same as T.Mode already
 data Mode = NewMode { modeName     :: Text
