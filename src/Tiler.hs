@@ -92,8 +92,7 @@ popWindow (Right Focused) (Fix (Directional d FL {..})) =
     then focusedElement - 1
     else focusedElement
 
-popWindow _ (Fix (InputController _)) =
-  error "Tried to pop an InputController but that isn't allowed"
+popWindow _ (Fix (InputController t)) = (Just t, EmptyTiler)
 popWindow _ (Fix t@(Wrap _)) = (Just $ Fix t, EmptyTiler)
 popWindow _ (Fix EmptyTiler) = (Nothing, EmptyTiler)
 
@@ -108,9 +107,7 @@ placeWindows (Wrap win) (Rect _ _ 0 0) = do
   liftIO $ unmapWindow display win
 placeWindows (Wrap win) Rect {..} = do
   IS {..} <- ask
-  WindowAttributes { wa_map_state = mapped } <- liftIO
-    $ getWindowAttributes display win
-  when (mapped == waIsUnmapped) . liftIO $ mapWindow display win
+  safeMap win
   liftIO $ moveWindow display win x y
   liftIO $ resizeWindow display win w h
 
@@ -177,3 +174,10 @@ focusWindow _ t = case (hasController, hasWind) of
     (\acc (ct, (_, b)) -> acc <|> if b then Just ct else Nothing)
     Nothing
     t
+
+safeMap :: Window -> Xest ()
+safeMap win = do
+  IS {..} <- ask
+  WindowAttributes { wa_map_state = mapped } <- liftIO
+    $ getWindowAttributes display win
+  when (mapped == waIsUnmapped) . liftIO $ mapWindow display win

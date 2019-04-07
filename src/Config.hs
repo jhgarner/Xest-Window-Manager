@@ -50,6 +50,8 @@ keyTriggerToType display mm (KeyTrigger k m as) = do
 -- | Remove some actions the user shouldn't be trying to include
 data Action
   = ChangeLayoutTo Tiler
+  | ChangeNamed String
+  | Move Bool
   | RunCommand Text
   | ChangeModeTo Text
   | ShowWindow Text
@@ -66,6 +68,8 @@ actionToType _ (ShowWindow     a) = T.ShowWindow $ unpack a
 actionToType _ (HideWindow     a) = T.HideWindow $ unpack a
 actionToType _ ZoomInInput        = T.ZoomInInput
 actionToType _ ZoomOutInput       = T.ZoomOutInput
+actionToType _ (ChangeNamed s)       = T.ChangeNamed s
+actionToType _ (Move s)       = if s then T.Move T.Front else T.Move T.Back
 actionToType modeList (ChangeModeTo a) =
   T.ChangeModeTo . modeToType modeList $ getMode a modeList
 

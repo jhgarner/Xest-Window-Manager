@@ -20,6 +20,11 @@ import           Data.Functor.Foldable
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
 
+data Focus = Focused | Unfocused
+  deriving (Eq)
+data Direction = Front | Back
+  deriving (Show, Eq)
+
 data FocusedList a = FL {focusedElement :: Int, elements :: Vector a}
   deriving (Eq, Show, Functor, Foldable, Traversable)
 deriveShow1 ''FocusedList
@@ -52,6 +57,8 @@ instance Eq Event where
 -- | Actions/events to be performed
 data Action
   = ChangeLayoutTo (Fix Tiler)
+  | ChangeNamed String
+  | Move Direction
   | RunCommand String
   | ChangeModeTo Mode
   | ShowWindow String
@@ -115,6 +122,3 @@ data Rect = Rect
   , h :: Dimension
   }
 
-data Focus = Focused | Unfocused
-  deriving (Eq)
-data Direction = Front | Back

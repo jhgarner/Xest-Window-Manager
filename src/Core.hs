@@ -30,7 +30,12 @@ import qualified Data.Vector.Mutable           as MV
 import           Data.Functor.Foldable
 import           Data.Either                    ( )
 import           Tiler
+-- import Data.
 
+
+-- drawLine x y st = do
+--   p <- readSTRef st
+--   return ()
 
 -- Event Handlers --
 
@@ -92,7 +97,7 @@ handler (XorgEvent MapRequestEvent {..}) = do
   -- If you've zoomed the inputController in, you get nesting as a result
   modify $ \es -> set
     desktop
-    (cata (applyInput $ add Front Focused tWin) $ view desktop es)
+    (cata (applyInput (add Front Focused tWin)) $ view desktop es)
     es
   -- Make the newly created window into the focused one
   liftIO $ setInputFocus display ev_window revertToNone currentTime
@@ -210,8 +215,32 @@ handler (ChangeModeTo newM) = do
 -- Change the layout of whatever comes after the input controller to something else
 handler (ChangeLayoutTo (Fix newT)) = do
   root <- gets $ view desktop
-  modify $ set desktop (cata (applyInput $ changeLayout newT) root)
+  modify . set desktop $ cata (applyInput (changeLayout newT)) root
   return []
+
+-- Change focus in a given direction
+handler (ChangeNamed s) = do
+  root <- gets $ view desktop
+  modify . set desktop $ cata (applyInput changer) root
+  xFocus
+  return []
+    where changer t@(Directional d fl) = 
+            case readMay s of
+              Just a -> Directional d $ fl {focusedElement = a-1}
+              -- Nothing -> t
+          -- changer t = t
+
+handler (Move newD) = do
+  root <- gets $ view desktop
+  display <- asks display
+  let newRoot = cata (applyInput (changer newD)) root
+  modify . set desktop $ newRoot
+  xFocus
+  return []
+    where changer Front t@(Directional d (FL fe e)) = 
+            Directional d $ FL (max 0 $ fe-1) e
+          changer Back t@(Directional d (FL fe e)) =
+            Directional d $ FL (min (V.length e - 1) $ fe+1) e
 
 -- | Move all of the Tilers from root to newT
 changeLayout :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
@@ -282,3 +311,15 @@ render :: EventState -> Xest ()
 render (ES t _ _) = do
   (w, h) <- asks dimensions
   cata placeWindows t (Rect 0 0 w h)
+
+-- |Focus the X window
+xFocus :: Xest ()
+xFocus = do
+  root <- fmap unfix . gets $ view desktop
+  d <- asks display
+  focWin d $ unsafeLast (ana makeList root :: [Tiler (Fix Tiler)])
+  where focWin d (Wrap w) = safeMap w >> liftIO (setInputFocus d w revertToNone currentTime)
+        makeList :: Tiler (Fix Tiler) -> ListF (Tiler (Fix Tiler)) (Tiler (Fix Tiler))
+        makeList (Wrap w) = Nil
+        makeList t = Cons (unfix . getFocused $ Fix t) (unfix . getFocused $ Fix t)
+        getFocused = fromMaybe (error "no focus") . fst . popWindow (Right Focused)

@@ -61,16 +61,15 @@ startWM = do
 -- The return value of one iteration becomes the input for the next
 mainLoop :: IterationState -> EventState -> IO ()
 mainLoop iState@IS {..} eventState =
-  runXest iState eventState (iterateM recurse []) >> say "Exiting"
+  runXest iState eventState (forever recurse []) >> say "Exiting"
  where
-  iterateM f initial = sequence $ iterate (>>= f) $ return initial
+  forever f initial = fix (\rec b -> b >>= rec . f) $ return initial
 
   -- Performs the actual looping
   recurse :: Actions -> Xest Actions
   -- When there are no actions to perform, find new ones
   recurse [] = do
-    gets _desktop >>= liftIO . print
-    liftIO $ putStrLn ""
+    -- gets _desktop >>= liftIO . print
     get >>= render
     ptr <- liftIO . allocaXEvent $ \p -> nextEvent display p >> getEvent p
     return [XorgEvent ptr]
