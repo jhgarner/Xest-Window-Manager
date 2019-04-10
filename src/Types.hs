@@ -109,6 +109,7 @@ data EventState = ES
   { _desktop     :: Fix Tiler -- ^ The root Tiler
   , _currentMode :: Mode
   , _keyParser   :: Action -> Xest Actions -- ^ The handler
+  , _minimizedWins :: Set Window
   }
 
 -- We use lenses for convenience

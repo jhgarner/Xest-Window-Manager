@@ -33,6 +33,7 @@ dependencies:
 - recursion-schemes
 - free
 - deriving-compat
+- containers
 
 library:
   source-dirs: src

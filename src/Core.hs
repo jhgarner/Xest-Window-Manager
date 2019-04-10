@@ -83,6 +83,7 @@ tempModeRunner _ _ e = handler e
 
 -- | The bulk of the program
 -- Performs some action and returns a list of new actions to be performed
+-- Returning a [] means that there aren't any new tasks to do.
 handler :: Action -> Xest Actions
 -- Called on window creation
 handler (XorgEvent MapRequestEvent {..}) = do
@@ -100,19 +101,31 @@ handler (XorgEvent MapRequestEvent {..}) = do
     (cata (applyInput (add Front Focused tWin)) $ view desktop es)
     es
   -- Make the newly created window into the focused one
+  -- We have to keep Xorg's idea of focus in sync with our own
   liftIO $ setInputFocus display ev_window revertToNone currentTime
   return []
 
 -- Called on window destruction
 handler (XorgEvent DestroyWindowEvent {..}) = do
-  -- Remove the destroyed window from our tree
+  -- Remove the destroyed window from our tree.
+  -- Usually, unmap will be called first, but what if a minimized window
+  -- gets killed? In that case, we won't get an unmap notifiction.
   modify $ \es -> desktop .~ cata (remove $ Wrap ev_window) (_desktop es) $ es
+  return []
+
+-- Called when a window should no longer be drawn
+-- This either happens when the window dies, or when we minimize it
+handler (XorgEvent UnmapEvent {..}) = do
+  mins <- gets $ view minimizedWins
+  -- Remove the destroyed window from our tree if we aren't the
+  -- reason it was unmapped.
+  unless (member ev_window mins) $ modify $ \es ->
+    desktop .~ cata (remove $ Wrap ev_window) (_desktop es) $ es
   return []
 
 -- Tell the window it can configure itself however it wants
 -- We send back the Configure Request unmodified
 handler (XorgEvent ConfigureRequestEvent {..}) = do
-  liftIO $ say "COnfiguring window"
   IS {..} <- ask
   liftIO $ configureWindow display ev_window ev_value_mask wc
   return []
@@ -126,19 +139,25 @@ handler (XorgEvent ConfigureRequestEvent {..}) = do
                      ev_detail
 
 -- Determine if we care about the key event
--- Because we rebind keys, I think we always should so TODO look at that
+-- Because we rebind keys, I think we always should, so, TODO look at that
 handler (XorgEvent KeyEvent {..}) = do
   Conf bindings _ <- asks config
   return $ case find (\(k, _, _) -> ev_keycode == k) bindings of
     Nothing -> []
     Just kt -> [KeyboardEvent kt (ev_event_type == keyPress)]
 
+-- Called when the cursor moves between windows
 handler (XorgEvent CrossingEvent {..}) = do
   d     <- asks display
   rootT <- gets $ view desktop
+  -- Make certain that the focused window is the one we're hovering over
   liftIO $ setInputFocus d ev_window revertToNone currentTime
-  let newFocus = cata (focusWindow ev_window) rootT
-  when (snd newFocus == (False, False)) . modify $ set desktop (fst newFocus)
+  let (newRoot, status) = cata (focusWindow ev_window) rootT
+  -- If status is anything but (False, False), it means that something super
+  -- weird is going on and the newRoot is probably bad.
+  -- Usually this happens if the crossed window isn't in our tree and causes
+  -- the InputController to disappear.
+  when (status == (False, False)) . modify $ set desktop newRoot
   return []
 
 -- Handle all other xorg events as noops
@@ -160,6 +179,7 @@ handler (KeyboardEvent kt@(_, targetMode, actions) True) = do
     else return []
 -- Ignore keyups
 -- Note that either tmp or new handler will capture this if needed
+-- The default handler though doesn't care about keyup
 handler (KeyboardEvent _ False) = return []
 
 -- Show a window given its class name
@@ -193,14 +213,14 @@ handler ZoomInInput = do
 -- Move the input controller towards the root
 handler ZoomOutInput = do
   root <- gets $ view desktop
-  modify . set desktop $ para reorder root
+  -- Don't zoom the controller out of existence
+  unless (isController root) $ modify . set desktop $ para reorder root
   return []
  where
   reorder (InputController (_, t)) = t
   reorder t                        = Fix $ if any (isController . fst) t
-    then InputController . Fix $ getSnd t
-    else getSnd t
-  getSnd = fmap snd
+    then InputController . Fix $ snd <$> t
+    else snd <$> t
   isController (Fix (InputController _)) = True
   isController _                         = False
 
@@ -218,29 +238,30 @@ handler (ChangeLayoutTo (Fix newT)) = do
   modify . set desktop $ cata (applyInput (changeLayout newT)) root
   return []
 
--- Change focus in a given direction
+-- Change the focus to some named action
 handler (ChangeNamed s) = do
   root <- gets $ view desktop
   modify . set desktop $ cata (applyInput changer) root
   xFocus
   return []
-    where changer t@(Directional d fl) = 
-            case readMay s of
-              Just a -> Directional d $ fl {focusedElement = a-1}
+ where
+  changer t@(Directional d fl) = case readMay s of
+    Just a -> Directional d $ fl { focusedElement = a - 1 }
               -- Nothing -> t
           -- changer t = t
 
+-- Change focus in a given direction
 handler (Move newD) = do
-  root <- gets $ view desktop
+  root    <- gets $ view desktop
   display <- asks display
-  let newRoot = cata (applyInput (changer newD)) root
-  modify . set desktop $ newRoot
+  modify . set desktop $ cata (applyInput (changer newD)) root
   xFocus
   return []
-    where changer Front t@(Directional d (FL fe e)) = 
-            Directional d $ FL (max 0 $ fe-1) e
-          changer Back t@(Directional d (FL fe e)) =
-            Directional d $ FL (min (V.length e - 1) $ fe+1) e
+ where
+  changer Front t@(Directional d (FL fe e)) =
+    Directional d $ FL (max 0 $ fe - 1) e
+  changer Back t@(Directional d (FL fe e)) =
+    Directional d $ FL (min (V.length e - 1) $ fe + 1) e
 
 -- | Move all of the Tilers from root to newT
 changeLayout :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
@@ -268,7 +289,6 @@ rebindKeys activeMode = do
   Conf kb _ <- asks config
   d         <- asks display
   win       <- asks rootWin
-
   liftIO . forM_ kb $ toggleModel activeMode d win
  where
   toggleModel :: Mode -> Display -> Window -> KeyTrigger -> IO ()
@@ -308,7 +328,7 @@ getWindowByClass wName = do
 
 -- Moves windows around
 render :: EventState -> Xest ()
-render (ES t _ _) = do
+render (ES t _ _ _) = do
   (w, h) <- asks dimensions
   cata placeWindows t (Rect 0 0 w h)
 
@@ -316,10 +336,12 @@ render (ES t _ _) = do
 xFocus :: Xest ()
 xFocus = do
   root <- fmap unfix . gets $ view desktop
-  d <- asks display
+  d    <- asks display
   focWin d $ unsafeLast (ana makeList root :: [Tiler (Fix Tiler)])
-  where focWin d (Wrap w) = safeMap w >> liftIO (setInputFocus d w revertToNone currentTime)
-        makeList :: Tiler (Fix Tiler) -> ListF (Tiler (Fix Tiler)) (Tiler (Fix Tiler))
-        makeList (Wrap w) = Nil
-        makeList t = Cons (unfix . getFocused $ Fix t) (unfix . getFocused $ Fix t)
-        getFocused = fromMaybe (error "no focus") . fst . popWindow (Right Focused)
+ where
+  focWin d (Wrap w) =
+    safeMap w >> liftIO (setInputFocus d w revertToNone currentTime)
+  makeList :: Tiler (Fix Tiler) -> ListF (Tiler (Fix Tiler)) (Tiler (Fix Tiler))
+  makeList (Wrap w) = Nil
+  makeList t = Cons (unfix . getFocused $ Fix t) (unfix . getFocused $ Fix t)
+  getFocused = fromMaybe (error "no focus") . fst . popWindow (Right Focused)

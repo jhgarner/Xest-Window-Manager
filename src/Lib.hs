@@ -22,6 +22,7 @@ import           Types
 import           Data.Functor.Foldable
 import           Data.List                      ( iterate )
 import qualified Data.Vector                   as V
+import qualified Data.Set                      as S
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
@@ -56,6 +57,7 @@ startWM = do
     (Fix . InputController . Fix . Directional X $ FL 0 V.empty)
     initialMode
     handler
+    S.empty
 
 -- | Performs the event loop recursion inside of the Xest Monad
 -- The return value of one iteration becomes the input for the next
@@ -69,13 +71,14 @@ mainLoop iState@IS {..} eventState =
   recurse :: Actions -> Xest Actions
   -- When there are no actions to perform, find new ones
   recurse [] = do
-    -- gets _desktop >>= liftIO . print
+    gets _desktop >>= liftIO . print
     get >>= render
     ptr <- liftIO . allocaXEvent $ \p -> nextEvent display p >> getEvent p
     return [XorgEvent ptr]
 
   -- When there are actions to perform, do them and add the results to the list of actions
   recurse (a : as) = do
+    -- liftIO $ print a
     es       <- get
     newEvent <- view keyParser es a
     return $ as ++ newEvent

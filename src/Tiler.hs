@@ -11,9 +11,16 @@ import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Window
 import           Graphics.X11.Xlib.Event
 import qualified Data.Vector                   as V
+import qualified Data.Set                      as S
 import qualified Data.Vector.Mutable           as MV
 import           Data.Functor.Foldable
 import           Types
+import           Control.Monad.State.Lazy       ( gets
+                                                , modify
+                                                )
+import           Control.Lens                   ( view
+                                                , set
+                                                )
 
 -- Tiler Handling Code --
 
@@ -92,9 +99,9 @@ popWindow (Right Focused) (Fix (Directional d FL {..})) =
     then focusedElement - 1
     else focusedElement
 
-popWindow _ (Fix (InputController t)) = (Just t, EmptyTiler)
-popWindow _ (Fix t@(Wrap _)) = (Just $ Fix t, EmptyTiler)
-popWindow _ (Fix EmptyTiler) = (Nothing, EmptyTiler)
+popWindow _ (Fix (  InputController t)) = (Just t, EmptyTiler)
+popWindow _ (Fix t@(Wrap            _)) = (Just $ Fix t, EmptyTiler)
+popWindow _ (Fix EmptyTiler           ) = (Nothing, EmptyTiler)
 
 
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
@@ -104,6 +111,8 @@ placeWindows :: Tiler (Rect -> Xest ()) -> Rect -> Xest ()
 -- | If the window has no size, it gets unmapped
 placeWindows (Wrap win) (Rect _ _ 0 0) = do
   IS {..} <- ask
+  mins    <- gets $ view minimizedWins
+  modify $ set minimizedWins $ S.insert win mins
   liftIO $ unmapWindow display win
 placeWindows (Wrap win) Rect {..} = do
   IS {..} <- ask
@@ -130,6 +139,7 @@ placeWindows EmptyTiler          _ = return ()
 
 -- | Given something that wants to modify a Tiler,
 -- apply it to the first Tiler after the inputController
+-- Often used with cata to create a new root Tiler
 applyInput
   :: (Tiler (Fix Tiler) -> Tiler (Fix Tiler)) -> Tiler (Fix Tiler) -> Fix Tiler
 applyInput f (InputController (Fix t)) = Fix . InputController . Fix $ f t
@@ -156,13 +166,17 @@ focus _ t@(Fix (Wrap            _)) = t
 focus _ t@(Fix EmptyTiler         ) = t
 
 -- | Given a window to focus, try to focus it. Should be called with cata.
+-- fst returns the new tiler while snd gives some status information
+-- (newTiler, (parent to InputController, parent to new focus))
 focusWindow
   :: Window -> Tiler (Fix Tiler, (Bool, Bool)) -> (Fix Tiler, (Bool, Bool))
 focusWindow w (Wrap w') = (Fix $ Wrap w', (False, w == w'))
 focusWindow _ (InputController (t, (_, False))) = (t, (True, False))
 focusWindow _ (InputController (t, (_, True))) =
+  -- Reset to (False, False) since we don't need to change anything
   (Fix $ InputController t, (False, False))
 focusWindow _ t = case (hasController, hasWind) of
+  -- Reset to False False so no other parents try to make Input Controllers
   (True , True) -> (Fix . InputController $ dropExtra, (False, False))
   (False, True) -> (focus findFocused dropExtra, (False, True))
   bs            -> (dropExtra, bs)
@@ -175,9 +189,13 @@ focusWindow _ t = case (hasController, hasWind) of
     Nothing
     t
 
+-- | Maps a window if it was minimized
 safeMap :: Window -> Xest ()
 safeMap win = do
   IS {..} <- ask
+  mins    <- gets $ view minimizedWins
   WindowAttributes { wa_map_state = mapped } <- liftIO
     $ getWindowAttributes display win
-  when (mapped == waIsUnmapped) . liftIO $ mapWindow display win
+  when (mapped == waIsUnmapped && member win mins) $ do
+    liftIO $ mapWindow display win
+    modify $ set minimizedWins $ S.delete win mins

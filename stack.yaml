@@ -72,7 +72,7 @@ extra-deps: []
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
-ghc-options:
-  neXtWM: -XNoImplicitPrelude
+# ghc-options:
+#   neXtWM: -XNoImplicitPrelude
 
 # nix.packages: [ ncurses.dev, ncurses.out, zlib.dev, zlib.out ]
