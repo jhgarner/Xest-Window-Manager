@@ -26,7 +26,6 @@ import           Graphics.X11.Xlib.Event
 import           System.Process
 import           Types
 import qualified Data.Vector                   as V
-import qualified Data.Vector.Mutable           as MV
 import           Data.Functor.Foldable
 import           Data.Either                    ( )
 import           Tiler
@@ -247,21 +246,21 @@ handler (ChangeNamed s) = do
  where
   changer t@(Directional d fl) = case readMay s of
     Just a -> Directional d $ fl { focusedElement = a - 1 }
-              -- Nothing -> t
-          -- changer t = t
+    Nothing -> t
+  changer t = t
 
 -- Change focus in a given direction
 handler (Move newD) = do
   root    <- gets $ view desktop
-  display <- asks display
   modify . set desktop $ cata (applyInput (changer newD)) root
   xFocus
   return []
  where
-  changer Front t@(Directional d (FL fe e)) =
+  changer Front (Directional d (FL fe e)) =
     Directional d $ FL (max 0 $ fe - 1) e
-  changer Back t@(Directional d (FL fe e)) =
+  changer Back (Directional d (FL fe e)) =
     Directional d $ FL (min (V.length e - 1) $ fe + 1) e
+  changer _ t = t
 
 -- | Move all of the Tilers from root to newT
 changeLayout :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
@@ -341,7 +340,8 @@ xFocus = do
  where
   focWin d (Wrap w) =
     safeMap w >> liftIO (setInputFocus d w revertToNone currentTime)
+  focWin _ _ = error "How can I focus this!"
   makeList :: Tiler (Fix Tiler) -> ListF (Tiler (Fix Tiler)) (Tiler (Fix Tiler))
-  makeList (Wrap w) = Nil
+  makeList (Wrap _) = Nil
   makeList t = Cons (unfix . getFocused $ Fix t) (unfix . getFocused $ Fix t)
   getFocused = fromMaybe (error "no focus") . fst . popWindow (Right Focused)

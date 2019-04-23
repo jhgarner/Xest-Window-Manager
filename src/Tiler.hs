@@ -1,15 +1,14 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Tiler where
 
 import           ClassyPrelude
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
-import           Graphics.X11.Xlib.Misc
-import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Window
-import           Graphics.X11.Xlib.Event
 import qualified Data.Vector                   as V
 import qualified Data.Set                      as S
 import qualified Data.Vector.Mutable           as MV
@@ -102,6 +101,7 @@ popWindow (Right Focused) (Fix (Directional d FL {..})) =
 popWindow _ (Fix (  InputController t)) = (Just t, EmptyTiler)
 popWindow _ (Fix t@(Wrap            _)) = (Just $ Fix t, EmptyTiler)
 popWindow _ (Fix EmptyTiler           ) = (Nothing, EmptyTiler)
+popWindow _ _ = error "Unimplemented unfocused pop"
 
 
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
@@ -144,6 +144,12 @@ applyInput
   :: (Tiler (Fix Tiler) -> Tiler (Fix Tiler)) -> Tiler (Fix Tiler) -> Fix Tiler
 applyInput f (InputController (Fix t)) = Fix . InputController . Fix $ f t
 applyInput _ t                         = Fix t
+
+onInput :: (Tiler (Fix Tiler) -> a) -> Fix Tiler -> a
+onInput f root = fromMaybe (error "No Controller found") $ para doInput root
+  where 
+    doInput (InputController (Fix t, _)) = Just $ f t
+    doInput t = foldl' (\acc a -> acc <|> snd a) Nothing t
 
 -- | Modify the focused Tiler in another Tiler based on a function
 modFocused :: (Fix Tiler -> Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
@@ -188,6 +194,10 @@ focusWindow _ t = case (hasController, hasWind) of
     (\acc (ct, (_, b)) -> acc <|> if b then Just ct else Nothing)
     Nothing
     t
+
+getDesktopState :: Tiler (Fix Tiler) -> ([Text], Int)
+getDesktopState (Directional _ (FL ce e)) = (pack . show <$> [1 .. V.length e], ce)
+getDesktopState _ = (["None"], 0)
 
 -- | Maps a window if it was minimized
 safeMap :: Window -> Xest ()

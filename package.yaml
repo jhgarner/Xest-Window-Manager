@@ -37,6 +37,17 @@ dependencies:
 
 library:
   source-dirs: src
+  ghc-options:
+  - -Weverything
+  - -Wno-implicit-prelude
+  - -Wno-missing-exported-signatures
+  - -Wno-missing-import-lists
+  - -Wno-missed-specialisations
+  - -Wno-all-missed-specialisations
+  - -Wno-unsafe
+  - -Wno-safe
+  - -Wno-missing-local-signatures
+  - -Wno-monomorphism-restriction
 
 executables:
   neXtWM-exe:

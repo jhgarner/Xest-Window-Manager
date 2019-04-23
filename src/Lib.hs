@@ -15,12 +15,15 @@ import           Core
 import           Data.Bits
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Display
+import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Screen
+import           Graphics.X11.Xlib.Atom
 import           Types
+import           Tiler
 import           Data.Functor.Foldable
-import           Data.List                      ( iterate )
+import           Data.Char                      ( ord )
 import qualified Data.Vector                   as V
 import qualified Data.Set                      as S
 
@@ -34,6 +37,7 @@ startWM = do
   -- Find and register ourselves with the root window
   -- These two masks allow us to intercept various Xorg events useful for a WM
   let root = defaultRootWindow display
+  initEwmh display root
   selectInput
     display
     root
@@ -59,13 +63,41 @@ startWM = do
     handler
     S.empty
 
+getAtom :: Display -> String -> IO Atom
+getAtom display t = internAtom display t False
+
+initEwmh :: Display -> Window -> IO ()
+initEwmh display root = do
+  a    <- getAtom display "_NET_SUPPORTED"
+  c    <- getAtom display "ATOM"
+  supp <- mapM (getAtom display)
+               ["_NET_NUMBER_OF_DESKTOPS", "_NET_NUMBER_OF_DESKTOPS", "_NET_CURRENT_DESKTOP"]
+  changeProperty32 display root a c propModeReplace (fmap fromIntegral supp)
+
+
+writeWorkspaces :: ([Text], Int) -> Xest ()
+writeWorkspaces (names, i) = do
+  root    <- asks rootWin
+  display <- asks display
+  dNames  <- liftIO $ internAtom display "_NET_DESKTOP_NAMES" False
+  numD  <- liftIO $ internAtom display "_NET_NUMBER_OF_DESKTOPS" False
+  currentD  <- liftIO $ internAtom display "_NET_CURRENT_DESKTOP" False
+  utf8    <- liftIO $ internAtom display "UTF8_STRING" False
+  card    <- liftIO $ internAtom display "CARDINAL" False
+  liftIO
+    $ changeProperty8 display root dNames utf8 propModeReplace
+    $ map fromIntegral
+    $ concatMap ((++ [0]) . fmap ord . unpack) names
+  liftIO $ changeProperty32 display root numD card propModeReplace [fromIntegral $ length names, 0]
+  liftIO $ changeProperty32 display root currentD card propModeReplace [fromIntegral i, 0]
+
 -- | Performs the event loop recursion inside of the Xest Monad
 -- The return value of one iteration becomes the input for the next
 mainLoop :: IterationState -> EventState -> IO ()
 mainLoop iState@IS {..} eventState =
-  runXest iState eventState (forever recurse []) >> say "Exiting"
+  runXest iState eventState (chain recurse []) >> say "Exiting"
  where
-  forever f initial = fix (\rec b -> b >>= rec . f) $ return initial
+  chain f initial = fix (\rec b -> b >>= rec . f) $ return initial
 
   -- Performs the actual looping
   recurse :: Actions -> Xest Actions
@@ -73,6 +105,7 @@ mainLoop iState@IS {..} eventState =
   recurse [] = do
     gets _desktop >>= liftIO . print
     get >>= render
+    gets _desktop >>= writeWorkspaces . onInput getDesktopState
     ptr <- liftIO . allocaXEvent $ \p -> nextEvent display p >> getEvent p
     return [XorgEvent ptr]
 
