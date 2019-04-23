@@ -23,6 +23,7 @@ import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Window
 import           Graphics.X11.Xlib.Event
+import           Graphics.X11.Xlib.Atom
 import           System.Process
 import           Types
 import qualified Data.Vector                   as V
@@ -183,20 +184,16 @@ handler (KeyboardEvent _ False) = return []
 
 -- Show a window given its class name
 handler (ShowWindow wName     ) = do
-  win     <- getWindowByClass wName
+  wins     <- getWindowByClass wName
   display <- asks display
-  case win of
-    Just w  -> liftIO $ mapWindow display w
-    Nothing -> liftIO $ say "Window to be shown does not exist"
+  forM_ wins $ liftIO . mapWindow display
   return []
 
 -- Hide a window given its class name
 handler (HideWindow wName) = do
-  win     <- getWindowByClass wName
+  wins     <- getWindowByClass wName
   display <- asks display
-  case win of
-    Just w  -> liftIO $ unmapWindow display w
-    Nothing -> liftIO $ say "Window to be hidden does not exist"
+  forM_ wins $ liftIO . unmapWindow display
   return []
 
 -- Zoom the inputController towards the focused window
@@ -280,7 +277,14 @@ manage :: Window -> Xest (Fix Tiler)
 manage w = do
   IS {..} <- ask
   liftIO $ selectInput display w enterWindowMask
-  return . Fix $ Wrap w
+  wmState  <- liftIO $ internAtom display "_NET_WM_WINDOW_TYPE" False
+  normal  <- (liftIO $ internAtom display "_NET_WM_WINDOW_TYPE_NORMAL" False) :: Xest Word64
+  return $ Fix $ Wrap w
+  -- prop <- liftIO $ rawGetWindowProperty 32 display wmState w :: Xest (Maybe [Word64])
+  -- print $ "t " ++ show prop
+  -- return $ case prop of
+  --   Nothing -> Fix EmptyTiler
+  --   Just states -> if isJust $ find (== normal) states then Fix $ Wrap w else Fix EmptyTiler
 
 -- Chang the keybindings depending on the mode
 rebindKeys :: Mode -> Xest ()
@@ -295,10 +299,8 @@ rebindKeys activeMode = do
     then grabKey d k anyModifier win False grabModeAsync grabModeAsync
     else ungrabKey d k anyModifier win
 
--- Find a window with a class name
--- TODO make the C interface less terrifying
-getWindowByClass :: String -> Xest (Maybe Window)
-getWindowByClass wName = do
+getWindows :: Xest [Window]
+getWindows = do
   display         <- asks display
   root            <- asks rootWin
   -- At this point things aren't really wrapped so we need to manage memory manually
@@ -319,11 +321,18 @@ getWindowByClass wName = do
     else return 0
   liftIO $ free childrenListPtr
   liftIO $ free numChildrenPtr
-  let findWindow (win : wins) = do
+  return childrenList
+
+-- Find a window with a class name
+-- TODO make the C interface less terrifying
+getWindowByClass :: String -> Xest [Window]
+getWindowByClass wName = do
+  display      <- asks display
+  childrenList <- getWindows
+  let findWindow win = do
         ClassHint _ className <- getClassHint display win
-        if className == wName then return $ Just win else findWindow wins
-      findWindow [] = return Nothing
-  liftIO $ findWindow childrenList
+        return $ className == wName
+  liftIO $ filterM findWindow childrenList
 
 -- Moves windows around
 render :: EventState -> Xest ()

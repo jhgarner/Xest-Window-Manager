@@ -10,7 +10,7 @@ where
 import           ClassyPrelude
 import           Config
 import           Control.Lens
-import           Control.Monad.State.Lazy
+import           Control.Monad.State.Lazy (get, gets, fix)
 import           Core
 import           Data.Bits
 import           Graphics.X11.Types
@@ -20,6 +20,7 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Screen
 import           Graphics.X11.Xlib.Atom
+import           Graphics.X11.Xlib.Window
 import           Types
 import           Tiler
 import           Data.Functor.Foldable
@@ -91,6 +92,22 @@ writeWorkspaces (names, i) = do
   liftIO $ changeProperty32 display root numD card propModeReplace [fromIntegral $ length names, 0]
   liftIO $ changeProperty32 display root currentD card propModeReplace [fromIntegral i, 0]
 
+makeTopWindows :: Xest ()
+makeTopWindows = do
+  display <- asks display
+  wins <- getWindows
+  forM_ wins $ \win -> do
+    wmState  <- liftIO $ internAtom display "_NET_WM_STATE" False
+    above  <- (liftIO $ internAtom display "_NET_WM_STATE_ABOVE" False) :: Xest Word64
+    WindowAttributes { wa_map_state = ms } <- liftIO
+      $ getWindowAttributes display win
+    when (ms /= waIsUnmapped) $ do
+      prop <- liftIO $ rawGetWindowProperty 32 display wmState win :: Xest (Maybe [Word64])
+      case prop of
+        Nothing -> return ()
+        Just states ->  do
+          print win
+          when (isJust $ find (== above) states) $ liftIO $ raiseWindow display win
 -- | Performs the event loop recursion inside of the Xest Monad
 -- The return value of one iteration becomes the input for the next
 mainLoop :: IterationState -> EventState -> IO ()
@@ -105,6 +122,7 @@ mainLoop iState@IS {..} eventState =
   recurse [] = do
     gets _desktop >>= liftIO . print
     get >>= render
+    makeTopWindows
     gets _desktop >>= writeWorkspaces . onInput getDesktopState
     ptr <- liftIO . allocaXEvent $ \p -> nextEvent display p >> getEvent p
     return [XorgEvent ptr]
