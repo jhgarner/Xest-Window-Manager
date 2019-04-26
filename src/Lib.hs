@@ -1,16 +1,15 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
 
 module Lib
   ( startWM
   )
 where
 
-import           ClassyPrelude
+import           ClassyPrelude hiding (Reader, asks, ask)
 import           Config
-import           Control.Lens
-import           Control.Monad.State.Lazy (get, gets, fix)
+import Polysemy hiding (raise)
+import Polysemy.State
+import Polysemy.Reader
 import           Core
 import           Data.Bits
 import           Graphics.X11.Types
@@ -20,13 +19,12 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Screen
 import           Graphics.X11.Xlib.Atom
-import           Graphics.X11.Xlib.Window
 import           Types
+import           Base
 import           Tiler
 import           Data.Functor.Foldable
 import           Data.Char                      ( ord )
 import qualified Data.Vector                   as V
-import qualified Data.Set                      as S
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
@@ -42,27 +40,46 @@ startWM = do
   selectInput
     display
     root
-    (substructureNotifyMask .|. substructureRedirectMask .|. enterWindowMask)
+    $ substructureNotifyMask .|. substructureRedirectMask .|. enterWindowMask
 
   -- Read the config file
   c <- readConfig display "./config.conf"
 
   -- Perform various pure actions for getting the iteration state
   let screen      = defaultScreenOfDisplay display
-      -- TODO don't use impure functions here
       initialMode = head . impureNonNull $ definedModes c
-      iState =
-        IS display root (widthOfScreen screen, heightOfScreen screen) c Nothing
+      dims = (widthOfScreen screen, heightOfScreen screen)
+      rootTiler = Fix . InputController . Fix . Directional X $ FL 0 V.empty
 
   -- Grabs the initial keybindings
-  _ <- runXest iState (error "No event state") $ rebindKeys initialMode
+  _ <- runM $ runReader c $ runReader display $ runReader root $ runGlobalX $ rebindKeys initialMode
 
   -- Execute the main loop. Will never return unless Xest exits
-  mainLoop iState $ ES
-    (Fix . InputController . Fix . Directional X $ FL 0 V.empty)
-    initialMode
-    handler
-    S.empty
+  doAll rootTiler c initialMode dims display root (chain mainLoop []) >> say "Exiting"
+  
+    -- Chain takes a function and calls it over and over tying it into itself
+    where chain f initial = f initial >>= chain f
+
+
+-- | Performs the main logic. The return of one call becomes the input for the next
+mainLoop :: Actions -> DoAll r
+-- When there are no actions to perform, render the windows and find new actions to do
+mainLoop [] = do
+  get >>= render
+  makeTopWindows
+  get >>= writeWorkspaces . onInput getDesktopState
+  ptr <- getXEvent
+  return [XorgEvent ptr]
+
+-- When there are actions to perform, do them and add the results to the list of actions
+mainLoop (a : as) = do
+  preResult <- \case
+    Default -> []
+    New o k -> newModePreprocessor o k a
+    Temp o k -> tempModePreprocessor o k a
+    <$> get
+  newActions <- handler a
+  return $ as ++ preResult ++ newActions
 
 getAtom :: Display -> String -> IO Atom
 getAtom display t = internAtom display t False
@@ -76,60 +93,20 @@ initEwmh display root = do
   changeProperty32 display root a c propModeReplace (fmap fromIntegral supp)
 
 
-writeWorkspaces :: ([Text], Int) -> Xest ()
+writeWorkspaces :: (Member PropertyWriter r, Member (Reader Window) r) => ([Text], Int) -> Semantic r ()
 writeWorkspaces (names, i) = do
-  root    <- asks rootWin
-  display <- asks display
-  dNames  <- liftIO $ internAtom display "_NET_DESKTOP_NAMES" False
-  numD  <- liftIO $ internAtom display "_NET_NUMBER_OF_DESKTOPS" False
-  currentD  <- liftIO $ internAtom display "_NET_CURRENT_DESKTOP" False
-  utf8    <- liftIO $ internAtom display "UTF8_STRING" False
-  card    <- liftIO $ internAtom display "CARDINAL" False
-  liftIO
-    $ changeProperty8 display root dNames utf8 propModeReplace
-    $ map fromIntegral
+  root    <- ask
+  setProperty8 "_NET_DESKTOP_NAMES" "UTF8_STRING" root
     $ concatMap ((++ [0]) . fmap ord . unpack) names
-  liftIO $ changeProperty32 display root numD card propModeReplace [fromIntegral $ length names, 0]
-  liftIO $ changeProperty32 display root currentD card propModeReplace [fromIntegral i, 0]
+  setProperty32 "_NET_NUMBER_OF_DESKTOPS" "CARDINAL" root [length names, 0]
+  setProperty32 "_NET_CURRENT_DESKTOP" "CARDINAL" root [i, 0]
 
-makeTopWindows :: Xest ()
+makeTopWindows :: (Member PropertyReader r, Member GlobalX r, Member WindowMover r) => Semantic r ()
 makeTopWindows = do
-  display <- asks display
-  wins <- getWindows
+  wins <- getTree
   forM_ wins $ \win -> do
-    wmState  <- liftIO $ internAtom display "_NET_WM_STATE" False
-    above  <- (liftIO $ internAtom display "_NET_WM_STATE_ABOVE" False) :: Xest Word64
-    WindowAttributes { wa_map_state = ms } <- liftIO
-      $ getWindowAttributes display win
-    when (ms /= waIsUnmapped) $ do
-      prop <- liftIO $ rawGetWindowProperty 32 display wmState win :: Xest (Maybe [Word64])
-      case prop of
-        Nothing -> return ()
-        Just states ->  do
-          print win
-          when (isJust $ find (== above) states) $ liftIO $ raiseWindow display win
--- | Performs the event loop recursion inside of the Xest Monad
--- The return value of one iteration becomes the input for the next
-mainLoop :: IterationState -> EventState -> IO ()
-mainLoop iState@IS {..} eventState =
-  runXest iState eventState (chain recurse []) >> say "Exiting"
- where
-  chain f initial = fix (\rec b -> b >>= rec . f) $ return initial
-
-  -- Performs the actual looping
-  recurse :: Actions -> Xest Actions
-  -- When there are no actions to perform, find new ones
-  recurse [] = do
-    gets _desktop >>= liftIO . print
-    get >>= render
-    makeTopWindows
-    gets _desktop >>= writeWorkspaces . onInput getDesktopState
-    ptr <- liftIO . allocaXEvent $ \p -> nextEvent display p >> getEvent p
-    return [XorgEvent ptr]
-
-  -- When there are actions to perform, do them and add the results to the list of actions
-  recurse (a : as) = do
-    -- liftIO $ print a
-    es       <- get
-    newEvent <- view keyParser es a
-    return $ as ++ newEvent
+    prop <- getProperty 32 "_NET_WM_STATE" win
+    case prop of
+      Nothing -> return ()
+      Just states -> 
+        whenM (any (&& True) <$> traverse (isSameAtom  "_NET_WM_STATE_ABOVE") states) $ raise win

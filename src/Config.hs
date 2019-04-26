@@ -68,8 +68,8 @@ actionToType _ (ShowWindow     a) = T.ShowWindow $ unpack a
 actionToType _ (HideWindow     a) = T.HideWindow $ unpack a
 actionToType _ ZoomInInput        = T.ZoomInInput
 actionToType _ ZoomOutInput       = T.ZoomOutInput
-actionToType _ (ChangeNamed s)       = T.ChangeNamed s
-actionToType _ (Move s)       = if s then T.Move T.Front else T.Move T.Back
+actionToType _ (ChangeNamed s)    = T.ChangeNamed s
+actionToType _ (Move        s)    = if s then T.Move T.Front else T.Move T.Back
 actionToType modeList (ChangeModeTo a) =
   T.ChangeModeTo . modeToType modeList $ getMode a modeList
 
@@ -85,7 +85,7 @@ data Tiler
 tilerToType :: Tiler -> Fix T.Tiler
 tilerToType Vertical   = Fix . T.Directional T.Y $ T.FL 0 V.empty
 tilerToType Horizontal = Fix . T.Directional T.X $ T.FL 0 V.empty
-tilerToType Workspace = Fix . T.Directional T.Z $ T.FL 0 V.empty
+tilerToType Workspace  = Fix . T.Directional T.Z $ T.FL 0 V.empty
 
 -- | Pretty much the same as T.Mode already
 data Mode = NewMode { modeName     :: Text

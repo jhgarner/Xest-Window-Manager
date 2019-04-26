@@ -1,108 +1,74 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
 
 module Core where
 
-import           ClassyPrelude
-import           Control.Lens                   ( (.~)
-                                                , view
-                                                , set
+import           ClassyPrelude           hiding ( ask
+                                                , asks
+                                                , Reader
                                                 )
-import           Control.Monad.State.Lazy       ( get
-                                                , gets
-                                                , modify
-                                                )
-import           Foreign.Marshal.Alloc
-import           Foreign.Marshal.Array
-import           Foreign.Storable
+import           Base
+import           Polysemy
+import           Polysemy.State
+import           Polysemy.Reader
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
-import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types
-import           Graphics.X11.Xlib.Window
-import           Graphics.X11.Xlib.Event
-import           Graphics.X11.Xlib.Atom
-import           System.Process
 import           Types
 import qualified Data.Vector                   as V
 import           Data.Functor.Foldable
 import           Data.Either                    ( )
 import           Tiler
--- import Data.
 
 
--- drawLine x y st = do
---   p <- readSTRef st
---   return ()
 
 -- Event Handlers --
 
--- | This handler is used while holding down a key but before another key has been pressed
-newModeHandler :: Mode -> KeyTrigger -> Action -> Xest Actions
-
+-- | This preprocessor is used while holding down a key but before another key has been pressed
+newModePreprocessor :: KeyPreprocessor r
 -- A button was pressed so we need to change how we handle releasing the key
-newModeHandler oldMode boundT (KeyboardEvent (_, targetMode, actions) True) =
-  do
-    modify (keyParser .~ tempModeRunner oldMode boundT)
-    -- TODO put in function instead of copy and pasting following code between handlers
-    activeMode <- gets $ view currentMode
-    -- Check if the current mode is the mode that the keybinding is defined for
-    -- Because we constantly rebind keys, I think this should always be true so TODO check that
-    if activeMode == targetMode then return actions else return []
+newModePreprocessor oldMode boundT (KeyboardEvent _ True) =
+  [ChangePreprocessor $ Temp oldMode boundT]
 
 -- A button was released so go back to the normal handler if it was the key we were watching
-newModeHandler _ boundT ke@(KeyboardEvent kt False)
-  | boundT == kt = modify (set keyParser handler) >> return []
-  | otherwise    = handler ke
+newModePreprocessor _ boundT (KeyboardEvent kt False)
+  | boundT == kt = [ChangePreprocessor Default]
+  | otherwise    = []
 
--- Otherwise defer to the normal handler
-newModeHandler _ _ e = handler e
+-- Otherwise do nothing
+newModePreprocessor _ _ _ = []
 
 
--- | Handler used when another key is clicked while holding one down
-tempModeRunner :: Mode -> KeyTrigger -> Action -> Xest Actions
-
+-- | Preprocessor used when another key is clicked while holding one down
+tempModePreprocessor :: KeyPreprocessor r
 -- On release, return to the old mode
-tempModeRunner oldMode boundKey ke@(KeyboardEvent k False)
-  | k == boundKey = do
-    modify $ set keyParser handler
-    return [ChangeModeTo oldMode]
-  | otherwise = handler ke
-
--- Nearly identical to the handler version except it doesn't change the keyParser
--- This is part of that TODO up above
-tempModeRunner _ _ (KeyboardEvent (_, targetMode, actions) True) = do
-  activeMode <- gets $ view currentMode
-  if activeMode == targetMode then return actions else return []
+tempModePreprocessor oldMode boundKey (KeyboardEvent k False)
+  | k == boundKey = [ChangePreprocessor Default, ChangeModeTo oldMode]
+  | otherwise     = []
 
 -- Otherwise defer to handler
-tempModeRunner _ _ e = handler e
+tempModePreprocessor _ _ _ = []
 
 
 -- | The bulk of the program
 -- Performs some action and returns a list of new actions to be performed
 -- Returning a [] means that there aren't any new tasks to do.
-handler :: Action -> Xest Actions
+handler :: Action -> DoAll r
 -- Called on window creation
 handler (XorgEvent MapRequestEvent {..}) = do
-  display <- asks display
   -- managing a window allows us to do any number of things to it
-  -- Currently we wrap it in a new type and do nothing else
-  tWin    <- manage ev_window
-  -- Recall the mapWindow Xorg event.
+  -- Currently we wrap it in a new type and ask for crossing events
+  tWin <- manage ev_window
+  -- Resend the mapWindow Xorg event.
   -- We don't receive the mapWindow event from this because Xorg knows we sent it.
-  liftIO $ mapWindow display ev_window
+  restore ev_window
   -- This adds the new window to whatever tiler comes after inputController
   -- If you've zoomed the inputController in, you get nesting as a result
-  modify $ \es -> set
-    desktop
-    (cata (applyInput (add Front Focused tWin)) $ view desktop es)
-    es
+  modify $ cata (applyInput (add Front Focused tWin))
   -- Make the newly created window into the focused one
   -- We have to keep Xorg's idea of focus in sync with our own
-  liftIO $ setInputFocus display ev_window revertToNone currentTime
+  setFocus ev_window
   return []
 
 -- Called on window destruction
@@ -110,96 +76,77 @@ handler (XorgEvent DestroyWindowEvent {..}) = do
   -- Remove the destroyed window from our tree.
   -- Usually, unmap will be called first, but what if a minimized window
   -- gets killed? In that case, we won't get an unmap notifiction.
-  modify $ \es -> desktop .~ cata (remove $ Wrap ev_window) (_desktop es) $ es
+  modify $ cata (remove $ Wrap ev_window)
   return []
 
 -- Called when a window should no longer be drawn
 -- This either happens when the window dies, or when we minimize it
 handler (XorgEvent UnmapEvent {..}) = do
-  mins <- gets $ view minimizedWins
+  mins <- get @(Set Window)
   -- Remove the destroyed window from our tree if we aren't the
   -- reason it was unmapped.
-  unless (member ev_window mins) $ modify $ \es ->
-    desktop .~ cata (remove $ Wrap ev_window) (_desktop es) $ es
+  unless (member ev_window mins) $ modify $ cata (remove $ Wrap ev_window)
   return []
 
 -- Tell the window it can configure itself however it wants
 -- We send back the Configure Request unmodified
-handler (XorgEvent ConfigureRequestEvent {..}) = do
-  IS {..} <- ask
-  liftIO $ configureWindow display ev_window ev_value_mask wc
+handler (XorgEvent cre@ConfigureRequestEvent{}) = do
+  configureWin cre
   return []
- where
-  wc = WindowChanges ev_x
-                     ev_y
-                     ev_width
-                     ev_height
-                     ev_border_width
-                     ev_above
-                     ev_detail
 
--- Determine if we care about the key event
--- Because we rebind keys, I think we always should, so, TODO look at that
 handler (XorgEvent KeyEvent {..}) = do
-  Conf bindings _ <- asks config
+  Conf bindings _ <- ask @Conf
   return $ case find (\(k, _, _) -> ev_keycode == k) bindings of
     Nothing -> []
     Just kt -> [KeyboardEvent kt (ev_event_type == keyPress)]
 
 -- Called when the cursor moves between windows
 handler (XorgEvent CrossingEvent {..}) = do
-  d     <- asks display
-  rootT <- gets $ view desktop
+  rootT <- get @(Fix Tiler)
   -- Make certain that the focused window is the one we're hovering over
-  liftIO $ setInputFocus d ev_window revertToNone currentTime
+  setFocus ev_window
   let (newRoot, status) = cata (focusWindow ev_window) rootT
   -- If status is anything but (False, False), it means that something super
   -- weird is going on and the newRoot is probably bad.
   -- Usually this happens if the crossed window isn't in our tree and causes
   -- the InputController to disappear.
-  when (status == (False, False)) . modify $ set desktop newRoot
+  when (status == (False, False)) $ put newRoot
   return []
 
 -- Handle all other xorg events as noops
-handler (XorgEvent  _) = return []
+handler (XorgEvent _) = return []
 
 -- Run a shell command
-handler (RunCommand s) = liftIO (spawnCommand s) >> return []
+handler (RunCommand s) = execute s >> return []
+
+-- Run a shell command
+handler (ChangePreprocessor m ) = put m >> return []
 
 -- Perform a keyboard event if we are in the correct mode
-handler (KeyboardEvent kt@(_, targetMode, actions) True) = do
-  -- See the previous copies of this code for more info
-  activeMode <- view currentMode <$> get
-  if activeMode == targetMode
-    then do
-    -- The only difference is we set the keyParser to the newModeHandler
-    -- This is completely safe even if the key doesn't trigger a new mode
-      modify $ set keyParser (newModeHandler activeMode kt)
-      return actions
-    else return []
+handler (KeyboardEvent kt@(_, _, actions) True) = do
+  currentMode <- get
+  return $ ChangePreprocessor (New currentMode kt) : actions
+
 -- Ignore keyups
--- Note that either tmp or new handler will capture this if needed
--- The default handler though doesn't care about keyup
+-- Note that the preprocessor will handle these if needed
 handler (KeyboardEvent _ False) = return []
 
 -- Show a window given its class name
-handler (ShowWindow wName     ) = do
-  wins     <- getWindowByClass wName
-  display <- asks display
-  forM_ wins $ liftIO . mapWindow display
+handler (ShowWindow wName) = do
+  wins <- getWindowByClass wName
+  forM_ wins restore
   return []
 
 -- Hide a window given its class name
 handler (HideWindow wName) = do
-  wins     <- getWindowByClass wName
-  display <- asks display
-  forM_ wins $ liftIO . unmapWindow display
+  wins <- getWindowByClass wName
+  forM_ wins minimize
   return []
 
 -- Zoom the inputController towards the focused window
 handler ZoomInInput = do
-  root <- gets $ view desktop
-  modify . set desktop $ cata reorder root
+  root <- get @(Fix Tiler)
+  put $ cata reorder root
   return []
  where
   reorder (InputController (Fix t)) =
@@ -208,9 +155,9 @@ handler ZoomInInput = do
 
 -- Move the input controller towards the root
 handler ZoomOutInput = do
-  root <- gets $ view desktop
+  root <- get @(Fix Tiler)
   -- Don't zoom the controller out of existence
-  unless (isController root) $ modify . set desktop $ para reorder root
+  unless (isController root) $ put $ para reorder root
   return []
  where
   reorder (InputController (_, t)) = t
@@ -222,34 +169,31 @@ handler ZoomOutInput = do
 
 -- Change the given mode to something else
 handler (ChangeModeTo newM) = do
-  eActions <- gets $ exitActions . view currentMode
+  eActions <- gets @Mode exitActions
   rebindKeys newM
-  modify $ set currentMode newM
+  put newM
   --Combine the two lists of actions to be executed. Execute exit actions first.
   return $ eActions ++ introActions newM
 
 -- Change the layout of whatever comes after the input controller to something else
 handler (ChangeLayoutTo (Fix newT)) = do
-  root <- gets $ view desktop
-  modify . set desktop $ cata (applyInput (changeLayout newT)) root
+  modify $ cata (applyInput (changeLayout newT))
   return []
 
 -- Change the focus to some named action
 handler (ChangeNamed s) = do
-  root <- gets $ view desktop
-  modify . set desktop $ cata (applyInput changer) root
+  modify $ cata (applyInput changer)
   xFocus
   return []
  where
   changer t@(Directional d fl) = case readMay s of
-    Just a -> Directional d $ fl { focusedElement = a - 1 }
+    Just a  -> Directional d $ fl { focusedElement = a - 1 }
     Nothing -> t
   changer t = t
 
 -- Change focus in a given direction
 handler (Move newD) = do
-  root    <- gets $ view desktop
-  modify . set desktop $ cata (applyInput (changer newD)) root
+  modify $ cata (applyInput (changer newD))
   xFocus
   return []
  where
@@ -273,84 +217,47 @@ changeLayout newT root = unfix $ doPopping root newT
 -- Random stuff --
 
 -- Would be used for reparenting (title bar)
-manage :: Window -> Xest (Fix Tiler)
+manage :: Member AttributeWriter r => Window -> Semantic r (Fix Tiler)
 manage w = do
-  IS {..} <- ask
-  liftIO $ selectInput display w enterWindowMask
-  wmState  <- liftIO $ internAtom display "_NET_WM_WINDOW_TYPE" False
-  normal  <- (liftIO $ internAtom display "_NET_WM_WINDOW_TYPE_NORMAL" False) :: Xest Word64
-  return $ Fix $ Wrap w
-  -- prop <- liftIO $ rawGetWindowProperty 32 display wmState w :: Xest (Maybe [Word64])
-  -- print $ "t " ++ show prop
-  -- return $ case prop of
-  --   Nothing -> Fix EmptyTiler
-  --   Just states -> if isJust $ find (== normal) states then Fix $ Wrap w else Fix EmptyTiler
-
--- Chang the keybindings depending on the mode
-rebindKeys :: Mode -> Xest ()
-rebindKeys activeMode = do
-  Conf kb _ <- asks config
-  d         <- asks display
-  win       <- asks rootWin
-  liftIO . forM_ kb $ toggleModel activeMode d win
- where
-  toggleModel :: Mode -> Display -> Window -> KeyTrigger -> IO ()
-  toggleModel m d win (k, km, _) = if m == km
-    then grabKey d k anyModifier win False grabModeAsync grabModeAsync
-    else ungrabKey d k anyModifier win
-
-getWindows :: Xest [Window]
-getWindows = do
-  display         <- asks display
-  root            <- asks rootWin
-  -- At this point things aren't really wrapped so we need to manage memory manually
-  numChildrenPtr  <- liftIO malloc
-  childrenListPtr <- liftIO malloc
-  uselessPtr      <- liftIO . alloca $ \x -> return x
-  _               <- liftIO $ xQueryTree display
-                                         root
-                                         uselessPtr
-                                         uselessPtr
-                                         childrenListPtr
-                                         numChildrenPtr
-  numChildren  <- liftIO $ peek numChildrenPtr
-  childrenList <- liftIO $ peek childrenListPtr >>= peekArray
-    (fromIntegral numChildren)
-  _ <- if not (null childrenList)
-    then liftIO $ peek childrenListPtr >>= xFree
-    else return 0
-  liftIO $ free childrenListPtr
-  liftIO $ free numChildrenPtr
-  return childrenList
+  selectFlags w enterWindowMask
+  return . Fix $ Wrap w
 
 -- Find a window with a class name
--- TODO make the C interface less terrifying
-getWindowByClass :: String -> Xest [Window]
+getWindowByClass
+  :: (Member GlobalX r, Member AttributeReader r)
+  => String
+  -> Semantic r [Window]
 getWindowByClass wName = do
-  display      <- asks display
-  childrenList <- getWindows
-  let findWindow win = do
-        ClassHint _ className <- getClassHint display win
-        return $ className == wName
-  liftIO $ filterM findWindow childrenList
+  childrenList <- getTree
+  filterM findWindow childrenList
+  where findWindow win = (== wName) <$> getClassName win
 
 -- Moves windows around
-render :: EventState -> Xest ()
-render (ES t _ _ _) = do
-  (w, h) <- asks dimensions
+render
+  :: ( Member (Reader (Dimension, Dimension)) r
+     , Member WindowMover r
+     , Member WindowMinimizer r
+     )
+  => Fix Tiler
+  -> Semantic r ()
+render t = do
+  (w, h) <- ask
   cata placeWindows t (Rect 0 0 w h)
 
 -- |Focus the X window
-xFocus :: Xest ()
+xFocus
+  :: ( Member (State (Fix Tiler)) r
+     , Member WindowMinimizer r
+     , Member AttributeWriter r
+     )
+  => Semantic r ()
 xFocus = do
-  root <- fmap unfix . gets $ view desktop
-  d    <- asks display
-  focWin d $ unsafeLast (ana makeList root :: [Tiler (Fix Tiler)])
+  root <- get @(Fix Tiler)
+  let (Fix (Wrap w)) = unsafeLast (ana makeList root :: [Fix Tiler])
+  restore w
+  setFocus w
  where
-  focWin d (Wrap w) =
-    safeMap w >> liftIO (setInputFocus d w revertToNone currentTime)
-  focWin _ _ = error "How can I focus this!"
-  makeList :: Tiler (Fix Tiler) -> ListF (Tiler (Fix Tiler)) (Tiler (Fix Tiler))
-  makeList (Wrap _) = Nil
-  makeList t = Cons (unfix . getFocused $ Fix t) (unfix . getFocused $ Fix t)
+  makeList :: Fix Tiler -> ListF (Fix Tiler) (Fix Tiler)
+  makeList (Fix (Wrap _)) = Nil
+  makeList t              = Cons (getFocused t) (getFocused t)
   getFocused = fromMaybe (error "no focus") . fst . popWindow (Right Focused)

@@ -1,17 +1,11 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveFoldable             #-}
 {-# LANGUAGE DeriveTraversable          #-}
-{-# LANGUAGE NoImplicitPrelude          #-}
 {-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE OverloadedStrings          #-}
 
 module Types where
 
 import           ClassyPrelude
-import           Control.Lens
-import           Control.Monad.State.Lazy
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Types
@@ -19,6 +13,14 @@ import           Data.Functor.Foldable.TH
 import           Data.Functor.Foldable
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
+
+-- | A simple rectangle
+data Rect = Rect
+  { x :: Position
+  , y :: Position
+  , w :: Dimension
+  , h :: Dimension
+  }
 
 data Focus = Focused | Unfocused
   deriving (Eq)
@@ -58,6 +60,7 @@ instance Eq Event where
 data Action
   = ChangeLayoutTo (Fix Tiler)
   | ChangeNamed String
+  | ChangePreprocessor KeyStatus
   | Move Direction
   | RunCommand String
   | ChangeModeTo Mode
@@ -85,41 +88,8 @@ instance Eq Mode where
 data Conf = Conf { keyBindings  :: [KeyTrigger]
                  , definedModes :: [Mode]
                  }
-  -- deriving (Show)
 
--- | Immutable state. TODO consider changing the name
-data IterationState = IS
-  { display    :: Display
-  , rootWin    :: Window
-  , dimensions :: (Dimension, Dimension)
-  , config     :: Conf
-  , actionTodo :: Maybe Action
-  }
+data KeyStatus = New Mode KeyTrigger | Temp Mode KeyTrigger | Default
+  deriving (Show, Eq)
 
--- | A standard mtl monad with Reader and State
-newtype Xest a = Xest
-  { _runXest :: ReaderT IterationState (StateT EventState IO) a
-  } deriving (Functor, Applicative, Monad, MonadIO, MonadReader IterationState, MonadState EventState)
-
-runXest :: IterationState -> EventState -> Xest a -> IO (a, EventState)
-runXest r s x = runStateT (runReaderT (_runXest x) r) s
-
--- | The mutable state
-data EventState = ES
-  { _desktop     :: Fix Tiler -- ^ The root Tiler
-  , _currentMode :: Mode
-  , _keyParser   :: Action -> Xest Actions -- ^ The handler
-  , _minimizedWins :: Set Window
-  }
-
--- We use lenses for convenience
-makeLenses ''EventState
-
--- | A simple rectangle
-data Rect = Rect
-  { x :: Position
-  , y :: Position
-  , w :: Dimension
-  , h :: Dimension
-  }
-
+type KeyPreprocessor r = Mode -> KeyTrigger -> Action -> Actions

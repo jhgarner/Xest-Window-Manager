@@ -1,25 +1,16 @@
 {-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module Tiler where
 
 import           ClassyPrelude
 import           Graphics.X11.Types
-import           Graphics.X11.Xlib.Extras
-import           Graphics.X11.Xlib.Window
 import qualified Data.Vector                   as V
-import qualified Data.Set                      as S
 import qualified Data.Vector.Mutable           as MV
 import           Data.Functor.Foldable
 import           Types
-import           Control.Monad.State.Lazy       ( gets
-                                                , modify
-                                                )
-import           Control.Lens                   ( view
-                                                , set
-                                                )
+import           Base
+import           Polysemy
 
 -- Tiler Handling Code --
 
@@ -101,24 +92,22 @@ popWindow (Right Focused) (Fix (Directional d FL {..})) =
 popWindow _ (Fix (  InputController t)) = (Just t, EmptyTiler)
 popWindow _ (Fix t@(Wrap            _)) = (Just $ Fix t, EmptyTiler)
 popWindow _ (Fix EmptyTiler           ) = (Nothing, EmptyTiler)
-popWindow _ _ = error "Unimplemented unfocused pop"
+popWindow _ _                           = error "Unimplemented unfocused pop"
 
 
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
 -- catamorphisms operate from the root down to the leaves
-placeWindows :: Tiler (Rect -> Xest ()) -> Rect -> Xest ()
+placeWindows
+  :: (Member WindowMover r, Member WindowMinimizer r)
+  => Tiler (Rect -> Semantic r ())
+  -> Rect
+  -> Semantic r ()
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
-placeWindows (Wrap win) (Rect _ _ 0 0) = do
-  IS {..} <- ask
-  mins    <- gets $ view minimizedWins
-  modify $ set minimizedWins $ S.insert win mins
-  liftIO $ unmapWindow display win
-placeWindows (Wrap win) Rect {..} = do
-  IS {..} <- ask
-  safeMap win
-  liftIO $ moveWindow display win x y
-  liftIO $ resizeWindow display win w h
+placeWindows (Wrap win) (Rect _ _ 0 0) = minimize win
+placeWindows (Wrap win) r              = do
+  restore win
+  changeLocation r win
 
 -- | Place tilers along an axis
 placeWindows (Directional d FL { focusedElement = fe, elements = e }) Rect {..}
@@ -147,9 +136,9 @@ applyInput _ t                         = Fix t
 
 onInput :: (Tiler (Fix Tiler) -> a) -> Fix Tiler -> a
 onInput f root = fromMaybe (error "No Controller found") $ para doInput root
-  where 
-    doInput (InputController (Fix t, _)) = Just $ f t
-    doInput t = foldl' (\acc a -> acc <|> snd a) Nothing t
+ where
+  doInput (InputController (Fix t, _)) = Just $ f t
+  doInput t = foldl' (\acc a -> acc <|> snd a) Nothing t
 
 -- | Modify the focused Tiler in another Tiler based on a function
 modFocused :: (Fix Tiler -> Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
@@ -196,16 +185,6 @@ focusWindow _ t = case (hasController, hasWind) of
     t
 
 getDesktopState :: Tiler (Fix Tiler) -> ([Text], Int)
-getDesktopState (Directional _ (FL ce e)) = (pack . show <$> [1 .. V.length e], ce)
+getDesktopState (Directional _ (FL ce e)) =
+  (pack . show <$> [1 .. V.length e], ce)
 getDesktopState _ = (["None"], 0)
-
--- | Maps a window if it was minimized
-safeMap :: Window -> Xest ()
-safeMap win = do
-  IS {..} <- ask
-  mins    <- gets $ view minimizedWins
-  WindowAttributes { wa_map_state = mapped } <- liftIO
-    $ getWindowAttributes display win
-  when (mapped == waIsUnmapped && member win mins) $ do
-    liftIO $ mapWindow display win
-    modify $ set minimizedWins $ S.delete win mins
