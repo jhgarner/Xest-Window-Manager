@@ -15,8 +15,8 @@ import           Dhall
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types
 import qualified Types                         as T
-import qualified Data.Vector                   as V
 import           Data.Functor.Foldable
+import           FocusList
 
 -- Mirror many of the datatypes from Types but with easy to parse versions
 -- | Same as Type
@@ -69,7 +69,7 @@ actionToType _ (HideWindow     a) = T.HideWindow $ unpack a
 actionToType _ ZoomInInput        = T.ZoomInInput
 actionToType _ ZoomOutInput       = T.ZoomOutInput
 actionToType _ (ChangeNamed s)    = T.ChangeNamed s
-actionToType _ (Move        s)    = if s then T.Move T.Front else T.Move T.Back
+actionToType _ (Move        s)    = if s then T.Move Front else T.Move Back
 actionToType modeList (ChangeModeTo a) =
   T.ChangeModeTo . modeToType modeList $ getMode a modeList
 
@@ -83,9 +83,9 @@ data Tiler
 
 -- | See other *ToType functions
 tilerToType :: Tiler -> Fix T.Tiler
-tilerToType Vertical   = Fix . T.Directional T.Y $ T.FL 0 V.empty
-tilerToType Horizontal = Fix . T.Directional T.X $ T.FL 0 V.empty
-tilerToType Workspace  = Fix . T.Directional T.Z $ T.FL 0 V.empty
+tilerToType Vertical   = Fix . T.Directional T.Y $ emptyFL
+tilerToType Horizontal = Fix . T.Directional T.X $ emptyFL
+tilerToType Workspace  = Fix . T.Directional T.Z $ emptyFL
 
 -- | Pretty much the same as T.Mode already
 data Mode = NewMode { modeName     :: Text

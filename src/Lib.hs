@@ -22,9 +22,9 @@ import           Graphics.X11.Xlib.Atom
 import           Types
 import           Base
 import           Tiler
+import           FocusList
 import           Data.Functor.Foldable
 import           Data.Char                      ( ord )
-import qualified Data.Vector                   as V
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
@@ -49,7 +49,7 @@ startWM = do
   let screen      = defaultScreenOfDisplay display
       initialMode = head . impureNonNull $ definedModes c
       dims = (widthOfScreen screen, heightOfScreen screen)
-      rootTiler = Fix . InputController . Fix . Directional X $ FL 0 V.empty
+      rootTiler = InputController . Fix . Directional X $ emptyFL
 
   -- Grabs the initial keybindings
   _ <- runM $ runReader c $ runReader display $ runReader root $ runGlobalX $ rebindKeys initialMode
@@ -65,6 +65,9 @@ startWM = do
 mainLoop :: Actions -> DoAll r
 -- When there are no actions to perform, render the windows and find new actions to do
 mainLoop [] = do
+  modify $ cata $ Fix . reduce
+  get @((Fix Tiler)) >>= \r -> trace (show r) return ()
+  trace (show . reduce $ add Back Focused (Fix EmptyTiler) (Wrap 5)) return ()
   get >>= render
   makeTopWindows
   get >>= writeWorkspaces . onInput getDesktopState

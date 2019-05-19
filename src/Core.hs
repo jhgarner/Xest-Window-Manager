@@ -16,10 +16,10 @@ import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Types
 import           Types
-import qualified Data.Vector                   as V
 import           Data.Functor.Foldable
 import           Data.Either                    ( )
 import           Tiler
+import           FocusList
 
 
 
@@ -65,7 +65,7 @@ handler (XorgEvent MapRequestEvent {..}) = do
   restore ev_window
   -- This adds the new window to whatever tiler comes after inputController
   -- If you've zoomed the inputController in, you get nesting as a result
-  modify $ cata (applyInput (add Front Focused tWin))
+  modify $ cata $ applyInput (add Front Focused tWin)
   -- Make the newly created window into the focused one
   -- We have to keep Xorg's idea of focus in sync with our own
   setFocus ev_window
@@ -76,7 +76,7 @@ handler (XorgEvent DestroyWindowEvent {..}) = do
   -- Remove the destroyed window from our tree.
   -- Usually, unmap will be called first, but what if a minimized window
   -- gets killed? In that case, we won't get an unmap notifiction.
-  modify $ cata (remove $ Wrap ev_window)
+  modify @(Fix Tiler) $ cata (Fix . remove (Fix $ Wrap ev_window))
   return []
 
 -- Called when a window should no longer be drawn
@@ -85,7 +85,8 @@ handler (XorgEvent UnmapEvent {..}) = do
   mins <- get @(Set Window)
   -- Remove the destroyed window from our tree if we aren't the
   -- reason it was unmapped.
-  unless (member ev_window mins) $ modify $ cata (remove $ Wrap ev_window)
+  unless (member ev_window mins) $ 
+    modify $ cata (Fix . remove (Fix $ Wrap ev_window))
   return []
 
 -- Tell the window it can configure itself however it wants
@@ -110,7 +111,8 @@ handler (XorgEvent CrossingEvent {..}) = do
   -- weird is going on and the newRoot is probably bad.
   -- Usually this happens if the crossed window isn't in our tree and causes
   -- the InputController to disappear.
-  when (status == (False, False)) $ put newRoot
+  when (status == (False, False)) $
+    put newRoot
   return []
 
 -- Handle all other xorg events as noops
@@ -155,7 +157,7 @@ handler ZoomInInput = do
 
 -- Move the input controller towards the root
 handler ZoomOutInput = do
-  root <- get @(Fix Tiler)
+  root <- get
   -- Don't zoom the controller out of existence
   unless (isController root) $ put $ para reorder root
   return []
@@ -187,7 +189,7 @@ handler (ChangeNamed s) = do
   return []
  where
   changer t@(Directional d fl) = case readMay s of
-    Just a  -> Directional d $ fl { focusedElement = a - 1 }
+    Just i  -> Directional d $ focusIndex (i-1) fl
     Nothing -> t
   changer t = t
 
@@ -197,22 +199,20 @@ handler (Move newD) = do
   xFocus
   return []
  where
-  changer Front (Directional d (FL fe e)) =
-    Directional d $ FL (max 0 $ fe - 1) e
-  changer Back (Directional d (FL fe e)) =
-    Directional d $ FL (min (V.length e - 1) $ fe + 1) e
+  changer dir (Directional d fl) =
+    Directional d $ focusDir dir fl
   changer _ t = t
 
 -- | Move all of the Tilers from root to newT
 changeLayout :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-changeLayout newT root = unfix $ doPopping root newT
+changeLayout newT root = doPopping root newT
  where
-  doPopping ot t = case popWindow (Left Front) (Fix ot) of
-    (Nothing , _   ) -> Fix t
-    (Just win, wins) -> doPopping wins $ add Back (isFocused win) win t
+  doPopping ot t = case popWindow (Left Front) ot of
+    (Nothing , _   ) -> t
+    (Just win, wins) -> trace ("a: " ++ show wins) doPopping wins $ add Back (isFocused win) win t
   isFocused t = if t == focused then Focused else Unfocused
   focused =
-    fromMaybe (Fix EmptyTiler) . fst . popWindow (Right Focused) $ Fix root
+    fromMaybe (Fix EmptyTiler) . fst $ popWindow (Right Focused) root
 
 -- Random stuff --
 
@@ -259,5 +259,5 @@ xFocus = do
  where
   makeList :: Fix Tiler -> ListF (Fix Tiler) (Fix Tiler)
   makeList (Fix (Wrap _)) = Nil
-  makeList t              = Cons (getFocused t) (getFocused t)
+  makeList (Fix t)              = Cons (getFocused t) (getFocused t)
   getFocused = fromMaybe (error "no focus") . fst . popWindow (Right Focused)

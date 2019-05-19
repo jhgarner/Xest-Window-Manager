@@ -32,6 +32,9 @@ dependencies:
 - deriving-compat
 - containers
 - polysemy
+- QuickCheck
+- generic-arbitrary
+- quickcheck-instances
 
 library:
   source-dirs: src

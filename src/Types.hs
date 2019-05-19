@@ -2,6 +2,8 @@
 {-# LANGUAGE DeriveFoldable             #-}
 {-# LANGUAGE DeriveTraversable          #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE DeriveGeneric            #-}
+{-# LANGUAGE FlexibleInstances            #-}
 
 module Types where
 
@@ -13,6 +15,9 @@ import           Data.Functor.Foldable.TH
 import           Data.Functor.Foldable
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
+import           FocusList
+
+import Test.QuickCheck.Instances.Vector ()
 
 -- | A simple rectangle
 data Rect = Rect
@@ -22,18 +27,8 @@ data Rect = Rect
   , h :: Dimension
   }
 
-data Focus = Focused | Unfocused
-  deriving (Eq)
-data Direction = Front | Back
-  deriving (Show, Eq)
-
-data FocusedList a = FL {focusedElement :: Int, elements :: Vector a}
-  deriving (Eq, Show, Functor, Foldable, Traversable)
-deriveShow1 ''FocusedList
-deriveEq1 ''FocusedList
-
 data Axis = X | Y | Z
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 data Tiler a
   = Directional Axis (FocusedList a)
@@ -44,6 +39,7 @@ data Tiler a
 instance MonoFoldable (Tiler a)
 deriveShow1 ''Tiler
 deriveEq1 ''Tiler
+
 
 type instance Element (Tiler a) = a
 

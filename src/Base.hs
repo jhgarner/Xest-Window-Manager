@@ -201,6 +201,7 @@ runGlobalX = interpret $ \case
 -- TODO make this less garbage
 type DoAll r
   =  ( Member WindowMover r
+  , Member (State (Tiler (Fix Tiler))) r
   , Member (State (Fix Tiler)) r
   , Member (State KeyStatus) r
   , Member (State Mode) r
@@ -218,7 +219,7 @@ type DoAll r
   )
   => Semantic r [Action]
 doAll
-  :: Fix Tiler
+  :: Tiler (Fix Tiler)
   -> Conf
   -> Mode
   -> (Dimension, Dimension)
@@ -227,14 +228,15 @@ doAll
   -> Semantic
        '[Executor, WindowMover, WindowMinimizer, GlobalX, AttributeWriter, AttributeReader, PropertyWriter, PropertyReader, Reader
          Window, Reader Display, Reader (Dimension, Dimension), Reader
-         Conf, State Mode, State (Set Window), State KeyStatus, State
-         (Fix Tiler), Lift IO]
+         Conf, State Mode, State (Set Window), State KeyStatus, State (Fix Tiler), State
+         (Tiler (Fix Tiler)), Lift IO]
        ()
   -> IO ()
 doAll t c m dims d w =
   void
     . runM
     . runState t
+    . fixState
     . runState Default
     . runState (S.empty @Window)
     . runState m
@@ -250,3 +252,8 @@ doAll t c m dims d w =
     . runWindowMinimizer
     . runWindowMover
     . runExecutor
+    -- TODO Is this bad? It allows us to refer to the root tiler as either fix or unfixed.
+  where fixState :: Member (State (Tiler (Fix Tiler))) r => Semantic (State (Fix Tiler) ': r) a -> Semantic r a
+        fixState = interpret $ \case
+          Get -> Fix <$> get
+          Put (Fix s) -> put s
