@@ -1,9 +1,9 @@
-{-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE DeriveFoldable             #-}
-{-# LANGUAGE DeriveTraversable          #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE DeriveGeneric            #-}
-{-# LANGUAGE FlexibleInstances            #-}
+{-# LANGUAGE DeriveFunctor     #-}
+{-# LANGUAGE DeriveFoldable    #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Types where
 
@@ -16,8 +16,6 @@ import           Data.Functor.Foldable
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
 import           FocusList
-
-import Test.QuickCheck.Instances.Vector ()
 
 -- | A simple rectangle
 data Rect = Rect

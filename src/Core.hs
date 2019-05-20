@@ -85,8 +85,8 @@ handler (XorgEvent UnmapEvent {..}) = do
   mins <- get @(Set Window)
   -- Remove the destroyed window from our tree if we aren't the
   -- reason it was unmapped.
-  unless (member ev_window mins) $ 
-    modify $ cata (Fix . remove (Fix $ Wrap ev_window))
+  unless (member ev_window mins) $ modify $ cata
+    (Fix . remove (Fix $ Wrap ev_window))
   return []
 
 -- Tell the window it can configure itself however it wants
@@ -111,8 +111,7 @@ handler (XorgEvent CrossingEvent {..}) = do
   -- weird is going on and the newRoot is probably bad.
   -- Usually this happens if the crossed window isn't in our tree and causes
   -- the InputController to disappear.
-  when (status == (False, False)) $
-    put newRoot
+  when (status == (False, False)) $ put newRoot
   return []
 
 -- Handle all other xorg events as noops
@@ -122,7 +121,7 @@ handler (XorgEvent _) = return []
 handler (RunCommand s) = execute s >> return []
 
 -- Run a shell command
-handler (ChangePreprocessor m ) = put m >> return []
+handler (ChangePreprocessor m) = put m >> return []
 
 -- Perform a keyboard event if we are in the correct mode
 handler (KeyboardEvent kt@(_, _, actions) True) = do
@@ -189,7 +188,7 @@ handler (ChangeNamed s) = do
   return []
  where
   changer t@(Directional d fl) = case readMay s of
-    Just i  -> Directional d $ focusIndex (i-1) fl
+    Just i  -> Directional d $ focusIndex (i - 1) fl
     Nothing -> t
   changer t = t
 
@@ -199,20 +198,19 @@ handler (Move newD) = do
   xFocus
   return []
  where
-  changer dir (Directional d fl) =
-    Directional d $ focusDir dir fl
-  changer _ t = t
+  changer dir (Directional d fl) = Directional d $ focusDir dir fl
+  changer _   t                  = t
 
 -- | Move all of the Tilers from root to newT
 changeLayout :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 changeLayout newT root = doPopping root newT
  where
   doPopping ot t = case popWindow (Left Front) ot of
-    (Nothing , _   ) -> t
-    (Just win, wins) -> trace ("a: " ++ show wins) doPopping wins $ add Back (isFocused win) win t
+    (Nothing, _) -> t
+    (Just win, wins) ->
+      trace ("a: " ++ show wins) doPopping wins $ add Back (isFocused win) win t
   isFocused t = if t == focused then Focused else Unfocused
-  focused =
-    fromMaybe (Fix EmptyTiler) . fst $ popWindow (Right Focused) root
+  focused = fromMaybe (Fix EmptyTiler) . fst $ popWindow (Right Focused) root
 
 -- Random stuff --
 
@@ -259,5 +257,5 @@ xFocus = do
  where
   makeList :: Fix Tiler -> ListF (Fix Tiler) (Fix Tiler)
   makeList (Fix (Wrap _)) = Nil
-  makeList (Fix t)              = Cons (getFocused t) (getFocused t)
+  makeList (Fix t       ) = Cons (getFocused t) (getFocused t)
   getFocused = fromMaybe (error "no focus") . fst . popWindow (Right Focused)

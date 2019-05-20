@@ -35,6 +35,7 @@ dependencies:
 - QuickCheck
 - generic-arbitrary
 - quickcheck-instances
+- chunked-data
 
 library:
   source-dirs: src
