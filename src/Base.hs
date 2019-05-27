@@ -18,11 +18,14 @@ import           Polysemy.State
 import           Polysemy.Reader
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
+import           Graphics.X11.Xlib.Display
 import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
 import           Graphics.X11.Xlib.Atom
+import           Graphics.X11.Xlib.Color
+import           Graphics.X11.Xlib.Screen
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
 import           Foreign.Storable
@@ -58,7 +61,7 @@ data AttributeReader m a where
 makeSemantic ''AttributeReader
 
 data WindowMover m a where
-  ChangeLocation ::Rect -> Window -> WindowMover m ()
+  ChangeLocation :: Window -> Rect -> WindowMover m ()
   Raise ::Window -> WindowMover m ()
   ConfigureWin ::Event -> WindowMover m ()
 makeSemantic ''WindowMover
@@ -77,6 +80,11 @@ data GlobalX m a where
    RebindKeys ::Mode -> GlobalX m ()
    GetXEvent ::GlobalX m Event
 makeSemantic ''GlobalX
+
+data Colorer m a where
+  GetColor :: Double -> Double -> Double -> Colorer m Color
+  ChangeColor :: Window -> Color -> Colorer m ()
+makeSemantic ''Colorer
 
 type DIO r = (Member (Lift IO) r, Member (Reader Display) r)
 
@@ -120,7 +128,7 @@ runAttributeReader = interpret $ \case
 
 runWindowMover :: DIO r => Semantic (WindowMover ': r) a -> Semantic r a
 runWindowMover = interpret $ \case
-  ChangeLocation (Rect x y h w) win -> do
+  ChangeLocation win (Rect x y h w) -> do
     d <- ask
     void . sendM $ moveWindow d win x y >> resizeWindow d win h w
   Raise win -> do
@@ -198,6 +206,17 @@ runGlobalX = interpret $ \case
   GetXEvent ->
     ask >>= \d -> sendM $ allocaXEvent $ \p -> nextEvent d p >> getEvent p
 
+runColorer :: DIO r => Semantic (Colorer ': r) a -> Semantic r a
+runColorer = interpret $ \case
+  GetColor r g b -> do
+    display <- ask @Display
+    let colorMap = defaultColormap display (defaultScreen display)
+    sendM $ parseColor display colorMap $ "RGBi:"++show r++"/"++show g++"/"++show b
+
+  ChangeColor w (Color pix _ _ _ _) -> do
+    display <- ask @Display
+    sendM $ setWindowBackground display w pix
+
 -- TODO make this less incredibly verbose...
 type DoAll r
   =  ( Member WindowMover r
@@ -209,6 +228,7 @@ type DoAll r
   , Member (Reader Conf) r
   , Member (Reader Window) r
   , Member (Reader (Dimension, Dimension)) r
+  , Member (Reader (Window, Window, Window, Window)) r
   , Member PropertyReader r
   , Member PropertyWriter r
   , Member AttributeReader r
@@ -216,6 +236,7 @@ type DoAll r
   , Member WindowMinimizer r
   , Member Executor r
   , Member GlobalX r
+  , Member Colorer r
   )
   => Semantic r [Action]
 
@@ -227,14 +248,17 @@ doAll
   -> (Dimension, Dimension)
   -> Display
   -> Window
+  -> (Window, Window, Window, Window)
   -> Semantic
-       '[Executor, WindowMover, WindowMinimizer, GlobalX, AttributeWriter, AttributeReader, PropertyWriter, PropertyReader, Reader
-         Window, Reader Display, Reader (Dimension, Dimension), Reader
-         Conf, State Mode, State (Set Window), State KeyStatus, State
+       '[Colorer, Executor, WindowMover, WindowMinimizer, GlobalX, 
+         AttributeWriter, AttributeReader, PropertyWriter, PropertyReader, Reader
+         Window, Reader Display, Reader (Dimension, Dimension), 
+         (Reader (Window, Window, Window, Window)), Reader Conf, State Mode, 
+         State (Set Window), State KeyStatus, State
          (Fix Tiler), State (Tiler (Fix Tiler)), Lift IO]
        ()
   -> IO ()
-doAll t c m dims d w =
+doAll t c m dims d w borders =
   void
     . runM
     . runState t
@@ -243,6 +267,7 @@ doAll t c m dims d w =
     . runState (S.empty @Window)
     . runState m
     . runReader c
+    . runReader borders
     . runReader dims
     . runReader d
     . runReader w
@@ -254,6 +279,7 @@ doAll t c m dims d w =
     . runWindowMinimizer
     . runWindowMover
     . runExecutor
+    . runColorer
  where
   -- TODO Is this bad? It allows us to refer to the root tiler as either fix or unfixed.
   fixState

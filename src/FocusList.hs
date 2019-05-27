@@ -156,14 +156,15 @@ isNull FL {..} = null actualData
 
 flFilter :: (a -> Bool) -> FocusedList a -> FocusedList a
 flFilter predicate FL { actualData = ad, visualOrder = vo, focusOrder = fo } =
-  FL { actualData  = filter predicate ad
-     , visualOrder = foldl' removeFrom vo gone
-     , focusOrder  = foldl' removeFrom fo gone
-     }
- where
-  gone = foldl' (\acc (i, a) -> if predicate a then acc else i : acc) []
-    $ zip [0 ..] ad
-  removeFrom = flip remove
+  foldl' (flip reduce) newFL gone
+  where
+    newFL = FL { actualData  = filter predicate ad
+      , visualOrder = foldl' removeFrom vo gone
+      , focusOrder  = foldl' removeFrom fo gone
+      }
+    gone = foldl' (\acc (i, a) -> if predicate a then acc else i : acc) []
+      $ zip [0 ..] ad
+    removeFrom = flip remove
 
 flLength :: FocusedList a -> Int
 flLength FL {..} = length actualData

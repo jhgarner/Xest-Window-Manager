@@ -22,6 +22,8 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Screen
 import           Graphics.X11.Xlib.Atom
+import           Graphics.X11.Xlib.Window
+import           Graphics.X11.Xlib.Misc
 import           Types
 import           Base
 import           Tiler
@@ -36,24 +38,42 @@ startWM = do
   -- TODO use variables to determine display number
   display <- openDisplay ":99"
 
+  -- Read the config file
+  c <- readConfig display "./config.conf"
+
+  -- X orders windows like a tree
+  let root = defaultRootWindow display
+
+  -- Perform various pure actions for getting state
+  let screen      = defaultScreenOfDisplay display
+      initialMode = head . impureNonNull $ definedModes c
+      dims        = (widthOfScreen screen, heightOfScreen screen)
+      rootTiler   = InputController . Fix . Directional X $ emptyFL
+  -- Create our border windows which will follow the InputController
+  lWin <- createSimpleWindow display root 10 10 300 300 0 0 (whitePixel display (defaultScreen display))
+  rWin <- createSimpleWindow display root 10 10 300 300 0 0 (whitePixel display (defaultScreen display))
+  dWin <- createSimpleWindow display root 10 10 300 300 0 0 (whitePixel display (defaultScreen display))
+  uWin <- createSimpleWindow display root 10 10 300 300 0 0 (whitePixel display (defaultScreen display))
+  allocaSetWindowAttributes $ \wa -> set_override_redirect wa True >> changeWindowAttributes display lWin cWOverrideRedirect wa
+  allocaSetWindowAttributes $ \wa -> set_override_redirect wa True >> changeWindowAttributes display rWin cWOverrideRedirect wa
+  allocaSetWindowAttributes $ \wa -> set_override_redirect wa True >> changeWindowAttributes display dWin cWOverrideRedirect wa
+  allocaSetWindowAttributes $ \wa -> set_override_redirect wa True >> changeWindowAttributes display uWin cWOverrideRedirect wa
+  mapWindow display lWin
+  mapWindow display dWin
+  mapWindow display uWin
+  mapWindow display rWin
+
   -- Find and register ourselves with the root window
   -- These two masks allow us to intercept various Xorg events useful for a WM
-  let root = defaultRootWindow display
   initEwmh display root
   selectInput display root
     $   substructureNotifyMask
     .|. substructureRedirectMask
     .|. enterWindowMask
 
-  -- Read the config file
-  c <- readConfig display "./config.conf"
 
-  -- Perform various pure actions for getting the iteration state
-  let screen      = defaultScreenOfDisplay display
-      initialMode = head . impureNonNull $ definedModes c
-      dims        = (widthOfScreen screen, heightOfScreen screen)
-      rootTiler   = InputController . Fix . Directional X $ emptyFL
 
+  xSetErrorHandler
   -- Grabs the initial keybindings
   _ <-
     runM
@@ -64,7 +84,7 @@ startWM = do
     $ rebindKeys initialMode
 
   -- Execute the main loop. Will never return unless Xest exits
-  doAll rootTiler c initialMode dims display root (chain mainLoop [])
+  doAll rootTiler c initialMode dims display root (lWin, dWin, uWin, rWin) (chain mainLoop [])
     >> say "Exiting"
 
     -- Chain takes a function and calls it over and over tying it into itself
@@ -77,12 +97,17 @@ mainLoop :: Actions -> DoAll r
 mainLoop [] = do
   modify $ cata $ Fix . reduce
   get @((Fix Tiler)) >>= \r -> trace (show r) return ()
-  trace (show . reduce $ add Back Focused (Fix EmptyTiler) (Wrap 5)) return ()
   get >>= render
   makeTopWindows
   get >>= writeWorkspaces . onInput getDesktopState
-  ptr <- getXEvent
-  return [XorgEvent ptr]
+  doIt
+    where isConfNot ConfigureEvent {} = True
+          isConfNot _ = False
+          doIt = do
+            ptr <- getXEvent
+            trace (show ptr) return ()
+            if (isConfNot ptr) then doIt else return [XorgEvent ptr]
+
 
 -- When there are actions to perform, do them and add the results to the list of actions
 mainLoop (a : as) = do

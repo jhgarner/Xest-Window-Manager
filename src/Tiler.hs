@@ -3,13 +3,14 @@
 
 module Tiler where
 
-import           ClassyPrelude
+import           ClassyPrelude hiding (Reader, ask)
 import           Graphics.X11.Types
 import           Data.Functor.Foldable
 import           Types
 import           FocusList
 import           Base
 import           Polysemy
+import           Polysemy.Reader
 
 -- Tiler Handling Code --
 
@@ -61,7 +62,7 @@ popWindow _ EmptyTiler            = (Nothing, EmptyTiler)
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
 -- catamorphisms operate from the root down to the leaves
 placeWindows
-  :: (Member WindowMover r, Member WindowMinimizer r)
+  :: (Member WindowMover r, Member WindowMinimizer r, Member (Reader (Window, Window, Window, Window)) r, Member Colorer r)
   => Tiler (Rect -> Semantic r ())
   -> Rect
   -> Semantic r ()
@@ -70,11 +71,11 @@ placeWindows
 placeWindows (Wrap win) (Rect _ _ 0 0) = minimize win
 placeWindows (Wrap win) r              = do
   restore win
-  changeLocation r win
+  changeLocation win r
 
 -- | Place tilers along an axis
 placeWindows (Directional d fl) oldR@Rect {..} =
-  foldl' (\acc (i, f) -> acc >> f (location d i)) (pure ())
+  traverse_ (\(i, f) -> f (location d i))
     $ zip [0 ..]
     $ vOrder fl
  where
@@ -90,7 +91,21 @@ placeWindows (Directional d fl) oldR@Rect {..} =
 
 
 -- | Has no effect on the placement
-placeWindows (InputController f) r = f r
+placeWindows (InputController f) (Rect x y w h) = do
+  (l, u, r, d) <- ask @(Window, Window, Window, Window)
+  red <- getColor 1 0 0
+  green <- getColor 0 1 0
+  changeColor l red
+  changeColor u red
+  changeColor d green
+  changeColor r green
+  changeLocation l $ Rect x y 20 h
+  changeLocation u $ Rect x y w 20
+  changeLocation d $ Rect x (y+fromIntegral h-20) w 20
+  changeLocation r $ Rect (x+fromIntegral w-20) y 20 h
+  
+  
+  f $ Rect (x + 20) (y + 20) (w - 40) (h - 40)
 -- | Can't be placed but will still take up space in other Tilers
 placeWindows EmptyTiler          _ = return ()
 

@@ -235,6 +235,8 @@ render
   :: ( Member (Reader (Dimension, Dimension)) r
      , Member WindowMover r
      , Member WindowMinimizer r
+     , Member (Reader (Window, Window, Window, Window)) r
+     , Member Colorer r
      )
   => Fix Tiler
   -> Semantic r ()
