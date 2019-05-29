@@ -25,6 +25,11 @@ data Rect = Rect
   , h :: Dimension
   }
 
+data Plane = Plane
+  { rect :: Rect
+  , depth :: Int
+  }
+
 data Axis = X | Y | Z
   deriving (Eq, Show, Generic)
 
@@ -48,13 +53,13 @@ type KeyTrigger = (KeyCode, Mode, Actions)
 
 -- Create a junk instantiations for auto-deriving later
 instance Eq Event where
-  (==) = error "Don't compare events"
+  (==) = error "Don't compare XorgEvents"
 
 -- | Actions/events to be performed
 data Action
   = ChangeLayoutTo (Fix Tiler)
   | ChangeNamed String
-  | ChangePreprocessor KeyStatus
+  | ChangePostprocessor KeyStatus
   | Move Direction
   | RunCommand String
   | ChangeModeTo Mode
@@ -86,4 +91,6 @@ data Conf = Conf { keyBindings  :: [KeyTrigger]
 data KeyStatus = New Mode KeyTrigger | Temp Mode KeyTrigger | Default
   deriving (Show, Eq)
 
-type KeyPreprocessor r = Mode -> KeyTrigger -> Action -> Actions
+type KeyPostprocessor r = Mode -> KeyTrigger -> Action -> Actions
+
+type Borders = (Window, Window, Window, Window)

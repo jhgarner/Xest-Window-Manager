@@ -3,14 +3,17 @@
 
 module Tiler where
 
-import           ClassyPrelude hiding (Reader, ask)
+import           ClassyPrelude hiding (Reader, ask, State, get)
+import Data.Fixed
 import           Graphics.X11.Types
 import           Data.Functor.Foldable
+import           Data.Foldable (maximum)
 import           Types
 import           FocusList
 import           Base
 import           Polysemy
 import           Polysemy.Reader
+import           Polysemy.State
 
 -- Tiler Handling Code --
 
@@ -62,20 +65,24 @@ popWindow _ EmptyTiler            = (Nothing, EmptyTiler)
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
 -- catamorphisms operate from the root down to the leaves
 placeWindows
-  :: (Member WindowMover r, Member WindowMinimizer r, Member (Reader (Window, Window, Window, Window)) r, Member Colorer r)
-  => Tiler (Rect -> Semantic r ())
-  -> Rect
+  :: (Member WindowMover r
+     , Member WindowMinimizer r
+     , Member (Reader Borders) r
+     , Member Colorer r
+     )
+  => Tiler (Plane -> Semantic r ())
+  -> Plane
   -> Semantic r ()
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
-placeWindows (Wrap win) (Rect _ _ 0 0) = minimize win
-placeWindows (Wrap win) r              = do
+placeWindows (Wrap win) (Plane (Rect _ _ 0 0) _) = minimize win
+placeWindows (Wrap win) p              = do
   restore win
-  changeLocation win r
+  changeLocation win $ rect p
 
 -- | Place tilers along an axis
-placeWindows (Directional d fl) oldR@Rect {..} =
-  traverse_ (\(i, f) -> f (location d i))
+placeWindows (Directional d fl) (Plane oldR@Rect {..} depth) =
+  traverse_ (\(i, f) -> f $ Plane (location d i) $ depth + 1)
     $ zip [0 ..]
     $ vOrder fl
  where
@@ -91,21 +98,25 @@ placeWindows (Directional d fl) oldR@Rect {..} =
 
 
 -- | Has no effect on the placement
-placeWindows (InputController f) (Rect x y w h) = do
+placeWindows (InputController f) (Plane Rect {..} depth) = do
+  -- Extract the border windows
   (l, u, r, d) <- ask @(Window, Window, Window, Window)
-  red <- getColor 1 0 0
-  green <- getColor 0 1 0
-  changeColor l red
-  changeColor u red
-  changeColor d green
-  changeColor r green
-  changeLocation l $ Rect x y 20 h
-  changeLocation u $ Rect x y w 20
-  changeLocation d $ Rect x (y+fromIntegral h-20) w 20
-  changeLocation r $ Rect (x+fromIntegral w-20) y 20 h
+  let winList = [l, u, r, d]
+
+  -- Calculate the color for our depth
+  let hue = 360.0 * (0.5 + ((fromIntegral depth * 0.618033988749895) `mod'` 1))
+  color <- getColor $ "TekHVC:"++show h++"/50/95"
+
+  -- Convince our windows to be redrawn with the right color and position
+  traverse_ (`changeLocation` Rect 0 0 1 1) winList
+  traverse_ (`changeColor` color) winList
+  changeLocation l $ Rect x y 5 h
+  changeLocation u $ Rect x y w 5
+  changeLocation d $ Rect x (y+fromIntegral h-5) w 5
+  changeLocation r $ Rect (x+fromIntegral w-5) y 5 h
   
   
-  f $ Rect (x + 20) (y + 20) (w - 40) (h - 40)
+  f $ Plane (Rect (x + 5) (y + 5) (w - 10) (h - 10)) depth
 -- | Can't be placed but will still take up space in other Tilers
 placeWindows EmptyTiler          _ = return ()
 
@@ -152,7 +163,7 @@ focusWindow _ (InputController (t, (_, True))) =
   (InputController $ Fix t, (False, False))
 focusWindow _ t = case (hasController, hasWind) of
   -- Reset to False False so no other parents try to make Input Controllers
-  (True , True) -> (InputController $ Fix dropExtra, (False, False))
+  (True , True) -> (InputController $ Fix (focus findFocused dropExtra), (False, False))
   (False, True) -> (focus findFocused dropExtra, (False, True))
   bs            -> (dropExtra, bs)
  where

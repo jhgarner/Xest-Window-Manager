@@ -73,7 +73,7 @@ startWM = do
 
 
 
-  xSetErrorHandler
+  -- xSetErrorHandler
   -- Grabs the initial keybindings
   _ <-
     runM
@@ -96,29 +96,30 @@ mainLoop :: Actions -> DoAll r
 -- When there are no actions to perform, render the windows and find new actions to do
 mainLoop [] = do
   modify $ cata $ Fix . reduce
-  get @((Fix Tiler)) >>= \r -> trace (show r) return ()
   get >>= render
   makeTopWindows
   get >>= writeWorkspaces . onInput getDesktopState
   doIt
     where isConfNot ConfigureEvent {} = True
           isConfNot _ = False
+          -- TODO switch to a prelude with UntilM
           doIt = do
             ptr <- getXEvent
-            trace (show ptr) return ()
-            if (isConfNot ptr) then doIt else return [XorgEvent ptr]
+            -- trace (show ptr) return ()
+            if isConfNot ptr then doIt else return [XorgEvent ptr]
 
 
 -- When there are actions to perform, do them and add the results to the list of actions
 mainLoop (a : as) = do
-  preResult <-
+  newActions <- handler a
+  -- Post processors can override events
+  postResult <-
     \case
         Default  -> []
-        New  o k -> newModePreprocessor o k a
-        Temp o k -> tempModePreprocessor o k a
+        New  o k -> newModePostprocessor o k a
+        Temp o k -> tempModePostprocessor o k a
       <$> get
-  newActions <- handler a
-  return $ as ++ preResult ++ newActions
+  return $ newActions ++ as ++ postResult
 
 getAtom :: Display -> String -> IO Atom
 getAtom display t = internAtom display t False

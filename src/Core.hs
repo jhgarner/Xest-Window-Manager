@@ -25,30 +25,31 @@ import           FocusList
 
 -- Event Handlers --
 
--- | This preprocessor is used while holding down a key but before another key has been pressed
-newModePreprocessor :: KeyPreprocessor r
+-- | This postprocessor is used while holding down a key but before another key has been pressed
+newModePostprocessor :: KeyPostprocessor r
 -- A button was pressed so we need to change how we handle releasing the key
-newModePreprocessor oldMode boundT (KeyboardEvent _ True) =
-  [ChangePreprocessor $ Temp oldMode boundT]
+newModePostprocessor oldMode boundT (KeyboardEvent _ True) =
+  [ChangePostprocessor $ Temp oldMode boundT]
 
 -- A button was released so go back to the normal handler if it was the key we were watching
-newModePreprocessor _ boundT (KeyboardEvent kt False)
-  | boundT == kt = [ChangePreprocessor Default]
+newModePostprocessor _ boundT (KeyboardEvent kt False)
+  | boundT == kt = [ChangePostprocessor Default]
   | otherwise    = []
 
 -- Otherwise do nothing
-newModePreprocessor _ _ _ = []
+newModePostprocessor _ _ _ = []
 
 
--- | Preprocessor used when another key is clicked while holding one down
-tempModePreprocessor :: KeyPreprocessor r
+-- | Postprocessor used when another key is clicked while holding one down
+tempModePostprocessor :: KeyPostprocessor r
 -- On release, return to the old mode
-tempModePreprocessor oldMode boundKey (KeyboardEvent k False)
-  | k == boundKey = [ChangePreprocessor Default, ChangeModeTo oldMode]
+tempModePostprocessor oldMode boundKey (KeyboardEvent k False)
+  | k == boundKey = [ChangePostprocessor Default, ChangeModeTo oldMode]
   | otherwise     = []
 
 -- Otherwise defer to handler
-tempModePreprocessor _ _ _ = []
+tempModePostprocessor om bk (KeyboardEvent _ True) = [ChangePostprocessor $ Temp om bk]
+tempModePostprocessor _ _ _ = []
 
 
 -- | The bulk of the program
@@ -95,6 +96,7 @@ handler (XorgEvent cre@ConfigureRequestEvent{}) = do
   configureWin cre
   return []
 
+-- Called whet a watched key is pressed or released
 handler (XorgEvent KeyEvent {..}) = do
   Conf bindings _ <- ask @Conf
   return $ case find (\(k, _, _) -> ev_keycode == k) bindings of
@@ -121,15 +123,15 @@ handler (XorgEvent _) = return []
 handler (RunCommand s) = execute s >> return []
 
 -- Run a shell command
-handler (ChangePreprocessor m) = put m >> return []
+handler (ChangePostprocessor m) = put m >> return []
 
 -- Perform a keyboard event if we are in the correct mode
 handler (KeyboardEvent kt@(_, _, actions) True) = do
   currentMode <- get
-  return $ ChangePreprocessor (New currentMode kt) : actions
+  return $ ChangePostprocessor (New currentMode kt) : actions
 
 -- Ignore keyups
--- Note that the preprocessor will handle these if needed
+-- Note that the postprocessor will handle these if needed
 handler (KeyboardEvent _ False) = return []
 
 -- Show a window given its class name
@@ -208,7 +210,7 @@ changeLayout newT root = doPopping root newT
   doPopping ot t = case popWindow (Left Front) ot of
     (Nothing, _) -> t
     (Just win, wins) ->
-      trace ("a: " ++ show wins) doPopping wins $ add Back (isFocused win) win t
+      doPopping wins $ add Back (isFocused win) win t
   isFocused t = if t == focused then Focused else Unfocused
   focused = fromMaybe (Fix EmptyTiler) . fst $ popWindow (Right Focused) root
 
@@ -235,14 +237,14 @@ render
   :: ( Member (Reader (Dimension, Dimension)) r
      , Member WindowMover r
      , Member WindowMinimizer r
-     , Member (Reader (Window, Window, Window, Window)) r
+     , Member (Reader Borders) r
      , Member Colorer r
      )
   => Fix Tiler
   -> Semantic r ()
 render t = do
   (w, h) <- ask
-  cata placeWindows t (Rect 0 0 w h)
+  cata placeWindows t $ Plane (Rect 0 0 w h) 0
 
 -- |Focus the X window
 xFocus

@@ -82,7 +82,7 @@ data GlobalX m a where
 makeSemantic ''GlobalX
 
 data Colorer m a where
-  GetColor :: Double -> Double -> Double -> Colorer m Color
+  GetColor :: String -> Colorer m Color
   ChangeColor :: Window -> Color -> Colorer m ()
 makeSemantic ''Colorer
 
@@ -208,14 +208,14 @@ runGlobalX = interpret $ \case
 
 runColorer :: DIO r => Semantic (Colorer ': r) a -> Semantic r a
 runColorer = interpret $ \case
-  GetColor r g b -> do
+  GetColor color -> do
     display <- ask @Display
     let colorMap = defaultColormap display (defaultScreen display)
-    sendM $ parseColor display colorMap $ "RGBi:"++show r++"/"++show g++"/"++show b
-
+    sendM @IO $ fmap fst $ allocNamedColor display colorMap color
   ChangeColor w (Color pix _ _ _ _) -> do
     display <- ask @Display
     sendM $ setWindowBackground display w pix
+    -- sendM $ sync display True
 
 -- TODO make this less incredibly verbose...
 type DoAll r

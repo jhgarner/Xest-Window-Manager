@@ -50,6 +50,11 @@ library:
   - -Wno-safe
   - -Wno-missing-local-signatures
   - -Wno-monomorphism-restriction
+  - -j
+  - +RTS
+  - -A128m
+  - -n2m
+  - -RTS
   default-extensions:
     - DataKinds
     - FlexibleContexts
