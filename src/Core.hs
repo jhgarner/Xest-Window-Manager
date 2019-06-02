@@ -21,8 +21,6 @@ import           Data.Either                    ( )
 import           Tiler
 import           FocusList
 
-
-
 -- Event Handlers --
 
 -- | This postprocessor is used while holding down a key but before another key has been pressed
@@ -217,16 +215,16 @@ changeLayout newT root = doPopping root newT
 -- Random stuff --
 
 -- Would be used for reparenting (title bar)
-manage :: Member AttributeWriter r => Window -> Semantic r (Fix Tiler)
+manage :: Member AttributeWriter r => Window -> Sem r (Fix Tiler)
 manage w = do
   selectFlags w enterWindowMask
   return . Fix $ Wrap w
 
 -- Find a window with a class name
 getWindowByClass
-  :: (Member GlobalX r, Member AttributeReader r)
+  :: Members [GlobalX, AttributeReader] r
   => String
-  -> Semantic r [Window]
+  -> Sem r [Window]
 getWindowByClass wName = do
   childrenList <- getTree
   filterM findWindow childrenList
@@ -234,25 +232,19 @@ getWindowByClass wName = do
 
 -- Moves windows around
 render
-  :: ( Member (Reader (Dimension, Dimension)) r
-     , Member WindowMover r
-     , Member WindowMinimizer r
-     , Member (Reader Borders) r
-     , Member Colorer r
+  :: ( Members (Readers [(Dimension, Dimension), Borders]) r
+     , Members [WindowMover, WindowMinimizer, Colorer] r
      )
   => Fix Tiler
-  -> Semantic r ()
+  -> Sem r ()
 render t = do
   (w, h) <- ask
   cata placeWindows t $ Plane (Rect 0 0 w h) 0
 
 -- |Focus the X window
 xFocus
-  :: ( Member (State (Fix Tiler)) r
-     , Member WindowMinimizer r
-     , Member AttributeWriter r
-     )
-  => Semantic r ()
+  :: Members [State (Fix Tiler), WindowMinimizer, AttributeWriter] r
+  => Sem r ()
 xFocus = do
   root <- get @(Fix Tiler)
   let (Fix (Wrap w)) = unsafeLast (ana makeList root :: [Fix Tiler])

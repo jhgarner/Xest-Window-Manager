@@ -97,6 +97,7 @@ mainLoop :: Actions -> DoAll r
 mainLoop [] = do
   modify $ cata $ Fix . reduce
   get >>= render
+  get @(Tiler (Fix Tiler)) >>= \d -> trace (show d) return ()
   makeTopWindows
   get >>= writeWorkspaces . onInput getDesktopState
   doIt

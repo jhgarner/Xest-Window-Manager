@@ -1,6 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 {-|
    Base contains all of the IO facing code in project (except for the main
@@ -16,6 +18,7 @@ import           ClassyPrelude           hiding ( ask
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Reader
+import           Data.Kind
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Display
@@ -25,21 +28,41 @@ import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
 import           Graphics.X11.Xlib.Atom
 import           Graphics.X11.Xlib.Color
-import           Graphics.X11.Xlib.Screen
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
 import           Foreign.Storable
 import           Data.Functor.Foldable
 import qualified Data.Set                      as S
 import           System.Process
-import           Types                          ( Action
-                                                , Mode
-                                                , KeyTrigger
-                                                , KeyStatus(Default)
-                                                , Tiler
-                                                , Conf(Conf)
-                                                , Rect(Rect)
-                                                )
+import           Types
+
+
+-- Super list
+infixr 5 :::
+data HList a where
+    HNil :: HList '[]
+    (:::) :: a -> HList (b :: [Type]) -> HList (a ': b)
+-- x = HCons 5 (HCons "Test" HNil)
+
+type family TMap (f :: a -> b) (xs :: [a]) where
+    TMap _ '[]       = '[]
+    TMap f (x ': xs) = f x ': TMap f xs
+
+type family TConcat (a :: [t]) (b :: [t]) where
+    TConcat '[] b = b
+    TConcat (a ': as) b = a ': TConcat as b
+
+type Readers (a :: [Type]) = TMap Reader a
+-- toSem :: Members (TTail (TMap Reader t)) r => HList t -> Sem (Reader (THead t) ': r) a -> Sem r a
+runReaders :: HList t -> Sem (TConcat (Readers t) r) a -> Sem r a
+runReaders (a ::: as) = runReaders as . runReader a
+runReaders HNil = id
+
+type States (a :: [Type]) = TMap State a
+runStates :: HList t -> Sem (TConcat (States t) r) a -> Sem r a
+runStates (a ::: as) = fmap snd . runStates as . runState a
+runStates HNil = id
+
 
 data PropertyReader m a where
   GetProperty ::Storable a => Int -> String -> Window -> PropertyReader m (Maybe [a])
@@ -219,29 +242,17 @@ runColorer = interpret $ \case
 
 -- TODO make this less incredibly verbose...
 type DoAll r
-  = Members
- '[ WindowMover
-  , State (Tiler (Fix Tiler))
-  , State (Fix Tiler)
-  , State KeyStatus
-  , State Mode
-  , State (Set Window)
-  , Reader Conf
-  , Reader Window
-  , Reader (Dimension, Dimension)
-  , Reader (Window, Window, Window, Window)
-  , PropertyReader
-  , PropertyWriter
-  , AttributeReader
-  , AttributeWriter
-  , WindowMinimizer
-  , Executor
-  , GlobalX
-  , Colorer
-  ] r
+  = (Members (States
+        [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window ]) r
+    , Members (Readers
+        [ Conf, Window, (Dimension, Dimension), Borders ]) r
+    , Members
+        [ WindowMover, PropertyReader, PropertyWriter, AttributeReader
+        , AttributeWriter , WindowMinimizer , Executor , GlobalX , Colorer
+        ] r
+    )
   => Sem r [Action]
 
--- TODO same as above. Ideally I wouldn't need to write runState a thousand times as well
 doAll
   :: Tiler (Fix Tiler)
   -> Conf
@@ -249,29 +260,15 @@ doAll
   -> (Dimension, Dimension)
   -> Display
   -> Window
-  -> (Window, Window, Window, Window)
-  -> Sem
-       '[Colorer, Executor, WindowMover, WindowMinimizer, GlobalX, 
-         AttributeWriter, AttributeReader, PropertyWriter, PropertyReader, Reader
-         Window, Reader Display, Reader (Dimension, Dimension), 
-         (Reader (Window, Window, Window, Window)), Reader Conf, State Mode, 
-         State (Set Window), State KeyStatus, State
-         (Fix Tiler), State (Tiler (Fix Tiler)), Lift IO]
-       ()
+  -> Borders
+  -> _ -- The super long Sem list which GHC can figure out on its own
   -> IO ()
 doAll t c m dims d w borders =
   void
     . runM
-    . runState t
+    . runStates (m ::: S.empty @Window ::: Default ::: t ::: HNil)
     . fixState
-    . runState Default
-    . runState (S.empty @Window)
-    . runState m
-    . runReader c
-    . runReader borders
-    . runReader dims
-    . runReader d
-    . runReader w
+    . runReaders (w ::: d ::: dims ::: borders ::: c ::: HNil)
     . runPropertyReader
     . runPropertyWriter
     . runAttributeReader

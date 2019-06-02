@@ -3,17 +3,15 @@
 
 module Tiler where
 
-import           ClassyPrelude hiding (Reader, ask, State, get)
-import Data.Fixed
+import           ClassyPrelude hiding (Reader, ask)
+import           Data.Fixed
 import           Graphics.X11.Types
 import           Data.Functor.Foldable
-import           Data.Foldable (maximum)
 import           Types
 import           FocusList
 import           Base
 import           Polysemy
 import           Polysemy.Reader
-import           Polysemy.State
 
 -- Tiler Handling Code --
 
@@ -70,9 +68,9 @@ placeWindows
      , Member (Reader Borders) r
      , Member Colorer r
      )
-  => Tiler (Plane -> Semantic r ())
+  => Tiler (Plane -> Sem r ())
   -> Plane
-  -> Semantic r ()
+  -> Sem r ()
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
 placeWindows (Wrap win) (Plane (Rect _ _ 0 0) _) = minimize win
@@ -104,8 +102,8 @@ placeWindows (InputController f) (Plane Rect {..} depth) = do
   let winList = [l, u, r, d]
 
   -- Calculate the color for our depth
-  let hue = 360.0 * (0.5 + ((fromIntegral depth * 0.618033988749895) `mod'` 1))
-  color <- getColor $ "TekHVC:"++show h++"/50/95"
+  let hue = 360.0 * ((0.5 + (fromIntegral depth * 0.618033988749895)) `mod'` 1)
+  color <- getColor $ "TekHVC:"++show hue++"/50/95"
 
   -- Convince our windows to be redrawn with the right color and position
   traverse_ (`changeLocation` Rect 0 0 1 1) winList
