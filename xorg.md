@@ -125,8 +125,13 @@ which do both include Gnome and Plasma.
 
 Once the flags have been set, Xest enters a main loop (found in Lib.hs) which
 executes actions as they are added to an event queue. When the event Queue is
-empty, it blocks and waits for the X server to send a new event. Once an
+empty, it blocks and waits for the X server to send a new event. After an
 event has been received, it gets processed by the correct handler.
+
+One such handler takes care of the MapWindow event. When a window asks to be mapped,
+we add it to a data structure which keeps track of all active windows and where they
+are located. Xest then resends the map request as a sign to the server that its okay
+with the event happening.
 
 ## Conclusions
 

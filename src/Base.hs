@@ -44,51 +44,51 @@ import           Types                          ( Action
 data PropertyReader m a where
   GetProperty ::Storable a => Int -> String -> Window -> PropertyReader m (Maybe [a])
   IsSameAtom ::String -> Atom -> PropertyReader m Bool
-makeSemantic ''PropertyReader
+makeSem ''PropertyReader
 
 data PropertyWriter m a where
   SetProperty32 ::String -> String -> Window -> [Int] -> PropertyWriter m ()
   SetProperty8 ::String -> String -> Window -> [Int] -> PropertyWriter m ()
-makeSemantic ''PropertyWriter
+makeSem ''PropertyWriter
 
 data AttributeWriter m a where
   SelectFlags ::Window -> Mask -> AttributeWriter m ()
   SetFocus ::Window -> AttributeWriter m ()
-makeSemantic ''AttributeWriter
+makeSem ''AttributeWriter
 
 data AttributeReader m a where
   GetClassName ::Window -> AttributeReader m String
-makeSemantic ''AttributeReader
+makeSem ''AttributeReader
 
 data WindowMover m a where
   ChangeLocation :: Window -> Rect -> WindowMover m ()
   Raise ::Window -> WindowMover m ()
   ConfigureWin ::Event -> WindowMover m ()
-makeSemantic ''WindowMover
+makeSem ''WindowMover
 
 data WindowMinimizer m a where
   Minimize ::Window -> WindowMinimizer m ()
   Restore ::Window -> WindowMinimizer m ()
-makeSemantic ''WindowMinimizer
+makeSem ''WindowMinimizer
 
 data Executor m a where
   Execute ::String -> Executor m ()
-makeSemantic ''Executor
+makeSem ''Executor
 
 data GlobalX m a where
    GetTree ::GlobalX m [Window]
    RebindKeys ::Mode -> GlobalX m ()
    GetXEvent ::GlobalX m Event
-makeSemantic ''GlobalX
+makeSem ''GlobalX
 
 data Colorer m a where
   GetColor :: String -> Colorer m Color
   ChangeColor :: Window -> Color -> Colorer m ()
-makeSemantic ''Colorer
+makeSem ''Colorer
 
 type DIO r = (Member (Lift IO) r, Member (Reader Display) r)
 
-runPropertyReader :: DIO r => Semantic (PropertyReader ': r) a -> Semantic r a
+runPropertyReader :: DIO r => Sem (PropertyReader ': r) a -> Sem r a
 runPropertyReader = interpret $ \case
   GetProperty size aName w -> ask >>= \d -> sendM @IO $ do
     atom <- liftIO $ internAtom d aName False
@@ -97,7 +97,7 @@ runPropertyReader = interpret $ \case
     otherAtom <- liftIO $ internAtom d aName False
     return $ atom == otherAtom
 
-runPropertyWriter :: DIO r => Semantic (PropertyWriter ': r) a -> Semantic r a
+runPropertyWriter :: DIO r => Sem (PropertyWriter ': r) a -> Sem r a
 runPropertyWriter = interpret $ \case
   SetProperty32 aName mType w msg -> ask >>= \d -> sendM @IO $ do
     atom  <- internAtom d aName False
@@ -115,18 +115,18 @@ runPropertyWriter = interpret $ \case
       ++ [0]
     return ()
 
-runAttributeWriter :: DIO r => Semantic (AttributeWriter ': r) a -> Semantic r a
+runAttributeWriter :: DIO r => Sem (AttributeWriter ': r) a -> Sem r a
 runAttributeWriter = interpret $ \case
   SelectFlags w flags -> ask >>= \d -> sendM @IO $ selectInput d w flags
   SetFocus w          -> ask @Display
     >>= \d -> sendM @IO $ setInputFocus d w revertToNone currentTime
 
-runAttributeReader :: DIO r => Semantic (AttributeReader ': r) a -> Semantic r a
+runAttributeReader :: DIO r => Sem (AttributeReader ': r) a -> Sem r a
 runAttributeReader = interpret $ \case
   GetClassName win ->
     ask >>= \d -> sendM $ getClassHint d win >>= \(ClassHint _ n) -> return n
 
-runWindowMover :: DIO r => Semantic (WindowMover ': r) a -> Semantic r a
+runWindowMover :: DIO r => Sem (WindowMover ': r) a -> Sem r a
 runWindowMover = interpret $ \case
   ChangeLocation win (Rect x y h w) -> do
     d <- ask
@@ -148,8 +148,8 @@ runWindowMover = interpret $ \case
 
 runWindowMinimizer
   :: (DIO r, Member (State (Set Window)) r)
-  => Semantic (WindowMinimizer ': r) a
-  -> Semantic r a
+  => Sem (WindowMinimizer ': r) a
+  -> Sem r a
 runWindowMinimizer = interpret $ \case
   Minimize win -> do
     d <- ask
@@ -166,14 +166,14 @@ runWindowMinimizer = interpret $ \case
       modify $ S.delete win
       sendM @IO $ mapWindow d win
 
-runExecutor :: Member (Lift IO) r => Semantic (Executor ': r) a -> Semantic r a
+runExecutor :: Member (Lift IO) r => Sem (Executor ': r) a -> Sem r a
 runExecutor = interpret $ \case
   Execute s -> void . sendM $ spawnCommand s
 
 runGlobalX
   :: (DIO r, Member (Reader Window) r, Member (Reader Conf) r)
-  => Semantic (GlobalX ': r) a
-  -> Semantic r a
+  => Sem (GlobalX ': r) a
+  -> Sem r a
 runGlobalX = interpret $ \case
   GetTree -> do
     display <- ask @Display
@@ -206,7 +206,7 @@ runGlobalX = interpret $ \case
   GetXEvent ->
     ask >>= \d -> sendM $ allocaXEvent $ \p -> nextEvent d p >> getEvent p
 
-runColorer :: DIO r => Semantic (Colorer ': r) a -> Semantic r a
+runColorer :: DIO r => Sem (Colorer ': r) a -> Sem r a
 runColorer = interpret $ \case
   GetColor color -> do
     display <- ask @Display
@@ -219,26 +219,27 @@ runColorer = interpret $ \case
 
 -- TODO make this less incredibly verbose...
 type DoAll r
-  =  ( Member WindowMover r
-  , Member (State (Tiler (Fix Tiler))) r
-  , Member (State (Fix Tiler)) r
-  , Member (State KeyStatus) r
-  , Member (State Mode) r
-  , Member (State (Set Window)) r
-  , Member (Reader Conf) r
-  , Member (Reader Window) r
-  , Member (Reader (Dimension, Dimension)) r
-  , Member (Reader (Window, Window, Window, Window)) r
-  , Member PropertyReader r
-  , Member PropertyWriter r
-  , Member AttributeReader r
-  , Member AttributeWriter r
-  , Member WindowMinimizer r
-  , Member Executor r
-  , Member GlobalX r
-  , Member Colorer r
-  )
-  => Semantic r [Action]
+  = Members
+ '[ WindowMover
+  , State (Tiler (Fix Tiler))
+  , State (Fix Tiler)
+  , State KeyStatus
+  , State Mode
+  , State (Set Window)
+  , Reader Conf
+  , Reader Window
+  , Reader (Dimension, Dimension)
+  , Reader (Window, Window, Window, Window)
+  , PropertyReader
+  , PropertyWriter
+  , AttributeReader
+  , AttributeWriter
+  , WindowMinimizer
+  , Executor
+  , GlobalX
+  , Colorer
+  ] r
+  => Sem r [Action]
 
 -- TODO same as above. Ideally I wouldn't need to write runState a thousand times as well
 doAll
@@ -249,7 +250,7 @@ doAll
   -> Display
   -> Window
   -> (Window, Window, Window, Window)
-  -> Semantic
+  -> Sem
        '[Colorer, Executor, WindowMover, WindowMinimizer, GlobalX, 
          AttributeWriter, AttributeReader, PropertyWriter, PropertyReader, Reader
          Window, Reader Display, Reader (Dimension, Dimension), 
@@ -284,8 +285,8 @@ doAll t c m dims d w borders =
   -- TODO Is this bad? It allows us to refer to the root tiler as either fix or unfixed.
   fixState
     :: Member (State (Tiler (Fix Tiler))) r
-    => Semantic (State (Fix Tiler) ': r) a
-    -> Semantic r a
+    => Sem (State (Fix Tiler) ': r) a
+    -> Sem r a
   fixState = interpret $ \case
     Get         -> Fix <$> get
     Put (Fix s) -> put s

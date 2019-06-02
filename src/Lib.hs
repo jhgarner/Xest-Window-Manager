@@ -121,6 +121,7 @@ mainLoop (a : as) = do
       <$> get
   return $ newActions ++ as ++ postResult
 
+-- TODO move to Polysemy
 getAtom :: Display -> String -> IO Atom
 getAtom display t = internAtom display t False
 
@@ -138,9 +139,9 @@ initEwmh display root = do
 
 
 writeWorkspaces
-  :: (Member PropertyWriter r, Member (Reader Window) r)
+  :: (Members '[PropertyWriter, Reader Window] r)
   => ([Text], Int)
-  -> Semantic r ()
+  -> Sem r ()
 writeWorkspaces (names, i) = do
   root <- ask
   setProperty8 "_NET_DESKTOP_NAMES" "UTF8_STRING" root
@@ -149,8 +150,8 @@ writeWorkspaces (names, i) = do
   setProperty32 "_NET_CURRENT_DESKTOP"    "CARDINAL" root [i, 0]
 
 makeTopWindows
-  :: (Member PropertyReader r, Member GlobalX r, Member WindowMover r)
-  => Semantic r ()
+  :: (Members '[PropertyReader, GlobalX, WindowMover] r)
+  => Sem r ()
 makeTopWindows = do
   wins <- getTree
   forM_ wins $ \win -> do
