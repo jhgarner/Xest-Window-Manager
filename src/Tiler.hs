@@ -12,6 +12,7 @@ import           FocusList
 import           Base
 import           Polysemy
 import           Polysemy.Reader
+import           Data.Foldable (find)
 
 -- Tiler Handling Code --
 
@@ -56,7 +57,7 @@ popWindow howToPop (Directional d fl) =
   second (Directional d) $ pop howToPop fl
 
 popWindow _ (  InputController t) = (Just t, EmptyTiler)
-popWindow _ t@(Wrap            _) = (Just $ Fix t, EmptyTiler)
+popWindow _ (Wrap              _) = (Nothing, EmptyTiler)
 popWindow _ EmptyTiler            = (Nothing, EmptyTiler)
 
 
@@ -74,12 +75,20 @@ placeWindows
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
 placeWindows (Wrap win) (Plane (Rect _ _ 0 0) _) = minimize win
-placeWindows (Wrap win) p              = do
+placeWindows (Wrap win) p                        = do
   restore win
   changeLocation win $ rect p
 
+placeWindows (Directional Z fl) (Plane oldR@Rect {..} depth) = do
+  fHead $ Plane oldR $ depth + 1
+  traverse_ (\f -> f $ Plane (Rect 0 0 0 0) $ depth + 1) fTail
+ where
+  (fHead, fTail) = case fOrder fl of
+    [] -> (const $ return (), [])
+    (f:fs) ->(f, fs)
+
 -- | Place tilers along an axis
-placeWindows (Directional d fl) (Plane oldR@Rect {..} depth) =
+placeWindows (Directional d fl) (Plane Rect {..} depth) =
   traverse_ (\(i, f) -> f $ Plane (location d i) $ depth + 1)
     $ zip [0 ..]
     $ vOrder fl
@@ -87,9 +96,7 @@ placeWindows (Directional d fl) (Plane oldR@Rect {..} depth) =
   numWins = fromIntegral $ flLength fl -- Find the number of windows
   location X i = Rect (newX i) y (w `div` fromIntegral numWins) h
   location Y i = Rect x (newY i) w (h `div` fromIntegral numWins)
-  location Z i = if i == fromIntegral (fromMaybe 1000 (getFocIndex fl))
-    then oldR
-    else Rect 0 0 0 0
+  location Z _ = error "Z shouldn't be here"
 
   newX i = fromIntegral w `div` numWins * i + x
   newY i = fromIntegral h `div` numWins * i + y
@@ -149,29 +156,34 @@ focus _    t@EmptyTiler          = t
 
 -- | Given a window to focus, try to focus it. Should be called with cata.
 -- fst returns the new tiler while snd gives some status information
--- (newTiler, (parent to InputController, parent to new focus))
+--
+-- The first element in the input tuple is the new child. The second
+-- holds information about what lies down that child. The first element in
+-- the bool tuple holds whether the input controller was originally down
+-- there. The second holds whether the newly focused window is down there.
+--
+-- The returned tuple is similar; the first element is the new tiler and
+-- the second is what exists down this path.
+--
+-- (False, False) is used as both the initial state and the ending state.
+-- If we don't end in (False, False), it means the thing the user focused
+-- isn't in our tree.
 focusWindow
   :: Window
   -> Tiler (Tiler (Fix Tiler), (Bool, Bool))
   -> (Tiler (Fix Tiler), (Bool, Bool))
 focusWindow w (Wrap            w'             ) = (Wrap w', (False, w == w'))
 focusWindow _ (InputController (t, (_, False))) = (t, (True, False))
-focusWindow _ (InputController (t, (_, True))) =
-  -- Reset to (False, False) since we don't need to change anything
-  (InputController $ Fix t, (False, False))
-focusWindow _ t = case (hasController, hasWind) of
-  -- Reset to False False so no other parents try to make Input Controllers
-  (True , True) -> (InputController $ Fix (focus findFocused dropExtra), (False, False))
-  (False, True) -> (focus findFocused dropExtra, (False, True))
-  bs            -> (dropExtra, bs)
+focusWindow _ (InputController (t, (_, True)))  = (InputController $ Fix t, (False, False))
+focusWindow _ t                                 = case (hasController, shouldFocus) of
+  (True , Just newFoc) -> (InputController $ Fix (focus newFoc dropExtra), (False, False))
+  (False, Just newFoc) -> (focus newFoc dropExtra, (False, True))
+  bs                   -> (dropExtra, (fst bs, False))
  where
-  hasController    = any (fst . snd) t
-  hasWind          = any (snd . snd) t
-  dropExtra        = fmap (Fix . fst) t
-  Just findFocused = foldl'
-    (\acc (ct, (_, b)) -> acc <|> if b then Just $ Fix ct else Nothing)
-    Nothing
-    t
+  hasController = any (fst . snd) t
+  shouldFocus   = Fix . fst <$> Data.Foldable.find (snd . snd) t
+  dropExtra     = fmap (Fix . fst) t
+
 
 getDesktopState :: Tiler (Fix Tiler) -> ([Text], Int)
 getDesktopState (Directional _ fl) =

@@ -16,6 +16,7 @@ module FocusList
   , flFilter
   , flLength
   , vOrder
+  , fOrder
   , mapOne
   , focusElem
   , focusIndex
@@ -172,6 +173,10 @@ flLength FL {..} = length actualData
 vOrder :: FocusedList a -> [a]
 vOrder FL { visualOrder = vo, actualData = ad } =
   map (fromMaybe (error "focList broken") . index ad) vo
+
+fOrder :: FocusedList a -> [a]
+fOrder FL { focusOrder = fo, actualData = ad } =
+  map (fromMaybe (error "focList broken") . index ad) fo
 
 focusElem :: Eq a => a -> FocusedList a -> FocusedList a
 focusElem a fl@FL { focusOrder = fo, actualData = ad } = fl { focusOrder }

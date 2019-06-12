@@ -1,5 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 
 module Core where
@@ -61,13 +61,13 @@ handler (XorgEvent MapRequestEvent {..}) = do
   tWin <- manage ev_window
   -- Resend the mapWindow Xorg event.
   -- We don't receive the mapWindow event from this because Xorg knows we sent it.
-  restore ev_window
+  -- restore ev_window
   -- This adds the new window to whatever tiler comes after inputController
   -- If you've zoomed the inputController in, you get nesting as a result
   modify $ cata $ applyInput (add Front Focused tWin)
   -- Make the newly created window into the focused one
   -- We have to keep Xorg's idea of focus in sync with our own
-  setFocus ev_window
+  -- setFocus ev_window
   return []
 
 -- Called on window destruction
@@ -247,11 +247,13 @@ xFocus
   => Sem r ()
 xFocus = do
   root <- get @(Fix Tiler)
-  let (Fix (Wrap w)) = unsafeLast (ana makeList root :: [Fix Tiler])
-  restore w
-  setFocus w
+  case lastMay (ana makeList (Just root) :: [_]) of
+    Just (Wrap w) -> do
+      restore w
+      setFocus w
+    x -> trace (show x) return ()
  where
-  makeList :: Fix Tiler -> ListF (Fix Tiler) (Fix Tiler)
-  makeList (Fix (Wrap _)) = Nil
-  makeList (Fix t       ) = Cons (getFocused t) (getFocused t)
-  getFocused = fromMaybe (error "no focus") . fst . popWindow (Right Focused)
+  -- makeList :: Maybe (Fix Tiler) -> ListF (Tiler (Fix Tiler)) (Maybe (Fix Tiler))
+  makeList Nothing               = Nil
+  makeList (Just (Fix t       )) = Cons t (getFocused t)
+  getFocused = fst . popWindow (Right Focused)

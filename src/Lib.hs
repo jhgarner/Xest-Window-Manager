@@ -96,8 +96,9 @@ mainLoop :: Actions -> DoAll r
 -- When there are no actions to perform, render the windows and find new actions to do
 mainLoop [] = do
   modify $ cata $ Fix . reduce
-  get >>= render
+  xFocus
   get @(Tiler (Fix Tiler)) >>= \d -> trace (show d) return ()
+  get >>= render
   makeTopWindows
   get >>= writeWorkspaces . onInput getDesktopState
   doIt
@@ -113,7 +114,7 @@ mainLoop [] = do
 -- When there are actions to perform, do them and add the results to the list of actions
 mainLoop (a : as) = do
   newActions <- handler a
-  -- Post processors can override events
+  -- Post processors can override state changes
   postResult <-
     \case
         Default  -> []

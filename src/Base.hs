@@ -109,9 +109,9 @@ data Colorer m a where
   ChangeColor :: Window -> Color -> Colorer m ()
 makeSem ''Colorer
 
-type DIO r = (Member (Lift IO) r, Member (Reader Display) r)
+type Interpret e r a = Members [Lift IO, Reader Display] r => Sem (e ': r) a -> Sem r a
 
-runPropertyReader :: DIO r => Sem (PropertyReader ': r) a -> Sem r a
+runPropertyReader :: Interpret PropertyReader r a
 runPropertyReader = interpret $ \case
   GetProperty size aName w -> ask >>= \d -> sendM @IO $ do
     atom <- liftIO $ internAtom d aName False
@@ -120,7 +120,7 @@ runPropertyReader = interpret $ \case
     otherAtom <- liftIO $ internAtom d aName False
     return $ atom == otherAtom
 
-runPropertyWriter :: DIO r => Sem (PropertyWriter ': r) a -> Sem r a
+runPropertyWriter :: Interpret PropertyWriter r a
 runPropertyWriter = interpret $ \case
   SetProperty32 aName mType w msg -> ask >>= \d -> sendM @IO $ do
     atom  <- internAtom d aName False
@@ -138,18 +138,18 @@ runPropertyWriter = interpret $ \case
       ++ [0]
     return ()
 
-runAttributeWriter :: DIO r => Sem (AttributeWriter ': r) a -> Sem r a
+runAttributeWriter :: Interpret AttributeWriter r a
 runAttributeWriter = interpret $ \case
   SelectFlags w flags -> ask >>= \d -> sendM @IO $ selectInput d w flags
   SetFocus w          -> ask @Display
     >>= \d -> sendM @IO $ setInputFocus d w revertToNone currentTime
 
-runAttributeReader :: DIO r => Sem (AttributeReader ': r) a -> Sem r a
+runAttributeReader :: Interpret AttributeReader r a
 runAttributeReader = interpret $ \case
   GetClassName win ->
     ask >>= \d -> sendM $ getClassHint d win >>= \(ClassHint _ n) -> return n
 
-runWindowMover :: DIO r => Sem (WindowMover ': r) a -> Sem r a
+runWindowMover :: Interpret WindowMover r a
 runWindowMover = interpret $ \case
   ChangeLocation win (Rect x y h w) -> do
     d <- ask
@@ -170,9 +170,7 @@ runWindowMover = interpret $ \case
   ConfigureWin _ -> error "Don't call Configure Window with other events"
 
 runWindowMinimizer
-  :: (DIO r, Member (State (Set Window)) r)
-  => Sem (WindowMinimizer ': r) a
-  -> Sem r a
+  :: Member (State (Set Window)) r => Interpret WindowMinimizer r a
 runWindowMinimizer = interpret $ \case
   Minimize win -> do
     d <- ask
@@ -181,6 +179,7 @@ runWindowMinimizer = interpret $ \case
     when (mapped /= waIsUnmapped) $ do
       modify $ S.insert win
       sendM @IO $ unmapWindow d win
+      sendM @IO $ print ("-------------------- Just minimized" ++ show win)
   Restore win -> do
     d <- ask
     WindowAttributes { wa_map_state = mapped } <- sendM
@@ -188,15 +187,15 @@ runWindowMinimizer = interpret $ \case
     when (mapped == waIsUnmapped) $ do
       modify $ S.delete win
       sendM @IO $ mapWindow d win
-
+      sendM @IO $ setInputFocus d win revertToNone currentTime
+      sendM @IO $ print ("-------------------- Just made" ++ show win)
 runExecutor :: Member (Lift IO) r => Sem (Executor ': r) a -> Sem r a
 runExecutor = interpret $ \case
   Execute s -> void . sendM $ spawnCommand s
 
 runGlobalX
-  :: (DIO r, Member (Reader Window) r, Member (Reader Conf) r)
-  => Sem (GlobalX ': r) a
-  -> Sem r a
+  :: (Members [Reader Window, Reader Conf] r)
+  => Interpret GlobalX r a
 runGlobalX = interpret $ \case
   GetTree -> do
     display <- ask @Display
@@ -229,7 +228,7 @@ runGlobalX = interpret $ \case
   GetXEvent ->
     ask >>= \d -> sendM $ allocaXEvent $ \p -> nextEvent d p >> getEvent p
 
-runColorer :: DIO r => Sem (Colorer ': r) a -> Sem r a
+runColorer :: Interpret Colorer r a
 runColorer = interpret $ \case
   GetColor color -> do
     display <- ask @Display
