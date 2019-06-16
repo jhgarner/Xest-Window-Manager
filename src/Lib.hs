@@ -99,6 +99,8 @@ mainLoop [] = do
   xFocus
   get @(Tiler (Fix Tiler)) >>= \d -> trace (show d) return ()
   get >>= render
+  popped <- get @[Fix Tiler]
+  traverse_ (\t -> cata placeWindows t $ Plane (Rect 0 0 0 0) 0) popped
   makeTopWindows
   get >>= writeWorkspaces . onInput getDesktopState
   doIt

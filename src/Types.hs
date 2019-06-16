@@ -67,6 +67,8 @@ data Action
   | HideWindow String
   | ZoomInInput
   | ZoomOutInput
+  | PopTiler
+  | PushTiler
   | KeyboardEvent KeyTrigger Bool -- TODO use something other than Bool for keyPressed
   | XorgEvent Event
   deriving (Eq, Show)

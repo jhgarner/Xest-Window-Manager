@@ -201,6 +201,24 @@ handler (Move newD) = do
   changer dir (Directional d fl) = Directional d $ focusDir dir fl
   changer _   t                  = t
 
+-- Move a tiler from the tree into a stack
+handler PopTiler = do
+  root <- get
+  -- Todo Is this good or bad?
+  onInput (modify . (:) . Fix) root
+  modify $ cata (applyInput $ const EmptyTiler)
+  return [ZoomOutInput]
+
+-- Move a tiler from the stack into the tree
+handler PushTiler = do
+  popped <- get @[Fix Tiler]
+  case popped of
+    (t:ts) -> do
+      put ts
+      modify $ cata (applyInput $ add Front Focused t)
+    [] -> return ()
+  return []
+
 -- | Move all of the Tilers from root to newT
 changeLayout :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 changeLayout newT root = doPopping root newT
@@ -251,7 +269,7 @@ xFocus = do
     Just (Wrap w) -> do
       restore w
       setFocus w
-    x -> trace (show x) return ()
+    x -> return ()
  where
   -- makeList :: Maybe (Fix Tiler) -> ListF (Tiler (Fix Tiler)) (Maybe (Fix Tiler))
   makeList Nothing               = Nil

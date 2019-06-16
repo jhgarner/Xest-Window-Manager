@@ -58,6 +58,8 @@ data Action
   | HideWindow Text
   | ZoomInInput
   | ZoomOutInput
+  | PopTiler
+  | PushTiler
   deriving (Generic, Show, Eq, Interpret)
 
 -- | See other *ToType functions
@@ -68,6 +70,8 @@ actionToType _ (ShowWindow     a) = T.ShowWindow $ unpack a
 actionToType _ (HideWindow     a) = T.HideWindow $ unpack a
 actionToType _ ZoomInInput        = T.ZoomInInput
 actionToType _ ZoomOutInput       = T.ZoomOutInput
+actionToType _ PopTiler           = T.PopTiler
+actionToType _ PushTiler          = T.PushTiler
 actionToType _ (ChangeNamed s)    = T.ChangeNamed s
 actionToType _ (Move        s)    = if s then T.Move Front else T.Move Back
 actionToType modeList (ChangeModeTo a) =

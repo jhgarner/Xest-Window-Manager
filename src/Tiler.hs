@@ -56,7 +56,7 @@ popWindow
 popWindow howToPop (Directional d fl) =
   second (Directional d) $ pop howToPop fl
 
-popWindow _ (  InputController t) = (Just t, EmptyTiler)
+popWindow _ (InputController   t) = (Just t, EmptyTiler)
 popWindow _ (Wrap              _) = (Nothing, EmptyTiler)
 popWindow _ EmptyTiler            = (Nothing, EmptyTiler)
 

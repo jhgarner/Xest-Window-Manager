@@ -239,10 +239,9 @@ runColorer = interpret $ \case
     sendM $ setWindowBackground display w pix
     -- sendM $ sync display True
 
--- TODO make this less incredibly verbose...
 type DoAll r
   = (Members (States
-        [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window ]) r
+        [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler] ]) r
     , Members (Readers
         [ Conf, Window, (Dimension, Dimension), Borders ]) r
     , Members
@@ -265,7 +264,7 @@ doAll
 doAll t c m dims d w borders =
   void
     . runM
-    . runStates (m ::: S.empty @Window ::: Default ::: t ::: HNil)
+    . runStates (m ::: S.empty @Window ::: Default ::: t ::: [] ::: HNil)
     . fixState
     . runReaders (w ::: d ::: dims ::: borders ::: c ::: HNil)
     . runPropertyReader
