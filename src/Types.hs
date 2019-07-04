@@ -7,7 +7,7 @@
 
 module Types where
 
-import           ClassyPrelude
+import           Standard
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Types
@@ -24,11 +24,13 @@ data Rect = Rect
   , w :: Dimension
   , h :: Dimension
   }
+  deriving Show
 
 data Plane = Plane
   { rect :: Rect
   , depth :: Int
   }
+  deriving Show
 
 data Axis = X | Y | Z
   deriving (Eq, Show, Generic)
@@ -96,3 +98,6 @@ data KeyStatus = New Mode KeyTrigger | Temp Mode KeyTrigger | Default
 type KeyPostprocessor r = Mode -> KeyTrigger -> Action -> Actions
 
 type Borders = (Window, Window, Window, Window)
+
+data MouseButtons = LeftButton (Int, Int) | RightButton (Int, Int) | None
+  deriving Show

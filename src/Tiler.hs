@@ -1,12 +1,11 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Tiler where
 
-import           ClassyPrelude hiding (Reader, ask)
-import           Data.Fixed
+import           Standard
 import           Graphics.X11.Types
-import           Data.Functor.Foldable
 import           Types
 import           FocusList
 import           Base
@@ -63,33 +62,24 @@ popWindow _ EmptyTiler            = (Nothing, EmptyTiler)
 
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
 -- catamorphisms operate from the root down to the leaves
-placeWindows
-  :: (Member WindowMover r
-     , Member WindowMinimizer r
-     , Member (Reader Borders) r
-     , Member Colorer r
-     )
-  => Tiler (Plane -> Sem r ())
-  -> Plane
-  -> Sem r ()
+placeWindow
+  :: Plane
+  -> Tiler (Fix Tiler)
+  -> Tiler (Plane, Fix Tiler)
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
-placeWindows (Wrap win) (Plane (Rect _ _ 0 0) _) = minimize win
-placeWindows (Wrap win) p                        = do
-  restore win
-  changeLocation win $ rect p
+placeWindow _ (Wrap win) = Wrap win
 
-placeWindows (Directional Z fl) (Plane oldR@Rect {..} depth) = do
-  fHead $ Plane oldR $ depth + 1
-  traverse_ (\f -> f $ Plane (Rect 0 0 0 0) $ depth + 1) fTail
+placeWindow (Plane oldR depth) (Directional Z fl) =
+    Directional Z $ fromFoc fl fUncons
  where
-  (fHead, fTail) = case fOrder fl of
-    [] -> (const $ return (), [])
-    (f:fs) ->(f, fs)
+  fUncons = case fOrder fl of
+    a:as -> (Plane oldR $ depth + 1, a) : map (Plane (Rect 0 0 0 0) $ depth+1,) as
+    [] -> []
 
 -- | Place tilers along an axis
-placeWindows (Directional d fl) (Plane Rect {..} depth) =
-  traverse_ (\(i, f) -> f $ Plane (location d i) $ depth + 1)
+placeWindow (Plane Rect {..} depth) (Directional d fl) =
+  Directional d $ fromVis fl $ map (\(i, t) -> (Plane (location d i) $ depth + 1, t))
     $ zip [0 ..]
     $ vOrder fl
  where
@@ -103,27 +93,11 @@ placeWindows (Directional d fl) (Plane Rect {..} depth) =
 
 
 -- | Has no effect on the placement
-placeWindows (InputController f) (Plane Rect {..} depth) = do
-  -- Extract the border windows
-  (l, u, r, d) <- ask @(Window, Window, Window, Window)
-  let winList = [l, u, r, d]
+placeWindow (Plane Rect{..} depth) (InputController t) =
+    InputController (Plane (Rect (x + 5) (y + 5) (w - 10) (h - 10)) depth, t)
+-- Can't be placed but will still take up space in other Tilers
+placeWindow _ EmptyTiler = EmptyTiler
 
-  -- Calculate the color for our depth
-  let hue = 360.0 * ((0.5 + (fromIntegral depth * 0.618033988749895)) `mod'` 1)
-  color <- getColor $ "TekHVC:"++show hue++"/50/95"
-
-  -- Convince our windows to be redrawn with the right color and position
-  traverse_ (`changeLocation` Rect 0 0 1 1) winList
-  traverse_ (`changeColor` color) winList
-  changeLocation l $ Rect x y 5 h
-  changeLocation u $ Rect x y w 5
-  changeLocation d $ Rect x (y+fromIntegral h-5) w 5
-  changeLocation r $ Rect (x+fromIntegral w-5) y 5 h
-  
-  
-  f $ Plane (Rect (x + 5) (y + 5) (w - 10) (h - 10)) depth
--- | Can't be placed but will still take up space in other Tilers
-placeWindows EmptyTiler          _ = return ()
 
 -- | Given something that wants to modify a Tiler,
 -- apply it to the first Tiler after the inputController
@@ -142,9 +116,9 @@ onInput f root = fromMaybe (error "No Controller found") $ para doInput root
 -- | Modify the focused Tiler in another Tiler based on a function
 modFocused :: (Fix Tiler -> Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 modFocused f (Directional d fl) = Directional d $ mapOne (Right Focused) f fl
-modFocused f (   InputController t) = InputController $ f t
-modFocused _ wp@(Wrap            _) = wp
-modFocused _ EmptyTiler             = EmptyTiler
+modFocused f (InputController t) = InputController $ f t
+modFocused _ wp@(Wrap _) = wp
+modFocused _ EmptyTiler = EmptyTiler
 
 
 -- | Change the focus of a Tiler
@@ -154,7 +128,7 @@ focus _    t@(InputController _) = t
 focus _    t@(Wrap            _) = t
 focus _    t@EmptyTiler          = t
 
--- | Given a window to focus, try to focus it. Should be called with cata.
+-- |Given a window to focus, try to focus it. Should be called with cata.
 -- fst returns the new tiler while snd gives some status information
 --
 -- The first element in the input tuple is the new child. The second
@@ -172,6 +146,7 @@ focusWindow
   :: Window
   -> Tiler (Tiler (Fix Tiler), (Bool, Bool))
   -> (Tiler (Fix Tiler), (Bool, Bool))
+-- Todo make this mess of parantheses less terrifying
 focusWindow w (Wrap            w'             ) = (Wrap w', (False, w == w'))
 focusWindow _ (InputController (t, (_, False))) = (t, (True, False))
 focusWindow _ (InputController (t, (_, True)))  = (InputController $ Fix t, (False, False))

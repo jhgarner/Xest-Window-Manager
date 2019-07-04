@@ -71,6 +71,7 @@ library:
     - TypeOperators
     - TypeFamilies
     - NoImplicitPrelude
+    - BlockArguments
 
 executables:
   neXtWM-exe:

@@ -10,7 +10,7 @@ module Config
   )
 where
 
-import           ClassyPrelude
+import           Standard
 import           Dhall
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types

@@ -5,10 +5,7 @@ module Lib
   )
 where
 
-import           ClassyPrelude           hiding ( Reader
-                                                , asks
-                                                , ask
-                                                )
+import           Standard
 import           Config
 import           Polysemy                hiding ( raise )
 import           Polysemy.State
@@ -28,7 +25,6 @@ import           Types
 import           Base
 import           Tiler
 import           FocusList
-import           Data.Functor.Foldable
 import           Data.Char                      ( ord )
 
 -- | Starting point of the program. Should never return
@@ -49,19 +45,17 @@ startWM = do
       initialMode = head . impureNonNull $ definedModes c
       dims        = (widthOfScreen screen, heightOfScreen screen)
       rootTiler   = InputController . Fix . Directional X $ emptyFL
+
   -- Create our border windows which will follow the InputController
-  lWin <- createSimpleWindow display root 10 10 300 300 0 0 (whitePixel display (defaultScreen display))
-  rWin <- createSimpleWindow display root 10 10 300 300 0 0 (whitePixel display (defaultScreen display))
-  dWin <- createSimpleWindow display root 10 10 300 300 0 0 (whitePixel display (defaultScreen display))
-  uWin <- createSimpleWindow display root 10 10 300 300 0 0 (whitePixel display (defaultScreen display))
-  allocaSetWindowAttributes $ \wa -> set_override_redirect wa True >> changeWindowAttributes display lWin cWOverrideRedirect wa
-  allocaSetWindowAttributes $ \wa -> set_override_redirect wa True >> changeWindowAttributes display rWin cWOverrideRedirect wa
-  allocaSetWindowAttributes $ \wa -> set_override_redirect wa True >> changeWindowAttributes display dWin cWOverrideRedirect wa
-  allocaSetWindowAttributes $ \wa -> set_override_redirect wa True >> changeWindowAttributes display uWin cWOverrideRedirect wa
-  mapWindow display lWin
-  mapWindow display dWin
-  mapWindow display uWin
-  mapWindow display rWin
+  [lWin, dWin, uWin, rWin] <- replicateM 4 $ do
+    win <- createSimpleWindow display root
+           10 10 300 300 0 0
+           $ whitePixel display (defaultScreen display)
+    allocaSetWindowAttributes $ \wa ->
+      set_override_redirect wa True
+      >> changeWindowAttributes display win cWOverrideRedirect wa
+    mapWindow display win
+    return win
 
   -- Find and register ourselves with the root window
   -- These two masks allow us to intercept various Xorg events useful for a WM
@@ -70,8 +64,8 @@ startWM = do
     $   substructureNotifyMask
     .|. substructureRedirectMask
     .|. enterWindowMask
-
-
+    .|. buttonPressMask
+    .|. buttonReleaseMask
 
   -- xSetErrorHandler
   -- Grabs the initial keybindings
@@ -90,28 +84,17 @@ startWM = do
     -- Chain takes a function and calls it over and over tying it into itself
   where chain f initial = f initial >>= chain f
 
-
 -- | Performs the main logic. The return of one call becomes the input for the next
 mainLoop :: Actions -> DoAll r
 -- When there are no actions to perform, render the windows and find new actions to do
 mainLoop [] = do
   modify $ cata $ Fix . reduce
   xFocus
-  get @(Tiler (Fix Tiler)) >>= \d -> trace (show d) return ()
+  get @MouseButtons >>= \d -> trace (show d) return ()
   get >>= render
-  popped <- get @[Fix Tiler]
-  traverse_ (\t -> cata placeWindows t $ Plane (Rect 0 0 0 0) 0) popped
   makeTopWindows
   get >>= writeWorkspaces . onInput getDesktopState
-  doIt
-    where isConfNot ConfigureEvent {} = True
-          isConfNot _ = False
-          -- TODO switch to a prelude with UntilM
-          doIt = do
-            ptr <- getXEvent
-            -- trace (show ptr) return ()
-            if isConfNot ptr then doIt else return [XorgEvent ptr]
-
+  sequence [XorgEvent <$> getXEvent]
 
 -- When there are actions to perform, do them and add the results to the list of actions
 mainLoop (a : as) = do

@@ -1,13 +1,12 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE MultiWayIf #-}
 
 
 module Core where
 
-import           ClassyPrelude           hiding ( ask
-                                                , asks
-                                                , Reader
-                                                )
+import           Standard
 import           Base
 import           Polysemy
 import           Polysemy.State
@@ -16,10 +15,10 @@ import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Types
 import           Types
-import           Data.Functor.Foldable
 import           Data.Either                    ( )
 import           Tiler
 import           FocusList
+import           Data.Bits
 
 -- Event Handlers --
 
@@ -51,6 +50,7 @@ tempModePostprocessor _ _ _ = []
 
 
 -- | The bulk of the program
+-- TODO Make individual handler functions
 -- Performs some action and returns a list of new actions to be performed
 -- Returning a [] means that there aren't any new tasks to do.
 handler :: Action -> DoAll r
@@ -88,15 +88,17 @@ handler (XorgEvent UnmapEvent {..}) = do
     (Fix . remove (Fix $ Wrap ev_window))
   return []
 
--- Tell the window it can configure itself however it wants
+-- Tell the window it can configure itself however it wants.
 -- We send back the Configure Request unmodified
 handler (XorgEvent cre@ConfigureRequestEvent{}) = do
   configureWin cre
   return []
 
--- Called whet a watched key is pressed or released
+-- Called when a watched key is pressed or released
 handler (XorgEvent KeyEvent {..}) = do
+  -- Watched keys are stored in bindings
   Conf bindings _ <- ask @Conf
+  -- Is ev_keycode (the key that was pressed) equal to k (the bound k)
   return $ case find (\(k, _, _) -> ev_keycode == k) bindings of
     Nothing -> []
     Just kt -> [KeyboardEvent kt (ev_event_type == keyPress)]
@@ -114,16 +116,32 @@ handler (XorgEvent CrossingEvent {..}) = do
   when (status == (False, False)) $ put newRoot
   return []
 
+-- Called when a mouse button is pressed
+handler (XorgEvent ButtonEvent {..}) = do
+  -- For now just foces the clicked window. Nearly the same as above
+  rootT <- get @(Fix Tiler)
+  setFocus ev_window
+  let (newRoot, status) = cata (focusWindow ev_window) rootT
+  when (status == (False, False)) $ put newRoot
+  put @MouseButtons $ if
+    | ev_event_type == buttonRelease -> None
+    | ev_button == button1 -> LeftButton (0, 0)
+    | ev_button == button3 -> RightButton (0, 0)
+    | otherwise -> None
+
+  updateMouseLoc (fromIntegral ev_x, fromIntegral ev_y)
+  return []
+
 -- Handle all other xorg events as noops
 handler (XorgEvent _) = return []
 
 -- Run a shell command
 handler (RunCommand s) = execute s >> return []
 
--- Run a shell command
+-- Swap out the current postprocessor with a different one
 handler (ChangePostprocessor m) = put m >> return []
 
--- Perform a keyboard event if we are in the correct mode
+-- TODO is this right?
 handler (KeyboardEvent kt@(_, _, actions) True) = do
   currentMode <- get
   return $ ChangePostprocessor (New currentMode kt) : actions
@@ -150,8 +168,15 @@ handler ZoomInInput = do
   put $ cata reorder root
   return []
  where
+  -- Since a Wrap doesn't hold anything, we'll lose the InputController
+  -- if we zoom in.
+  reorder t@(InputController (Fix (Wrap _))) = Fix t
+  -- Same fo EmptyTiler
+  reorder t@(InputController (Fix EmptyTiler)) = Fix t
+  -- Now we can safely zoom in
   reorder (InputController (Fix t)) =
     Fix $ modFocused (Fix . InputController) t
+
   reorder t = Fix t
 
 -- Move the input controller towards the root
@@ -161,14 +186,17 @@ handler ZoomOutInput = do
   unless (isController root) $ put $ para reorder root
   return []
  where
+  -- The input disappears and will hopefully be added back later
   reorder (InputController (_, t)) = t
+  -- If the tiler held the controller, add back the controller around it
   reorder t                        = Fix $ if any (isController . fst) t
     then InputController . Fix $ snd <$> t
     else snd <$> t
+
   isController (Fix (InputController _)) = True
   isController _                         = False
 
--- Change the given mode to something else
+-- Change the current mode to something else
 handler (ChangeModeTo newM) = do
   eActions <- gets @Mode exitActions
   rebindKeys newM
@@ -219,7 +247,12 @@ handler PushTiler = do
     [] -> return ()
   return []
 
+
+-- Random stuff --
+
+
 -- | Move all of the Tilers from root to newT
+-- TODO remove recursion
 changeLayout :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 changeLayout newT root = doPopping root newT
  where
@@ -230,12 +263,11 @@ changeLayout newT root = doPopping root newT
   isFocused t = if t == focused then Focused else Unfocused
   focused = fromMaybe (Fix EmptyTiler) . fst $ popWindow (Right Focused) root
 
--- Random stuff --
-
 -- Would be used for reparenting (title bar)
 manage :: Member AttributeWriter r => Window -> Sem r (Fix Tiler)
 manage w = do
-  selectFlags w enterWindowMask
+  selectFlags w (enterWindowMask .|. buttonPressMask .|. buttonReleaseMask)
+  captureButton w
   return . Fix $ Wrap w
 
 -- Find a window with a class name
@@ -249,15 +281,49 @@ getWindowByClass wName = do
   where findWindow win = (== wName) <$> getClassName win
 
 -- Moves windows around
-render
-  :: ( Members (Readers [(Dimension, Dimension), Borders]) r
+type RenderEffect r =
+     ( Members (Readers [(Dimension, Dimension), Borders]) r
      , Members [WindowMover, WindowMinimizer, Colorer] r
      )
+render
+  :: (RenderEffect r, Member (State [Fix Tiler]) r)
   => Fix Tiler
   -> Sem r ()
 render t = do
-  (w, h) <- ask
-  cata placeWindows t $ Plane (Rect 0 0 w h) 0
+  (width, height) <- ask
+  let locations = topDown placeWindow (Plane (Rect 0 0 width height) 0) t
+  -- Draw the tiler we've been given
+  cataA draw locations
+  -- Hide all of the popped tilers
+  get @[Fix Tiler]
+    >>= traverse_ (cataA draw . topDown placeWindow (Plane (Rect 0 0 0 0) 0))
+ where draw :: RenderEffect r => Base (Cofree Tiler Plane) (Sem r ()) -> Sem r ()
+       draw (Plane (Rect _ _ 0 0) _ :< Wrap win) = minimize win
+       draw (Plane r _ :< Wrap win) = do
+           restore win
+           changeLocation win r
+       draw (Plane Rect{..} depth :< InputController t) = do
+          t
+          -- Extract the border windows
+          (l, u, r, d) <- ask @(Window, Window, Window, Window)
+          let winList = [l, u, r, d]
+
+          -- Calculate the color for our depth
+          let hue = 360.0 * ((0.5 + (fromIntegral depth * 0.618033988749895)) `mod'` 1)
+          color <- getColor $ "TekHVC:"++show hue++"/50/95"
+
+          -- Convince our windows to be redrawn with the right color and position
+          traverse_ (`changeLocation` Rect 0 0 1 1) winList
+          traverse_ (`changeColor` color) winList
+
+          -- Draw them with the right color and position
+          changeLocation l $ Rect x y 5 h
+          changeLocation u $ Rect x y w 5
+          changeLocation d $ Rect x (y+fromIntegral h-5) w 5
+          changeLocation r $ Rect (x+fromIntegral w-5) y 5 h
+       draw (_ :< t) = sequence_ t
+          
+          
 
 -- |Focus the X window
 xFocus
@@ -269,9 +335,15 @@ xFocus = do
     Just (Wrap w) -> do
       restore w
       setFocus w
-    x -> return ()
+    _ -> return ()
  where
   -- makeList :: Maybe (Fix Tiler) -> ListF (Tiler (Fix Tiler)) (Maybe (Fix Tiler))
   makeList Nothing               = Nil
   makeList (Just (Fix t       )) = Cons t (getFocused t)
   getFocused = fst . popWindow (Right Focused)
+
+updateMouseLoc :: Member (State MouseButtons) r => (Int, Int) -> Sem r ()
+updateMouseLoc pos = modify @MouseButtons \case
+    LeftButton _ -> LeftButton pos
+    RightButton _ -> RightButton pos
+    None -> None

@@ -12,9 +12,7 @@
 -}
 module Base where
 
-import           ClassyPrelude           hiding ( ask
-                                                , Reader
-                                                )
+import           Standard
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Reader
@@ -77,6 +75,7 @@ makeSem ''PropertyWriter
 data AttributeWriter m a where
   SelectFlags ::Window -> Mask -> AttributeWriter m ()
   SetFocus ::Window -> AttributeWriter m ()
+  CaptureButton ::Window -> AttributeWriter m ()
 makeSem ''AttributeWriter
 
 data AttributeReader m a where
@@ -143,6 +142,7 @@ runAttributeWriter = interpret $ \case
   SelectFlags w flags -> ask >>= \d -> sendM @IO $ selectInput d w flags
   SetFocus w          -> ask @Display
     >>= \d -> sendM @IO $ setInputFocus d w revertToNone currentTime
+  CaptureButton w -> ask @Display >>= \d -> sendM @IO $ grabButton d button1 anyModifier w False buttonPressMask grabModeAsync grabModeSync none none
 
 runAttributeReader :: Interpret AttributeReader r a
 runAttributeReader = interpret $ \case
@@ -179,7 +179,6 @@ runWindowMinimizer = interpret $ \case
     when (mapped /= waIsUnmapped) $ do
       modify $ S.insert win
       sendM @IO $ unmapWindow d win
-      sendM @IO $ print ("-------------------- Just minimized" ++ show win)
   Restore win -> do
     d <- ask
     WindowAttributes { wa_map_state = mapped } <- sendM
@@ -188,7 +187,6 @@ runWindowMinimizer = interpret $ \case
       modify $ S.delete win
       sendM @IO $ mapWindow d win
       sendM @IO $ setInputFocus d win revertToNone currentTime
-      sendM @IO $ print ("-------------------- Just made" ++ show win)
 runExecutor :: Member (Lift IO) r => Sem (Executor ': r) a -> Sem r a
 runExecutor = interpret $ \case
   Execute s -> void . sendM $ spawnCommand s
@@ -226,7 +224,10 @@ runGlobalX = interpret $ \case
       then grabKey d k anyModifier win False grabModeAsync grabModeAsync
       else ungrabKey d k anyModifier win
   GetXEvent ->
-    ask >>= \d -> sendM $ allocaXEvent $ \p -> nextEvent d p >> getEvent p
+    ask >>= \d -> sendM @IO $
+      untilM isConfNot $ allocaXEvent \p -> nextEvent d p >> getEvent p
+   where isConfNot ConfigureEvent {} = False
+         isConfNot _ = True
 
 runColorer :: Interpret Colorer r a
 runColorer = interpret $ \case
@@ -241,7 +242,9 @@ runColorer = interpret $ \case
 
 type DoAll r
   = (Members (States
-        [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler] ]) r
+        [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler]
+        , MouseButtons
+        ]) r
     , Members (Readers
         [ Conf, Window, (Dimension, Dimension), Borders ]) r
     , Members
@@ -264,7 +267,7 @@ doAll
 doAll t c m dims d w borders =
   void
     . runM
-    . runStates (m ::: S.empty @Window ::: Default ::: t ::: [] ::: HNil)
+    . runStates (m ::: S.empty @Window ::: Default ::: t ::: [] ::: None ::: HNil)
     . fixState
     . runReaders (w ::: d ::: dims ::: borders ::: c ::: HNil)
     . runPropertyReader

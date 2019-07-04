@@ -25,15 +25,15 @@ module FocusList
   , emptyFL
   , focusDir
   , indexFL
+  , fromFoc
+  , fromVis
   )
 where
 
-import           ClassyPrelude
+import           Standard
 import           Data.ChunkedZip
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
--- TODO Is there a ClassyPrelude alternative?
-import           Data.List                      ( elemIndex )
 
 data Focus = Focused | Unfocused
   deriving (Eq, Generic, Show)
@@ -219,3 +219,12 @@ focusDir Back fl@FL { focusOrder = fo, visualOrder = vo } = fromMaybe fl $ do
 
 indexFL :: Int -> FocusedList a -> Maybe a
 indexFL i FL {..} = index actualData i
+
+reconcile :: [b] -> [Int] -> FocusedList a -> FocusedList b
+reconcile newAs order fl@FL{..} =
+    fl {actualData = foldl' updateAt base $ zip order newAs}
+ where updateAt as (i, a) = map (\old -> if fst old == i then a else snd old) $ zip [0..] as
+       base = maybe [] (replicate $ length actualData) $ headMay newAs
+
+fromFoc oldFl as = reconcile as (focusOrder oldFl) oldFl
+fromVis oldFl as = reconcile as (visualOrder oldFl) oldFl
