@@ -35,8 +35,22 @@ data Plane = Plane
 data Axis = X | Y | Z
   deriving (Eq, Show, Generic)
 
+data Sized a = Sized {getSize :: Double, getItem :: a}
+  deriving (Show, Functor, Foldable, Traversable)
+
+toTup :: ((Double, a) -> (c, b)) -> Sized a -> (c, b)
+toTup f (Sized d a) = f (d, a)
+
+asTup :: ((Double, a) -> (Double, b)) -> Sized a -> Sized b
+asTup f (Sized d a) = let (newD, b) = f (d, a) in Sized newD b
+
+instance Eq a => Eq (Sized a) where
+  (Sized _ a) == (Sized _ b) = a == b
+deriveShow1 ''Sized
+deriveEq1 ''Sized
+
 data Tiler a
-  = Directional Axis (FocusedList a)
+  = Directional Axis (FocusedList (Sized a))
   | Wrap Window
   | EmptyTiler
   | InputController a
@@ -52,7 +66,8 @@ makeBaseFunctor ''Tiler
 
 -- | Convenience type for keyEvents
 type KeyTrigger = (KeyCode, Mode, Actions)
-
+type ButtonTrigger = (Button, Mode, Actions)
+                                   
 -- Create a junk instantiations for auto-deriving later
 instance Eq Event where
   (==) = error "Don't compare XorgEvents"
@@ -73,6 +88,7 @@ data Action
   | PushTiler
   | KeyboardEvent KeyTrigger Bool -- TODO use something other than Bool for keyPressed
   | XorgEvent Event
+  | ChangeSize
   deriving (Eq, Show)
 
 -- | A series of commands to be executed
@@ -89,6 +105,7 @@ instance Eq Mode where
 
 -- | The user provided configuration.
 data Conf = Conf { keyBindings  :: [KeyTrigger]
+                 , buttonBindings :: [ButtonTrigger]
                  , definedModes :: [Mode]
                  }
 

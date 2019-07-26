@@ -29,6 +29,7 @@ dependencies:
 - vector
 - recursion-schemes
 - free
+- comonad
 - deriving-compat
 - containers
 - polysemy

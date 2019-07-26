@@ -17,14 +17,14 @@ import           Data.Foldable (find)
 
 -- | Add a new Tiler at the given location. Is the opposite of popping.
 add :: Direction -> Focus -> Fix Tiler -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-add dir foc w (Directional d fl) = Directional d $ push dir foc w fl
+add dir foc w (Directional d fl) = Directional d $ push dir foc (Sized 0 w) fl
 add _ _ _ (InputController _) =
   error "Tried to add a window to an Input controller but that isn't allowed"
 add _     _         (Fix w) EmptyTiler = w
-add Front Focused   t       w@(Wrap _) = Directional X $ makeFL [t, Fix w] 0
-add Back  Focused   t       w@(Wrap _) = Directional X $ makeFL [Fix w, t] 1
-add Front Unfocused t       w@(Wrap _) = Directional X $ makeFL [t, Fix w] 1
-add Back  Unfocused t       w@(Wrap _) = Directional X $ makeFL [Fix w, t] 0
+add Front Focused   t       w@(Wrap _) = Directional X $ makeFL [Sized 0 t, Sized 0 $ Fix w] 0
+add Back  Focused   t       w@(Wrap _) = Directional X $ makeFL [Sized 0 $ Fix w, Sized 0 t] 1
+add Front Unfocused t       w@(Wrap _) = Directional X $ makeFL [Sized 0 t, Sized 0 $ Fix w] 1
+add Back  Unfocused t       w@(Wrap _) = Directional X $ makeFL [Sized 0 $ Fix w, Sized 0 t] 0
 
 -- | Remove a Tiler if it exists
 -- TODO Figure out whether I want to pass around Fixes or Tilers here
@@ -40,7 +40,7 @@ isEmpty _                  = False
 -- | Removes empty Tilers and EmptyTilers
 reduce :: Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 reduce (Directional d fl) = if isEmpty newTiler then EmptyTiler else newTiler
-  where newTiler = Directional d $ flFilter (/= Fix EmptyTiler) fl
+  where newTiler = Directional d $ flFilter ((/= Fix EmptyTiler) . getItem) fl
 reduce t@(InputController _) = t
 reduce t                     = t
 
@@ -49,16 +49,18 @@ reduce t                     = t
 -- fst . popWindow is like top and snd . popWindow is like pop
 popWindow
   :: Either Direction Focus
-  -> Tiler (Fix Tiler)
-  -> (Maybe (Fix Tiler), Tiler (Fix Tiler))
+  -> Tiler a
+  -> (Maybe a, Tiler a)
 
 popWindow howToPop (Directional d fl) =
-  second (Directional d) $ pop howToPop fl
+  fmap getItem *** Directional d $ pop howToPop fl
 
 popWindow _ (InputController   t) = (Just t, EmptyTiler)
 popWindow _ (Wrap              _) = (Nothing, EmptyTiler)
 popWindow _ EmptyTiler            = (Nothing, EmptyTiler)
 
+getFocused :: Tiler a -> Maybe a
+getFocused = fst . popWindow (Right Focused)
 
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
 -- catamorphisms operate from the root down to the leaves
@@ -73,23 +75,27 @@ placeWindow _ (Wrap win) = Wrap win
 placeWindow (Plane oldR depth) (Directional Z fl) =
     Directional Z $ fromFoc fl fUncons
  where
+  fUncons :: [Sized (Plane, Fix Tiler)]
   fUncons = case fOrder fl of
-    a:as -> (Plane oldR $ depth + 1, a) : map (Plane (Rect 0 0 0 0) $ depth+1,) as
+    a:as -> Sized (getSize a) (Plane oldR $ depth + 1, getItem a)
+              : map (\(Sized d a) -> Sized d (Plane (Rect 0 0 0 0) $ depth+1, a)) as
     [] -> []
 
 -- | Place tilers along an axis
 placeWindow (Plane Rect {..} depth) (Directional d fl) =
-  Directional d $ fromVis fl $ map (\(i, t) -> (Plane (location d i) $ depth + 1, t))
+  Directional d $ fromVis realfl $ map (\(i, (prev, lSize, size, t)) -> Sized size (Plane (location d i prev lSize size) $ depth + 1, t))
     $ zip [0 ..]
-    $ vOrder fl
+    $ vOrder realfl
  where
-  numWins = fromIntegral $ flLength fl -- Find the number of windows
-  location X i = Rect (newX i) y (w `div` fromIntegral numWins) h
-  location Y i = Rect x (newY i) w (h `div` fromIntegral numWins)
-  location Z _ = error "Z shouldn't be here"
+  realfl = mapFold (\(lSize, prev) (Sized modS t) -> ((lSize + modS, modS), (prev, lSize, modS, t))) (0, 0) fl
 
-  newX i = fromIntegral w `div` numWins * i + x
-  newY i = fromIntegral h `div` numWins * i + y
+  numWins = fromIntegral $ flLength fl -- Find the number of windows
+  location X i prev lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round((size) * fromIntegral w)) h
+  location Y i prev lSize size = Rect x (newY i lSize) w (h `div` fromIntegral numWins + round((size) * fromIntegral h))
+  location Z _ _ _ _= error "Z shouldn't be here"
+
+  newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
+  newY i lSize = fromIntegral h `div` numWins * i + y + round (fromIntegral h * lSize)
 
 
 -- | Has no effect on the placement
@@ -115,7 +121,7 @@ onInput f root = fromMaybe (error "No Controller found") $ para doInput root
 
 -- | Modify the focused Tiler in another Tiler based on a function
 modFocused :: (Fix Tiler -> Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-modFocused f (Directional d fl) = Directional d $ mapOne (Right Focused) f fl
+modFocused f (Directional d fl) = Directional d $ mapOne (Right Focused) (fmap f) fl
 modFocused f (InputController t) = InputController $ f t
 modFocused _ wp@(Wrap _) = wp
 modFocused _ EmptyTiler = EmptyTiler
@@ -123,7 +129,7 @@ modFocused _ EmptyTiler = EmptyTiler
 
 -- | Change the focus of a Tiler
 focus :: Fix Tiler -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-focus newF (  Directional d fl ) = Directional d $ focusElem newF fl
+focus newF (  Directional d fl ) = Directional d $ focusElem (Sized 0 newF) fl
 focus _    t@(InputController _) = t
 focus _    t@(Wrap            _) = t
 focus _    t@EmptyTiler          = t

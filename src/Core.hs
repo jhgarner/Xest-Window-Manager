@@ -97,7 +97,7 @@ handler (XorgEvent cre@ConfigureRequestEvent{}) = do
 -- Called when a watched key is pressed or released
 handler (XorgEvent KeyEvent {..}) = do
   -- Watched keys are stored in bindings
-  Conf bindings _ <- ask @Conf
+  Conf bindings _ _ <- ask @Conf
   -- Is ev_keycode (the key that was pressed) equal to k (the bound k)
   return $ case find (\(k, _, _) -> ev_keycode == k) bindings of
     Nothing -> []
@@ -118,19 +118,38 @@ handler (XorgEvent CrossingEvent {..}) = do
 
 -- Called when a mouse button is pressed
 handler (XorgEvent ButtonEvent {..}) = do
-  -- For now just foces the clicked window. Nearly the same as above
+  -- Just focus the clicked window. The same as above
   rootT <- get @(Fix Tiler)
   setFocus ev_window
   let (newRoot, status) = cata (focusWindow ev_window) rootT
   when (status == (False, False)) $ put newRoot
-  put @MouseButtons $ if
-    | ev_event_type == buttonRelease -> None
-    | ev_button == button1 -> LeftButton (0, 0)
-    | ev_button == button3 -> RightButton (0, 0)
-    | otherwise -> None
+  return []
 
+--While in a resize mode, the pointer moved.
+handler (XorgEvent MotionEvent {..}) = do
+  (width, height) <- ask
+  -- Get the locations of every window
+  sized::Cofree Tiler Plane <- topDown placeWindow (Plane (Rect 0 0 width height) 0) <$> get
+  -- Find the one that comes right after the input controller
+  let (Plane {rect = size} :< _) = extract $ (ana getInput sized :: DualList _)
+  mb <- get @MouseButtons
+  root <- ask @Window
+  -- Change Move the tiler based on the mouse movement
+  modify $ case mb of
+    LeftButton (ox, oy) -> cata (applyInput (changeSize (fromIntegral ev_x - ox, fromIntegral ev_y - oy) size (LeftButton (0, 0))))
+    RightButton (ox, oy) -> cata (applyInput (changeSize (fromIntegral ev_x - ox, fromIntegral ev_y - oy) size (RightButton (0, 0))))
+    _ -> id
+
+  -- In theory, this is part of the event, but X11 doesn't provide it so let's ask the server directly
+  newB <- getButton root
+  put newB
+  -- We know what button is pressed, now we need to update the location
   updateMouseLoc (fromIntegral ev_x, fromIntegral ev_y)
   return []
+ where getInput :: Cofree Tiler Plane -> DualListF (Cofree Tiler Plane) (Cofree Tiler Plane)
+       getInput (_ :< InputController a) = EndF a
+       -- TODO I wish I didn't need the (error "Will never happen") pattern as much.
+       getInput (_ :< b) = ContinueF $ fromMaybe (error "Wrong") $ getFocused b
 
 -- Handle all other xorg events as noops
 handler (XorgEvent _) = return []
@@ -200,6 +219,7 @@ handler ZoomOutInput = do
 handler (ChangeModeTo newM) = do
   eActions <- gets @Mode exitActions
   rebindKeys newM
+  captureButton newM
   put newM
   --Combine the two lists of actions to be executed. Execute exit actions first.
   return $ eActions ++ introActions newM
@@ -212,7 +232,7 @@ handler (ChangeLayoutTo (Fix newT)) = do
 -- Change the focus to some named action
 handler (ChangeNamed s) = do
   modify $ cata (applyInput changer)
-  xFocus
+  -- xFocus
   return []
  where
   changer t@(Directional d fl) = case readMay s of
@@ -223,7 +243,7 @@ handler (ChangeNamed s) = do
 -- Change focus in a given direction
 handler (Move newD) = do
   modify $ cata (applyInput (changer newD))
-  xFocus
+  -- xFocus
   return []
  where
   changer dir (Directional d fl) = Directional d $ focusDir dir fl
@@ -247,6 +267,16 @@ handler PushTiler = do
     [] -> return ()
   return []
 
+-- handler ChangeSize = do
+--   (width, height) <- ask
+--   sized::Cofree Tiler Plane <- topDown placeWindow (Plane (Rect 0 0 width height) 0) <$> get
+--   let (size :< _) = extract $ (ana getInput sized :: DualList _)
+--   changeSize
+--   return []
+--  where getInput :: Cofree Tiler Plane -> DualListF (Cofree Tiler Plane) (Cofree Tiler Plane)
+--        getInput (_ :< InputController a) = EndF a
+--        getInput (_ :< b) = ContinueF $ fromMaybe (error "Wrong") $ getFocused b
+
 
 -- Random stuff --
 
@@ -267,7 +297,6 @@ changeLayout newT root = doPopping root newT
 manage :: Member AttributeWriter r => Window -> Sem r (Fix Tiler)
 manage w = do
   selectFlags w (enterWindowMask .|. buttonPressMask .|. buttonReleaseMask)
-  captureButton w
   return . Fix $ Wrap w
 
 -- Find a window with a class name
@@ -298,11 +327,11 @@ render t = do
   get @[Fix Tiler]
     >>= traverse_ (cataA draw . topDown placeWindow (Plane (Rect 0 0 0 0) 0))
  where draw :: RenderEffect r => Base (Cofree Tiler Plane) (Sem r ()) -> Sem r ()
-       draw (Plane (Rect _ _ 0 0) _ :< Wrap win) = minimize win
-       draw (Plane r _ :< Wrap win) = do
+       draw (Plane (Rect _ _ 0 0) _ :<~ Wrap win) = minimize win
+       draw (Plane r _ :<~ Wrap win) = do
            restore win
            changeLocation win r
-       draw (Plane Rect{..} depth :< InputController t) = do
+       draw (Plane Rect{..} depth :<~ InputController t) = do
           t
           -- Extract the border windows
           (l, u, r, d) <- ask @(Window, Window, Window, Window)
@@ -321,7 +350,7 @@ render t = do
           changeLocation u $ Rect x y w 5
           changeLocation d $ Rect x (y+fromIntegral h-5) w 5
           changeLocation r $ Rect (x+fromIntegral w-5) y 5 h
-       draw (_ :< t) = sequence_ t
+       draw (_ :<~ t) = sequence_ t
           
           
 
@@ -340,10 +369,35 @@ xFocus = do
   -- makeList :: Maybe (Fix Tiler) -> ListF (Tiler (Fix Tiler)) (Maybe (Fix Tiler))
   makeList Nothing               = Nil
   makeList (Just (Fix t       )) = Cons t (getFocused t)
-  getFocused = fst . popWindow (Right Focused)
 
 updateMouseLoc :: Member (State MouseButtons) r => (Int, Int) -> Sem r ()
 updateMouseLoc pos = modify @MouseButtons \case
     LeftButton _ -> LeftButton pos
     RightButton _ -> RightButton pos
     None -> None
+
+changeSize :: (Int, Int) -> Rect -> MouseButtons -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
+changeSize (dx, dy) Rect{..} m = \case
+  Directional d fl ->
+    let numWins = fromIntegral $ length fl
+        windowSize = 1 / numWins
+        mouseDelta = fromIntegral if d == X then dx else dy
+        delta = mouseDelta / fromIntegral w
+        foc = fromIntegral $ maybe (error "How?") (case m of
+                                                     RightButton _ -> (+1)
+                                                     -- LeftButton == RightButton on the previous window
+                                                     LeftButton  _ -> (id)
+                                                  ) $ getFocIndex fl
+        
+        bound a i prev = max (-windowSize) $ min a $ 1 - (i * windowSize + prev)
+        propagate = 
+          mapFold
+          (\(i, prev) (Sized size t) -> if i == foc && foc < numWins
+            then ((i+1, bound (size + delta) i prev), Sized (bound (size + delta) i prev) t)
+            else if i == foc + 1 && foc > 0
+            then ((i+1, bound (size - delta) i prev), Sized (bound (size - delta) i prev) t)
+            else ((i+1, bound size i prev), Sized (bound size i prev) t))
+          (1, 0)
+          fl
+    in Directional d propagate
+  t -> t

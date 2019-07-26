@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE DeriveAnyClass   #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module Config
   ( readConfig
@@ -14,23 +15,25 @@ import           Standard
 import           Dhall
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types
+import           Graphics.X11.Types
 import qualified Types                         as T
-import           Data.Functor.Foldable
 import           FocusList
 
 -- Mirror many of the datatypes from Types but with easy to parse versions
 -- | Same as Type
 data Conf = Conf { keyBindings  :: [KeyTrigger]
+                 , buttonBindings :: [ButtonTrigger]
                  , definedModes :: [Mode]
                  }
   deriving (Generic, Show, Interpret)
 
 -- | Convert a parsed conf to a useful conf
 confToType :: Display -> Conf -> IO T.Conf
-confToType display (Conf kb dm) = do
+confToType display (Conf kb bb dm) = do
   -- Convert the defined modes to a map of modeNames to modes
   let mapModes     = foldl' (\mm m -> insertMap (modeName m) m mm) mempty dm
       definedModes = map (modeToType mapModes) dm
+      buttonBindings = map (buttonToType mapModes) bb
   keyBindings <- traverse (keyTriggerToType display mapModes) kb
   return T.Conf { .. }
 
@@ -39,6 +42,11 @@ data KeyTrigger = KeyTrigger { key     :: Text
                              , mode    :: Text
                              , actions :: [Action]
                              }
+  deriving (Generic, Show, Interpret)
+data ButtonTrigger = ButtonTrigger { button :: Text
+                                   , mode   :: Text
+                                   , actions :: [Action]
+                                   }
   deriving (Generic, Show, Interpret)
 
 -- | Similar to confToType. Needs display to convert the key symbol to a number and mm to convert Text to a Mode
@@ -60,6 +68,7 @@ data Action
   | ZoomOutInput
   | PopTiler
   | PushTiler
+  | ChangeSize
   deriving (Generic, Show, Eq, Interpret)
 
 -- | See other *ToType functions
@@ -74,9 +83,17 @@ actionToType _ PopTiler           = T.PopTiler
 actionToType _ PushTiler          = T.PushTiler
 actionToType _ (ChangeNamed s)    = T.ChangeNamed s
 actionToType _ (Move        s)    = if s then T.Move Front else T.Move Back
+actionToType _ ChangeSize         = T.ChangeSize
 actionToType modeList (ChangeModeTo a) =
   T.ChangeModeTo . modeToType modeList $ getMode a modeList
 
+buttonToType :: Map Text Mode -> ButtonTrigger -> T.ButtonTrigger
+buttonToType modeMap (ButtonTrigger b m a) =
+  (toButton b, modeToType modeMap $ getMode m modeMap, map (actionToType modeMap) a)
+ where toButton "1" = button1
+       toButton "2" = button2
+       toButton "3" = button3
+       toButton _ = error "Buttons must be between 1 and 3"
 
 -- | Remove Tilers the user shouldn't be creating
 data Tiler

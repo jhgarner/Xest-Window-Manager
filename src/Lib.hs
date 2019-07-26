@@ -66,7 +66,9 @@ startWM = do
     .|. enterWindowMask
     .|. buttonPressMask
     .|. buttonReleaseMask
+  -- grabButton display anyButton anyModifier root False (buttonPressMask .|. buttonReleaseMask) grabModeSync grabModeAsync none none
 
+  -- allowEvents display (replayPointer .|. replayKeyboard .|. asyncBoth) currentTime
   -- xSetErrorHandler
   -- Grabs the initial keybindings
   _ <-
@@ -76,6 +78,8 @@ startWM = do
     $ runReader root
     $ runGlobalX
     $ rebindKeys initialMode
+
+  setDefaultErrorHandler
 
   -- Execute the main loop. Will never return unless Xest exits
   doAll rootTiler c initialMode dims display root (lWin, dWin, uWin, rWin) (chain mainLoop [])
@@ -90,11 +94,12 @@ mainLoop :: Actions -> DoAll r
 mainLoop [] = do
   modify $ cata $ Fix . reduce
   xFocus
-  get @MouseButtons >>= \d -> trace (show d) return ()
   get >>= render
   makeTopWindows
   get >>= writeWorkspaces . onInput getDesktopState
-  sequence [XorgEvent <$> getXEvent]
+  l <- sequence [XorgEvent <$> getXEvent]
+  -- trace (show l) return l
+  return l
 
 -- When there are actions to perform, do them and add the results to the list of actions
 mainLoop (a : as) = do

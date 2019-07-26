@@ -3,6 +3,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-|
    Base contains all of the IO facing code in project (except for the main
@@ -16,6 +17,7 @@ import           Standard
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Reader
+import           Data.Bits
 import           Data.Kind
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
@@ -29,7 +31,6 @@ import           Graphics.X11.Xlib.Color
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
 import           Foreign.Storable
-import           Data.Functor.Foldable
 import qualified Data.Set                      as S
 import           System.Process
 import           Types
@@ -75,7 +76,8 @@ makeSem ''PropertyWriter
 data AttributeWriter m a where
   SelectFlags ::Window -> Mask -> AttributeWriter m ()
   SetFocus ::Window -> AttributeWriter m ()
-  CaptureButton ::Window -> AttributeWriter m ()
+  CaptureButton ::Mode -> AttributeWriter m ()
+  GetButton ::Window -> AttributeWriter m MouseButtons
 makeSem ''AttributeWriter
 
 data AttributeReader m a where
@@ -137,12 +139,33 @@ runPropertyWriter = interpret $ \case
       ++ [0]
     return ()
 
-runAttributeWriter :: Interpret AttributeWriter r a
+runAttributeWriter
+  :: (Members [Reader Window, Reader Conf] r)
+  => Interpret AttributeWriter r a
 runAttributeWriter = interpret $ \case
-  SelectFlags w flags -> ask >>= \d -> sendM @IO $ selectInput d w flags
+  SelectFlags w flags -> ask >>= \d -> sendM @IO $ do
+    selectInput d w flags
+    grabButton d anyButton anyModifier w False (buttonPressMask .|. buttonReleaseMask) grabModeSync grabModeAsync none none
+
   SetFocus w          -> ask @Display
-    >>= \d -> sendM @IO $ setInputFocus d w revertToNone currentTime
-  CaptureButton w -> ask @Display >>= \d -> sendM @IO $ grabButton d button1 anyModifier w False buttonPressMask grabModeAsync grabModeSync none none
+    >>= \d -> sendM @IO $ do
+      setInputFocus d w revertToNone currentTime
+      allowEvents d (replayPointer) currentTime
+  CaptureButton mode -> ask @Display >>= \d -> do
+      bt <- asks buttonBindings
+      root <- ask @Window
+      when (not . null $ filter (\(_, m, _) -> m == mode) bt)
+        $ void . sendM @IO $ grabPointer d root False pointerMotionMask grabModeAsync grabModeAsync root none currentTime
+      when (null $ filter (\(_, m, _) -> m == mode) bt)
+        $ void . sendM @IO $ ungrabPointer d currentTime
+  GetButton w -> ask @Display >>= \d -> sendM @IO $ do 
+    (_, _, _, _, _, _, _, b) <- queryPointer d w
+
+    allowEvents d (syncPointer) currentTime
+    return case b of
+             _ | b .&. button1Mask /= 0-> LeftButton (0, 0)
+               | b .&. button3Mask /= 0-> RightButton (0, 0)
+               | otherwise -> None
 
 runAttributeReader :: Interpret AttributeReader r a
 runAttributeReader = interpret $ \case
@@ -213,7 +236,7 @@ runGlobalX = interpret $ \case
         )
       )
   RebindKeys activeMode -> do
-    Conf kb _ <- ask @Conf
+    Conf kb _ _ <- ask @Conf
     d         <- ask @Display
     win       <- ask @Window
     sendM $ forM_ kb $ toggleModel activeMode d win

@@ -48,8 +48,10 @@ data FocusedList a = FL { visualOrder :: [Int]
                         , actualData :: [a]
                         }
   deriving (Eq, Show, Functor, Generic, Foldable, Traversable)
+instance MonoFoldable (FocusedList a)
 deriveShow1 ''FocusedList
 deriveEq1 ''FocusedList
+type instance Element (FocusedList a) = a
 
 instance Zip FocusedList where
   zipWith f fl@FL { actualData = ad } FL { actualData = add } =
