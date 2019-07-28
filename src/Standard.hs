@@ -14,7 +14,8 @@ module Standard
     , pattern (:<~)
     ) where
 
-import ClassyPrelude as All hiding (Reader, ask, asks)
+import ClassyPrelude as All hiding (Reader, ask, asks, find)
+import Data.Foldable as All (find)
 
 import Polysemy.State
 import Polysemy

@@ -24,7 +24,16 @@ data Rect = Rect
   , w :: Dimension
   , h :: Dimension
   }
-  deriving Show
+  deriving (Show, Eq)
+
+-- | A simple rectangle
+data RRect = RRect
+  { xp :: Double
+  , yp :: Double
+  , wp :: Double
+  , hp :: Double
+  }
+  deriving (Show, Eq)
 
 data Plane = Plane
   { rect :: Rect
@@ -51,6 +60,7 @@ deriveEq1 ''Sized
 
 data Tiler a
   = Directional Axis (FocusedList (Sized a))
+  | Floating (Maybe a) [Maybe (RRect, a)]
   | Wrap Window
   | EmptyTiler
   | InputController a

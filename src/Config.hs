@@ -100,6 +100,7 @@ data Tiler
   = Vertical
   | Horizontal
   | Workspace
+  | Floating
   deriving (Eq, Generic, Show, Interpret)
 
 -- | See other *ToType functions
@@ -107,6 +108,7 @@ tilerToType :: Tiler -> Fix T.Tiler
 tilerToType Vertical   = Fix . T.Directional T.Y $ emptyFL
 tilerToType Horizontal = Fix . T.Directional T.X $ emptyFL
 tilerToType Workspace  = Fix . T.Directional T.Z $ emptyFL
+tilerToType Floating   = Fix $ T.Floating Nothing []
 
 -- | Pretty much the same as T.Mode already
 data Mode = NewMode { modeName     :: Text

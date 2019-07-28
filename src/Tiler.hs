@@ -11,13 +11,14 @@ import           FocusList
 import           Base
 import           Polysemy
 import           Polysemy.Reader
-import           Data.Foldable (find)
+-- import           Data.Foldable (find)
 
 -- Tiler Handling Code --
 
 -- | Add a new Tiler at the given location. Is the opposite of popping.
 add :: Direction -> Focus -> Fix Tiler -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 add dir foc w (Directional d fl) = Directional d $ push dir foc (Sized 0 w) fl
+add _ foc w (Floating b ls) = Floating b if foc == Focused then Just (RRect 0 0 0.2 0.2, w) : ls else ls ++ [Just (RRect 0 0 0.2 0.2, w)]
 add _ _ _ (InputController _) =
   error "Tried to add a window to an Input controller but that isn't allowed"
 add _     _         (Fix w) EmptyTiler = w
@@ -27,13 +28,13 @@ add Front Unfocused t       w@(Wrap _) = Directional X $ makeFL [Sized 0 t, Size
 add Back  Unfocused t       w@(Wrap _) = Directional X $ makeFL [Sized 0 $ Fix w, Sized 0 t] 0
 
 -- | Remove a Tiler if it exists
--- TODO Figure out whether I want to pass around Fixes or Tilers here
 remove :: Fix Tiler -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 remove toDelete = reduce . map isEqual
   where isEqual t = if t == toDelete then Fix EmptyTiler else t
 
 isEmpty :: Tiler (Fix Tiler) -> Bool
 isEmpty (Directional _ fl) = isNull fl
+isEmpty (Floating b ls)    = (b == Nothing  || b == Just (Fix EmptyTiler)) && null ls
 isEmpty EmptyTiler         = True
 isEmpty _                  = False
 
@@ -41,6 +42,8 @@ isEmpty _                  = False
 reduce :: Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 reduce (Directional d fl) = if isEmpty newTiler then EmptyTiler else newTiler
   where newTiler = Directional d $ flFilter ((/= Fix EmptyTiler) . getItem) fl
+reduce (Floating b ls) = if isEmpty newTiler then EmptyTiler else newTiler
+  where newTiler = Floating (b >>= (\bb -> if bb == Fix EmptyTiler then Nothing else Just bb)) $ filter (fromMaybe True . fmap ((/= Fix EmptyTiler) . snd)) ls
 reduce t@(InputController _) = t
 reduce t                     = t
 
@@ -54,6 +57,19 @@ popWindow
 
 popWindow howToPop (Directional d fl) =
   fmap getItem *** Directional d $ pop howToPop fl
+  -- TODO refactor all of this
+popWindow howToPop (Floating b ls) = case howToPop of
+  Left _ -> case fromMaybe (error "woops") $ headMay ls of
+             Nothing -> (Just $ fromMaybe (error "woops") b, newLS Nothing)
+             Just (_, t) -> (Just t, newLS b)
+  Right Focused -> case fromMaybe (error "woops") $ headMay ls of
+             Nothing -> (Just $ fromMaybe (error "woops") b, newLS Nothing)
+             Just (_, t) -> (Just t, newLS b)
+  _ -> case fromMaybe (error "woops") $ lastMay ls of
+             Nothing -> (Just $ fromMaybe (error "woops") b, otherLS Nothing)
+             Just (_, t) -> (Just t, otherLS b)
+  where newLS b = if length ls == 1 then EmptyTiler else (fromMaybe (error "woops") $ Floating b <$> tailMay ls)
+        otherLS b = if length ls == 1 then EmptyTiler else (fromMaybe (error "woops") $ Floating b <$> initMay ls)
 
 popWindow _ (InputController   t) = (Just t, EmptyTiler)
 popWindow _ (Wrap              _) = (Nothing, EmptyTiler)
@@ -97,6 +113,10 @@ placeWindow (Plane Rect {..} depth) (Directional d fl) =
   newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
   newY i lSize = fromIntegral h `div` numWins * i + y + round (fromIntegral h * lSize)
 
+placeWindow (Plane r@Rect{..} depth) (Floating b ls) =
+  Floating (Just (Plane r $ depth + 1, fromMaybe (Fix EmptyTiler) b)) $ map (\case
+    Just (r@(RRect xp yp wp hp), t) -> Just (r, (Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
+    Nothing -> Nothing) ls
 
 -- | Has no effect on the placement
 placeWindow (Plane Rect{..} depth) (InputController t) =
@@ -122,6 +142,9 @@ onInput f root = fromMaybe (error "No Controller found") $ para doInput root
 -- | Modify the focused Tiler in another Tiler based on a function
 modFocused :: (Fix Tiler -> Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 modFocused f (Directional d fl) = Directional d $ mapOne (Right Focused) (fmap f) fl
+modFocused f (Floating b ls) = case fromMaybe (error "woops") $ headMay ls of
+                                 Just t -> Floating b $ Just (second f t) : fromMaybe (error "woops") (tailMay ls)
+                                 Nothing -> Floating (Just $ f $ fromMaybe (Fix EmptyTiler) b) ls
 modFocused f (InputController t) = InputController $ f t
 modFocused _ wp@(Wrap _) = wp
 modFocused _ EmptyTiler = EmptyTiler
@@ -130,6 +153,10 @@ modFocused _ EmptyTiler = EmptyTiler
 -- | Change the focus of a Tiler
 focus :: Fix Tiler -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 focus newF (  Directional d fl ) = Directional d $ focusElem (Sized 0 newF) fl
+focus newF (  Floating    (Just b) ls ) = Floating (Just b) if b == newF then Nothing : filter (/= Nothing) ls else join (find (isIt False) ls) : filter (not . isIt True) ls
+  where isIt def = fromMaybe def . fmap ((== newF) . snd)
+focus newF (  Floating    Nothing ls ) = Floating Nothing $ join (find (isIt False) ls) : filter (not . isIt True) ls
+  where isIt def = fromMaybe def . fmap ((== newF) . snd)
 focus _    t@(InputController _) = t
 focus _    t@(Wrap            _) = t
 focus _    t@EmptyTiler          = t
@@ -162,7 +189,7 @@ focusWindow _ t                                 = case (hasController, shouldFoc
   bs                   -> (dropExtra, (fst bs, False))
  where
   hasController = any (fst . snd) t
-  shouldFocus   = Fix . fst <$> Data.Foldable.find (snd . snd) t
+  shouldFocus   = Fix . fst <$> find (snd . snd) t
   dropExtra     = fmap (Fix . fst) t
 
 

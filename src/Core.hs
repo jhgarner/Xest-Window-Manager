@@ -382,7 +382,7 @@ changeSize (dx, dy) Rect{..} m = \case
     let numWins = fromIntegral $ length fl
         windowSize = 1 / numWins
         mouseDelta = fromIntegral if d == X then dx else dy
-        delta = mouseDelta / fromIntegral w
+        delta = if d == X then mouseDelta / fromIntegral w else mouseDelta / fromIntegral h
         foc = fromIntegral $ maybe (error "How?") (case m of
                                                      RightButton _ -> (+1)
                                                      -- LeftButton == RightButton on the previous window
@@ -400,4 +400,8 @@ changeSize (dx, dy) Rect{..} m = \case
           (1, 0)
           fl
     in Directional d propagate
+  Floating b (Just ((RRect{..}, t)):ls) -> 
+    let (ddx, ddy) = (fromIntegral dx / fromIntegral w, fromIntegral dy / fromIntegral h) in Floating b $ (case m of
+                          RightButton _ -> Just (RRect xp yp (wp + ddx) (trace (show dy ++ " " ++ show y) (hp + ddy)), t)
+                          LeftButton _ -> Just (RRect (xp + ddx) (yp + ddy) wp hp, t)) : ls
   t -> t
