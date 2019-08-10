@@ -1,1 +1,2 @@
-< Vertical : {} | Horizontal : {} | Workspace : {} | Floating : {} > 
+let Degrees = ./degrees
+in < Horizontal : {} | Hovering : {} | Rotate : {} | FullScreen : {} > 

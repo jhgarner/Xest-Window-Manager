@@ -1,2 +1,2 @@
 let Tilers = ./tilers
-in < ChangeLayoutTo : { _1 : Tilers } | RunCommand : { _1 : Text } | ChangeModeTo : { _1 : Text } | ShowWindow : { _1 : Text } | HideWindow : { _1 : Text } | ZoomInInput : {} | ZoomOutInput : {} | PopTiler : {} | PushTiler : {} | ChangeNamed : { _1 : Text } | Move : { _1 : Bool } | ChangeSize : {}>
+in < Insert : { _1 : Tilers } | RunCommand : { _1 : Text } | ChangeModeTo : { _1 : Text } | ShowWindow : { _1 : Text } | HideWindow : { _1 : Text } | ZoomInInput : {} | ZoomOutInput : {} | PopTiler : {} | PushTiler : {} | ChangeNamed : { _1 : Text } | Move : { _1 : Bool } >

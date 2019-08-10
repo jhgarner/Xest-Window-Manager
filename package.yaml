@@ -38,6 +38,7 @@ dependencies:
 - generic-arbitrary
 - quickcheck-instances
 - chunked-data
+- vector-sized
 
 library:
   source-dirs: src

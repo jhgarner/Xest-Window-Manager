@@ -1,6 +1,8 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 module Tiler where
 
@@ -8,74 +10,60 @@ import           Standard
 import           Graphics.X11.Types
 import           Types
 import           FocusList
-import           Base
-import           Polysemy
-import           Polysemy.Reader
--- import           Data.Foldable (find)
 
 -- Tiler Handling Code --
 
 -- | Add a new Tiler at the given location. Is the opposite of popping.
-add :: Direction -> Focus -> Fix Tiler -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-add dir foc w (Directional d fl) = Directional d $ push dir foc (Sized 0 w) fl
-add _ foc w (Floating b ls) = Floating b if foc == Focused then Just (RRect 0 0 0.2 0.2, w) : ls else ls ++ [Just (RRect 0 0 0.2 0.2, w)]
-add _ _ _ (InputController _) =
-  error "Tried to add a window to an Input controller but that isn't allowed"
-add _     _         (Fix w) EmptyTiler = w
-add Front Focused   t       w@(Wrap _) = Directional X $ makeFL [Sized 0 t, Sized 0 $ Fix w] 0
-add Back  Focused   t       w@(Wrap _) = Directional X $ makeFL [Sized 0 $ Fix w, Sized 0 t] 1
-add Front Unfocused t       w@(Wrap _) = Directional X $ makeFL [Sized 0 t, Sized 0 $ Fix w] 1
-add Back  Unfocused t       w@(Wrap _) = Directional X $ makeFL [Sized 0 $ Fix w, Sized 0 t] 0
+add :: Direction -> Focus -> a -> Tiler a -> Tiler a
+add dir foc w (Horiz fl) = Horiz $ push dir foc (Sized 0 w) fl
+add _ foc w (Floating ls) = Floating $ if foc == Focused then Top (RRect 0 0 0.2 0.2, w) +: ls else append ls [Top (RRect 0 0 0.2 0.2, w)]
+add _ _ _ _ = error "Attempted to add to something that isn't addable"
+-- add dir foc w r@(Reflect _ _) = fmap (Fix . add dir foc w . unfix) r
+-- add _ _ _ (InputController _) =
+--   error "Tried to add a window to an Input controller but that isn't allowed"
+-- add Front Focused   t       w@(Wrap _) = Horiz $ makeFL [Sized 0 t, Sized 0 $ Fix w] 0
+-- add Back  Focused   t       w@(Wrap _) = Horiz $ makeFL [Sized 0 $ Fix w, Sized 0 t] 1
+-- add Front Unfocused t       w@(Wrap _) = Horiz $ makeFL [Sized 0 t, Sized 0 $ Fix w] 1
+-- add Back  Unfocused t       w@(Wrap _) = Horiz $ makeFL [Sized 0 $ Fix w, Sized 0 t] 0
 
 -- | Remove a Tiler if it exists
-remove :: Fix Tiler -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-remove toDelete = reduce . map isEqual
-  where isEqual t = if t == toDelete then Fix EmptyTiler else t
+ripOut :: Fix Tiler -> Tiler (Fix Tiler) -> Maybe (Tiler (Fix Tiler))
+ripOut toDelete = reduce . fmap isEqual
+  where isEqual t = if t == toDelete then Nothing else Just t
 
-isEmpty :: Tiler (Fix Tiler) -> Bool
-isEmpty (Directional _ fl) = isNull fl
-isEmpty (Floating b ls)    = (b == Nothing  || b == Just (Fix EmptyTiler)) && null ls
-isEmpty EmptyTiler         = True
-isEmpty _                  = False
-
--- | Removes empty Tilers and EmptyTilers
-reduce :: Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-reduce (Directional d fl) = if isEmpty newTiler then EmptyTiler else newTiler
-  where newTiler = Directional d $ flFilter ((/= Fix EmptyTiler) . getItem) fl
-reduce (Floating b ls) = if isEmpty newTiler then EmptyTiler else newTiler
-  where newTiler = Floating (b >>= (\bb -> if bb == Fix EmptyTiler then Nothing else Just bb)) $ filter (fromMaybe True . fmap ((/= Fix EmptyTiler) . snd)) ls
-reduce t@(InputController _) = t
-reduce t                     = t
+-- | Removes empty Tilers
+reduce :: Tiler (Maybe (Fix Tiler)) -> Maybe (Tiler (Fix Tiler))
+-- Yo dog, I head you like fmaps
+reduce (Horiz fl) = fmap Horiz $ fmap (fmap $ fromMaybe (error "Impossible")) <$> flFilter (not . null . getItem) fl
+reduce (Floating ls) = newTiler
+  where newTiler = Floating . fmap (fmap $ fromMaybe (error "Impossible")) <$> newFront
+        newFront = filterNe (not . null . getEither) ls
+reduce (InputController t) = Just . InputController $ join t
+reduce (Reflect t) = fmap Reflect t
+reduce (FocusFull t) = fmap FocusFull t
+reduce (Wrap w) = Just $ Wrap w
 
 
 -- | A combination of top and pop if you're coming from c++.
 -- fst . popWindow is like top and snd . popWindow is like pop
 popWindow
-  :: Either Direction Focus
+  :: Show a => Either Direction Focus
   -> Tiler a
-  -> (Maybe a, Tiler a)
+  -> (a, Maybe (Tiler a))
 
-popWindow howToPop (Directional d fl) =
-  fmap getItem *** Directional d $ pop howToPop fl
-  -- TODO refactor all of this
-popWindow howToPop (Floating b ls) = case howToPop of
-  Left _ -> case fromMaybe (error "woops") $ headMay ls of
-             Nothing -> (Just $ fromMaybe (error "woops") b, newLS Nothing)
-             Just (_, t) -> (Just t, newLS b)
-  Right Focused -> case fromMaybe (error "woops") $ headMay ls of
-             Nothing -> (Just $ fromMaybe (error "woops") b, newLS Nothing)
-             Just (_, t) -> (Just t, newLS b)
-  _ -> case fromMaybe (error "woops") $ lastMay ls of
-             Nothing -> (Just $ fromMaybe (error "woops") b, otherLS Nothing)
-             Just (_, t) -> (Just t, otherLS b)
-  where newLS b = if length ls == 1 then EmptyTiler else (fromMaybe (error "woops") $ Floating b <$> tailMay ls)
-        otherLS b = if length ls == 1 then EmptyTiler else (fromMaybe (error "woops") $ Floating b <$> initMay ls)
+popWindow howToPop (Horiz fl) =
+  getItem *** fmap Horiz $ pop howToPop fl
 
-popWindow _ (InputController   t) = (Just t, EmptyTiler)
-popWindow _ (Wrap              _) = (Nothing, EmptyTiler)
-popWindow _ EmptyTiler            = (Nothing, EmptyTiler)
+popWindow howToPop (Floating ls) = second (fmap Floating) $ case howToPop of
+  Right Unfocused -> (getEither $ last ls, init ls)
+  _ -> (getEither $ head ls, tail ls)
 
-getFocused :: Tiler a -> Maybe a
+popWindow _ (Reflect t) = (t, Nothing)
+popWindow _ (FocusFull t) = (t, Nothing)
+
+popWindow e t = error $ "Attempted to pop the unpopable" ++ show e ++ " " ++ show t
+
+getFocused :: Show a => Tiler a -> a
 getFocused = fst . popWindow (Right Focused)
 
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
@@ -83,83 +71,82 @@ getFocused = fst . popWindow (Right Focused)
 placeWindow
   :: Plane
   -> Tiler (Fix Tiler)
-  -> Tiler (Plane, Fix Tiler)
+  -> (Plane -> Plane, Tiler (Plane, Fix Tiler))
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
-placeWindow _ (Wrap win) = Wrap win
+placeWindow _ (Wrap win) = (id, Wrap win)
+placeWindow (Plane Rect {..} depth) (Reflect t) = (unreflect, Reflect (Plane (Rect y x h w) $ depth + 1, t))
+  where unreflect (Plane (Rect rx ry rw rh) keepD) = Plane (Rect ry rx rh rw) keepD
+placeWindow (Plane r depth) (FocusFull (Fix t)) = 
+  (id, modFocused (first $ const (Plane r $ depth + 1)) $ fmap (Plane (Rect 0 0 0 0) $ depth + 1,) t)
 
-placeWindow (Plane oldR depth) (Directional Z fl) =
-    Directional Z $ fromFoc fl fUncons
- where
-  fUncons :: [Sized (Plane, Fix Tiler)]
-  fUncons = case fOrder fl of
-    a:as -> Sized (getSize a) (Plane oldR $ depth + 1, getItem a)
-              : map (\(Sized d a) -> Sized d (Plane (Rect 0 0 0 0) $ depth+1, a)) as
-    [] -> []
+-- placeWindow (Plane oldR depth) (Horiz fl) =
+--     Horiz $ fromFoc fl fUncons
+--  where
+--   fUncons :: NonEmpty (Sized (Plane, Fix Tiler))
+--   fUncons = case fOrder fl of
+--     a:as -> Sized (getSize a) (Plane oldR $ depth + 1, getItem a)
+--               : map (\(Sized d a) -> Sized d (Plane (Rect 0 0 0 0) $ depth+1, a)) as
+--     [] -> []
 
 -- | Place tilers along an axis
-placeWindow (Plane Rect {..} depth) (Directional d fl) =
-  Directional d $ fromVis realfl $ map (\(i, (prev, lSize, size, t)) -> Sized size (Plane (location d i prev lSize size) $ depth + 1, t))
+placeWindow (Plane Rect {..} depth) (Horiz fl) =
+  (id, Horiz $ fromVis realfl $ map (\(i, (lSize, size, t)) -> Sized size (Plane (location i lSize size) $ depth + 1, t))
     $ zip [0 ..]
-    $ vOrder realfl
+    $ vOrder realfl)
  where
-  realfl = mapFold (\(lSize, prev) (Sized modS t) -> ((lSize + modS, modS), (prev, lSize, modS, t))) (0, 0) fl
+  realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
 
   numWins = fromIntegral $ flLength fl -- Find the number of windows
-  location X i prev lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round((size) * fromIntegral w)) h
-  location Y i prev lSize size = Rect x (newY i lSize) w (h `div` fromIntegral numWins + round((size) * fromIntegral h))
-  location Z _ _ _ _= error "Z shouldn't be here"
+  location i lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round(size * fromIntegral w)) h
 
   newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
-  newY i lSize = fromIntegral h `div` numWins * i + y + round (fromIntegral h * lSize)
 
-placeWindow (Plane r@Rect{..} depth) (Floating b ls) =
-  Floating (Just (Plane r $ depth + 1, fromMaybe (Fix EmptyTiler) b)) $ map (\case
-    Just (r@(RRect xp yp wp hp), t) -> Just (r, (Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
-    Nothing -> Nothing) ls
+placeWindow (Plane r@Rect{..} depth) (Floating ls) =
+  (id, Floating $ map (\case
+    Top (rr@RRect {..}, t) -> Top (rr, (Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
+    Bottom t -> Bottom (Plane r $ depth + 1, t)) ls)
 
 -- | Has no effect on the placement
 placeWindow (Plane Rect{..} depth) (InputController t) =
-    InputController (Plane (Rect (x + 5) (y + 5) (w - 10) (h - 10)) depth, t)
+  (id, InputController $ (Plane (Rect (x + 5) (y + 5) (w - 10) (h - 10)) depth,) <$> t)
 -- Can't be placed but will still take up space in other Tilers
-placeWindow _ EmptyTiler = EmptyTiler
 
 
 -- | Given something that wants to modify a Tiler,
 -- apply it to the first Tiler after the inputController
 -- Often used with cata to create a new root Tiler
 applyInput
-  :: (Tiler (Fix Tiler) -> Tiler (Fix Tiler)) -> Tiler (Fix Tiler) -> Fix Tiler
-applyInput f (InputController (Fix t)) = Fix . InputController . Fix $ f t
+  :: (Maybe (Tiler (Fix Tiler)) -> Maybe (Tiler (Fix Tiler))) -> Tiler (Fix Tiler) -> Fix Tiler
+applyInput f (InputController t) = Fix . InputController . fmap Fix . f $ fmap unfix t
 applyInput _ t                         = Fix t
 
-onInput :: (Tiler (Fix Tiler) -> a) -> Fix Tiler -> a
-onInput f root = fromMaybe (error "No Controller found") $ para doInput root
+onInput :: (Maybe (Fix Tiler) -> a) -> Fix Tiler -> a
+onInput f root = f $ extract $ ana @(Beam _) findIC (Just root)
  where
-  doInput (InputController (Fix t, _)) = Just $ f t
-  doInput t = foldl' (\acc a -> acc <|> snd a) Nothing t
+  findIC (Just (Fix (InputController t))) = EndF t
+  findIC (Just t) = ContinueF . Just . getFocused . unfix $ t
+  findIC _ = EndF Nothing
 
 -- | Modify the focused Tiler in another Tiler based on a function
-modFocused :: (Fix Tiler -> Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-modFocused f (Directional d fl) = Directional d $ mapOne (Right Focused) (fmap f) fl
-modFocused f (Floating b ls) = case fromMaybe (error "woops") $ headMay ls of
-                                 Just t -> Floating b $ Just (second f t) : fromMaybe (error "woops") (tailMay ls)
-                                 Nothing -> Floating (Just $ f $ fromMaybe (Fix EmptyTiler) b) ls
-modFocused f (InputController t) = InputController $ f t
+modFocused :: (a -> a) -> Tiler a -> Tiler a
+modFocused f (Horiz fl) = Horiz $ mapOne (Right Focused) (fmap f) fl
+modFocused f (Floating (NE a as)) = Floating $ NE (fmap f a) as
+modFocused f (Reflect t) = Reflect $ f t
+modFocused f (FocusFull t) = FocusFull $ f t
 modFocused _ wp@(Wrap _) = wp
-modFocused _ EmptyTiler = EmptyTiler
+modFocused _ (InputController _) = error "Input controller can't handle focus"
 
 
 -- | Change the focus of a Tiler
-focus :: Fix Tiler -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
-focus newF (  Directional d fl ) = Directional d $ focusElem (Sized 0 newF) fl
-focus newF (  Floating    (Just b) ls ) = Floating (Just b) if b == newF then Nothing : filter (/= Nothing) ls else join (find (isIt False) ls) : filter (not . isIt True) ls
-  where isIt def = fromMaybe def . fmap ((== newF) . snd)
-focus newF (  Floating    Nothing ls ) = Floating Nothing $ join (find (isIt False) ls) : filter (not . isIt True) ls
-  where isIt def = fromMaybe def . fmap ((== newF) . snd)
-focus _    t@(InputController _) = t
+focus :: Eq a => a -> Tiler a -> Tiler a
+focus newF (  Horiz fl ) = Horiz $ focusElem (Sized 0 newF) fl
+focus newF (  Floating ls ) = Floating $ moveF 0 ((== newF) . getEither) ls
 focus _    t@(Wrap            _) = t
-focus _    t@EmptyTiler          = t
+focus _    t@(Reflect _) = t
+focus _    t@(FocusFull _) = t
+focus _    t@(InputController _) = t
+-- focus _    t@undefined          = t
 
 -- |Given a window to focus, try to focus it. Should be called with cata.
 -- fst returns the new tiler while snd gives some status information
@@ -177,24 +164,24 @@ focus _    t@EmptyTiler          = t
 -- isn't in our tree.
 focusWindow
   :: Window
-  -> Tiler (Tiler (Fix Tiler), (Bool, Bool))
-  -> (Tiler (Fix Tiler), (Bool, Bool))
--- Todo make this mess of parantheses less terrifying
-focusWindow w (Wrap            w'             ) = (Wrap w', (False, w == w'))
-focusWindow _ (InputController (t, (_, False))) = (t, (True, False))
-focusWindow _ (InputController (t, (_, True)))  = (InputController $ Fix t, (False, False))
+  -> Tiler (Maybe (Fix Tiler), ControllerOrWin)
+  -> (Maybe (Fix Tiler), ControllerOrWin)
+-- TODO I am particularly unhappy with the code quality of this function
+focusWindow w (Wrap            w'             ) = (Just . Fix $ Wrap w', if w == w' then Win else Neither)
+focusWindow _ (InputController (Just (Just t, Win)))  = (Just . Fix . InputController $ Just t, Both)
+focusWindow _ (InputController t) = (t >>= fst, Controller)
 focusWindow _ t                                 = case (hasController, shouldFocus) of
-  (True , Just newFoc) -> (InputController $ Fix (focus newFoc dropExtra), (False, False))
-  (False, Just newFoc) -> (focus newFoc dropExtra, (False, True))
-  bs                   -> (dropExtra, (fst bs, False))
+  (True , Just newFoc) -> (Just . Fix . InputController $ Fix . focus newFoc <$> dropExtra, Both)
+  (False, Just newFoc) -> (Fix . focus newFoc <$> dropExtra, Win)
+  _                   -> (fmap Fix dropExtra, if hasController then Controller else Neither)
  where
-  hasController = any (fst . snd) t
-  shouldFocus   = Fix . fst <$> find (snd . snd) t
-  dropExtra     = fmap (Fix . fst) t
+   hasController = any ((== Controller) . snd) t
+   shouldFocus   = find ((== Win) . snd) t >>= fst
+   dropExtra     = reduce $ fmap fst t
 
 
 getDesktopState :: Tiler (Fix Tiler) -> ([Text], Int)
-getDesktopState (Directional _ fl) =
-  (pack . show <$> [1 .. flLength fl], fromMaybe 0 i)
-  where i = getFocIndex fl
+getDesktopState (Horiz fl) =
+  (pack . show <$> [1 .. flLength fl], i)
+  where i = findNeFocIndex fl
 getDesktopState _ = (["None"], 0)

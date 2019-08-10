@@ -151,12 +151,12 @@ runAttributeWriter = interpret $ \case
     >>= \d -> sendM @IO $ do
       setInputFocus d w revertToNone currentTime
       allowEvents d (replayPointer) currentTime
-  CaptureButton mode -> ask @Display >>= \d -> do
-      bt <- asks buttonBindings
+  CaptureButton NewMode {modeName = name}  -> ask @Display >>= \d -> do
+      ms <- asks definedModes
       root <- ask @Window
-      when (not . null $ filter (\(_, m, _) -> m == mode) bt)
+      when (not . null $ filter (\(NewMode m _ _ hasButtons) -> m == name && hasButtons) ms)
         $ void . sendM @IO $ grabPointer d root False pointerMotionMask grabModeAsync grabModeAsync root none currentTime
-      when (null $ filter (\(_, m, _) -> m == mode) bt)
+      when (null $ filter (\(NewMode m _ _ hasButtons) -> m == name && hasButtons) ms)
         $ void . sendM @IO $ ungrabPointer d currentTime
   GetButton w -> ask @Display >>= \d -> sendM @IO $ do 
     (_, _, _, _, _, _, _, b) <- queryPointer d w
@@ -236,7 +236,7 @@ runGlobalX = interpret $ \case
         )
       )
   RebindKeys activeMode -> do
-    Conf kb _ _ <- ask @Conf
+    Conf kb _ <- ask @Conf
     d         <- ask @Display
     win       <- ask @Window
     sendM $ forM_ kb $ toggleModel activeMode d win
