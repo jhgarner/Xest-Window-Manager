@@ -61,6 +61,7 @@ data Action
   | ZoomOutInput
   | PopTiler
   | PushTiler
+  | MakeSpecial
   deriving (Generic, Show, Eq, Interpret)
 
 -- | See other *ToType functions
@@ -73,6 +74,7 @@ actionToType _ ZoomInInput        = T.ZoomInInput
 actionToType _ ZoomOutInput       = T.ZoomOutInput
 actionToType _ PopTiler           = T.PopTiler
 actionToType _ PushTiler          = T.PushTiler
+actionToType _ MakeSpecial           = T.MakeSpecial
 actionToType _ (ChangeNamed s)    = T.ChangeNamed s
 -- actionToType _ (ChangeLayoutTo s)    = T.ChangeLayoutTo s
 actionToType _ (Move        s)    = if s then T.Move Front else T.Move Back

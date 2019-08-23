@@ -16,6 +16,7 @@ import           Text.Show.Deriving
 import           Data.Eq.Deriving
 import           FocusList
 import           Dhall (Interpret)
+import qualified SDL (Window)
 
 -- | A simple rectangle
 data Rect = Rect
@@ -59,6 +60,11 @@ data BottomOrTop a = Bottom a | Top (RRect, a)
   deriving (Eq, Show, Functor, Foldable, Traversable)
 deriveShow1 ''BottomOrTop
 deriveEq1 ''BottomOrTop
+instance Comonad BottomOrTop where
+  extract (Bottom a) = a
+  extract (Top (_,a)) = a
+  duplicate = Bottom
+
 
 getEither :: BottomOrTop a -> a
 getEither (Bottom a) = a
@@ -112,6 +118,7 @@ data Action
   | ZoomOutInput
   | PopTiler
   | PushTiler
+  | MakeSpecial
   | KeyboardEvent KeyTrigger Bool -- TODO use something other than Bool for keyPressed
   | XorgEvent Event
   deriving Show
@@ -143,10 +150,11 @@ instance Show KeyStatus where
 
 type KeyPostprocessor r = Mode -> KeyTrigger -> Action -> Actions
 
-type Borders = (Window, Window, Window, Window)
+type Borders = (SDL.Window, SDL.Window, SDL.Window, SDL.Window)
 
 data MouseButtons = LeftButton (Int, Int) | RightButton (Int, Int) | None
   deriving Show
 
 data ControllerOrWin = Neither | Controller | Win | Both
-  deriving Eq
+  deriving (Eq, Show)
+

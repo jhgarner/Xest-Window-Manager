@@ -28,12 +28,16 @@ import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
 import           Graphics.X11.Xlib.Atom
 import           Graphics.X11.Xlib.Color
+import           Graphics.X11.Xlib.Context
+import           Graphics.X11.Xlib.Font
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
 import           Foreign.Storable
 import qualified Data.Set                      as S
 import           System.Process
 import           Types
+import qualified SDL
+import qualified SDL.Font as Font
 
 
 -- Super list
@@ -86,6 +90,7 @@ makeSem ''AttributeReader
 
 data WindowMover m a where
   ChangeLocation :: Window -> Rect -> WindowMover m ()
+  ChangeLocationS :: SDL.Window -> Rect -> WindowMover m ()
   Raise ::Window -> WindowMover m ()
   ConfigureWin ::Event -> WindowMover m ()
 makeSem ''WindowMover
@@ -107,7 +112,9 @@ makeSem ''GlobalX
 
 data Colorer m a where
   GetColor :: String -> Colorer m Color
-  ChangeColor :: Window -> Color -> Colorer m ()
+  ChangeColor :: SDL.Window -> (Int, Int, Int) -> Colorer m ()
+  DrawText :: SDL.Window -> String -> Colorer m ()
+  BufferSwap :: SDL.Window -> Colorer m ()
 makeSem ''Colorer
 
 type Interpret e r a = Members [Lift IO, Reader Display] r => Sem (e ': r) a -> Sem r a
@@ -177,6 +184,11 @@ runWindowMover = interpret $ \case
   ChangeLocation win (Rect x y h w) -> do
     d <- ask
     void . sendM $ moveWindow d win x y >> resizeWindow d win h w
+  ChangeLocationS win (Rect x y h w) -> do
+    sendM $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
+    SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
+    -- sendM $ SDL.updateWindowSurface win
+
   Raise win -> do
     d <- ask
     sendM $ raiseWindow d win
@@ -252,21 +264,32 @@ runGlobalX = interpret $ \case
    where isConfNot ConfigureEvent {} = False
          isConfNot _ = True
 
-runColorer :: Interpret Colorer r a
+runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a
 runColorer = interpret $ \case
   GetColor color -> do
     display <- ask @Display
     let colorMap = defaultColormap display (defaultScreen display)
     sendM @IO $ fmap fst $ allocNamedColor display colorMap color
-  ChangeColor w (Color pix _ _ _ _) -> do
+  ChangeColor w (h, s, v) -> do
+    winSurface <- sendM $ SDL.getWindowSurface w
+    sendM $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
+  DrawText w s -> do
     display <- ask @Display
-    sendM $ setWindowBackground display w pix
-    -- sendM $ sync display True
+    whenM (null <$> get @(Maybe Font.Font)) $ do
+      font <- sendM @IO $ Font.load "/usr/share/fonts/adobe-source-code-pro/SourceCodePro-Medium.otf" 10
+      put $ Just font
+    mfont <- get @(Maybe Font.Font)
+    let Just font = mfont
+    surface <- sendM $ Font.blended font (SDL.V4 0 0 0 0) $ pack s
+    winSurface <- sendM $ SDL.getWindowSurface w
+    void . sendM $ SDL.surfaceBlit surface Nothing winSurface Nothing
+  BufferSwap w -> sendM $ SDL.updateWindowSurface w
+
 
 type DoAll r
   = (Members (States
         [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler]
-        , MouseButtons
+        , MouseButtons, Maybe Font.Font
         ]) r
     , Members (Readers
         [ Conf, Window, (Dimension, Dimension), Borders ]) r
@@ -290,7 +313,7 @@ doAll
 doAll t c m dims d w borders =
   void
     . runM
-    . runStates (m ::: S.empty @Window ::: Default ::: t ::: [] ::: None ::: HNil)
+    . runStates (m ::: S.empty @Window ::: Default ::: t ::: [] ::: None ::: Nothing ::: HNil)
     . fixState
     . runReaders (w ::: d ::: dims ::: borders ::: c ::: HNil)
     . runPropertyReader

@@ -28,7 +28,7 @@ add _ _ _ _ = error "Attempted to add to something that isn't addable"
 
 -- | Remove a Tiler if it exists
 ripOut :: Fix Tiler -> Tiler (Fix Tiler) -> Maybe (Tiler (Fix Tiler))
-ripOut toDelete = reduce . fmap isEqual
+ripOut toDelete t = reduce $ fmap isEqual t
   where isEqual t = if t == toDelete then Nothing else Just t
 
 -- | Removes empty Tilers
@@ -69,47 +69,40 @@ getFocused = fst . popWindow (Right Focused)
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
 -- catamorphisms operate from the root down to the leaves
 placeWindow
-  :: Plane
+  :: Transformer Plane
   -> Tiler (Fix Tiler)
-  -> (Plane -> Plane, Tiler (Plane, Fix Tiler))
+  -> Tiler (Transformer Plane, Fix Tiler)
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
-placeWindow _ (Wrap win) = (id, Wrap win)
-placeWindow (Plane Rect {..} depth) (Reflect t) = (unreflect, Reflect (Plane (Rect y x h w) $ depth + 1, t))
-  where unreflect (Plane (Rect rx ry rw rh) keepD) = Plane (Rect ry rx rh rw) keepD
-placeWindow (Plane r depth) (FocusFull (Fix t)) = 
-  (id, modFocused (first $ const (Plane r $ depth + 1)) $ fmap (Plane (Rect 0 0 0 0) $ depth + 1,) t)
-
--- placeWindow (Plane oldR depth) (Horiz fl) =
---     Horiz $ fromFoc fl fUncons
---  where
---   fUncons :: NonEmpty (Sized (Plane, Fix Tiler))
---   fUncons = case fOrder fl of
---     a:as -> Sized (getSize a) (Plane oldR $ depth + 1, getItem a)
---               : map (\(Sized d a) -> Sized d (Plane (Rect 0 0 0 0) $ depth+1, a)) as
---     [] -> []
+placeWindow _ (Wrap win) = Wrap win
+placeWindow p (Reflect t) = Reflect (newTransformer, t)
+  where trans (Plane (Rect rx ry rw rh) keepD) = Plane (Rect ry rx rh rw) keepD
+        newTransformer = overReal (\(Plane r d) -> Plane r $ d+1) $ addTrans trans trans p
+placeWindow (Transformer i o (Plane r depth)) (FocusFull (Fix t)) = 
+  case t of
+    InputController realt -> FocusFull $ (Transformer i o (Plane r $ depth + 1), Fix $ InputController realt)
+    _ -> modFocused (first $ const (Transformer i o . Plane r $ depth + 1)) $ fmap (Transformer i o . Plane (Rect 0 0 0 0) $ depth + 1,) t
 
 -- | Place tilers along an axis
-placeWindow (Plane Rect {..} depth) (Horiz fl) =
-  (id, Horiz $ fromVis realfl $ map (\(i, (lSize, size, t)) -> Sized size (Plane (location i lSize size) $ depth + 1, t))
+placeWindow (Transformer input o p) (Horiz fl) =
+    let numWins = fromIntegral $ flLength fl -- Find the number of windows
+        location i lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round(size * fromIntegral w)) h
+        newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
+     in Horiz $ fromVis realfl $ map (\(i, (lSize, size, t)) -> Sized size (Transformer input o . o . Plane (location i lSize size) $ depth + 1, t))
     $ zip [0 ..]
-    $ vOrder realfl)
- where
-  realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
+    $ vOrder realfl
+  where realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
+        (Plane Rect {..} depth) = input p
 
-  numWins = fromIntegral $ flLength fl -- Find the number of windows
-  location i lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round(size * fromIntegral w)) h
-
-  newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
-
-placeWindow (Plane r@Rect{..} depth) (Floating ls) =
-  (id, Floating $ map (\case
-    Top (rr@RRect {..}, t) -> Top (rr, (Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
-    Bottom t -> Bottom (Plane r $ depth + 1, t)) ls)
+placeWindow (Transformer i o p) (Floating ls) =
+  Floating $ map (\case
+    Top (rr@RRect {..}, t) -> Top (rr, (Transformer i o . o $ Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
+    Bottom t -> Bottom (Transformer i o . o $ Plane r $ depth + 1, t)) ls
+      where (Plane r@Rect{..} depth) = i p
 
 -- | Has no effect on the placement
-placeWindow (Plane Rect{..} depth) (InputController t) =
-  (id, InputController $ (Plane (Rect (x + 5) (y + 5) (w - 10) (h - 10)) depth,) <$> t)
+placeWindow trans (InputController t) =
+  InputController $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect (x + 2) (y + 10) (w - 6) (h - 14)) depth) trans,) <$> t
 -- Can't be placed but will still take up space in other Tilers
 
 
@@ -135,7 +128,7 @@ modFocused f (Floating (NE a as)) = Floating $ NE (fmap f a) as
 modFocused f (Reflect t) = Reflect $ f t
 modFocused f (FocusFull t) = FocusFull $ f t
 modFocused _ wp@(Wrap _) = wp
-modFocused _ (InputController _) = error "Input controller can't handle focus"
+modFocused f (InputController t) = InputController $ fmap f t --error "Input controller can't handle focus"
 
 
 -- | Change the focus of a Tiler
@@ -173,11 +166,12 @@ focusWindow _ (InputController t) = (t >>= fst, Controller)
 focusWindow _ t                                 = case (hasController, shouldFocus) of
   (True , Just newFoc) -> (Just . Fix . InputController $ Fix . focus newFoc <$> dropExtra, Both)
   (False, Just newFoc) -> (Fix . focus newFoc <$> dropExtra, Win)
-  _                   -> (fmap Fix dropExtra, if hasController then Controller else Neither)
+  _                   -> (fmap Fix dropExtra, if hasController then Controller else neitherOrBoth)
  where
    hasController = any ((== Controller) . snd) t
    shouldFocus   = find ((== Win) . snd) t >>= fst
    dropExtra     = reduce $ fmap fst t
+   neitherOrBoth = if any ((== Both) . snd) t then Both else Neither
 
 
 getDesktopState :: Tiler (Fix Tiler) -> ([Text], Int)
@@ -185,3 +179,11 @@ getDesktopState (Horiz fl) =
   (pack . show <$> [1 .. flLength fl], i)
   where i = findNeFocIndex fl
 getDesktopState _ = (["None"], 0)
+
+getFocusList :: Tiler String -> String
+getFocusList (InputController s) = "*" ++ fromMaybe "" s
+getFocusList (Horiz fl) = "Horiz|" ++ getItem (fst (pop (Right Focused) fl))
+getFocusList (Floating (NE t _)) = "Floating|" ++ extract t
+getFocusList (Reflect t) = "Rotate-" ++ t
+getFocusList (FocusFull t) = "Full-" ++ t
+getFocusList (Wrap _) = "window"

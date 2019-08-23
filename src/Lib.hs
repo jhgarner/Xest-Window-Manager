@@ -12,6 +12,8 @@ import           Polysemy.State
 import           Polysemy.Reader
 import           Core
 import           Data.Bits
+import           Foreign.Ptr
+import           Foreign.C.String
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Display
 import           Graphics.X11.Xlib.Types
@@ -19,8 +21,12 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Screen
 import           Graphics.X11.Xlib.Atom
-import           Graphics.X11.Xlib.Window
+import           Graphics.X11.Xlib.Window (createSimpleWindow, mapWindow)
 import           Graphics.X11.Xlib.Misc
+import           SDL hiding (get, Window, Display, trace)
+import qualified SDL.Raw.Video as Raw
+import qualified SDL.Font as Font
+import qualified SDL.Internal.Types as SI (Window(..))
 import           Types
 import           Base
 import           Tiler
@@ -30,6 +36,11 @@ import           Data.Char                      ( ord )
 -- | Starting point of the program. Should never return
 startWM :: IO ()
 startWM = do
+  -- We want antialiasing on our text and normal Xlib can't give us that.
+  -- We use SDL for the window borders to get around that problem.
+  initializeAll
+  Font.initialize
+
   -- Grab a display to capture. The chosen display cannot have a WM already running.
   -- TODO use variables to determine display number
   display <- openDisplay ":99"
@@ -48,13 +59,27 @@ startWM = do
 
   -- Create our border windows which will follow the InputController
   [lWin, dWin, uWin, rWin] <- replicateM 4 $ do
-    win <- createSimpleWindow display root
-           10 10 300 300 0 0
-           $ whitePixel display (defaultScreen display)
-    allocaSetWindowAttributes $ \wa ->
-      set_override_redirect wa True
-      >> changeWindowAttributes display win cWOverrideRedirect wa
-    mapWindow display win
+    print "Yay"
+    -- win <- createSimpleWindow display root
+    --        10 10 300 300 0 0
+    --        $ whitePixel display (defaultScreen display)
+    win <- SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
+    -- win <- SI.Window <$> withCString "test" (\s -> Raw.createWindow s 0 0 100 100 0)
+    winSurface <- SDL.getWindowSurface win
+
+    SDL.surfaceFillRect winSurface Nothing $ SDL.V4 255 255 255 0
+    SDL.updateWindowSurface win
+    -- id <- Raw.getWindowID sWin
+    -- print id
+    -- allocaSetWindowAttributes $ \wa ->
+    --   set_override_redirect wa True
+    --   >> changeWindowAttributes display win cWOverrideRedirect wa
+    -- mapWindow display win
+    print win
+    -- print (fromIntegral win :: Word32)
+    -- window <- undefined--SI.Window <$> getWindowFromID (fromIntegral win)
+
+    -- print window
     return win
 
   -- Find and register ourselves with the root window
@@ -94,13 +119,15 @@ mainLoop :: Actions -> DoAll r
 mainLoop [] = do
   -- modify $ cata $ Fix . reduce
   xFocus
-  get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
+  -- get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
   get >>= render
   makeTopWindows
+  writePath
   get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
   l <- sequence [XorgEvent <$> getXEvent]
   -- trace ((\[XorgEvent t] -> show t) l) return l
   return l
+  -- return []
 
 -- When there are actions to perform, do them and add the results to the list of actions
 mainLoop (a : as) = do

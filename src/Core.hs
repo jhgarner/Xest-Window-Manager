@@ -75,7 +75,8 @@ handler (XorgEvent DestroyWindowEvent {..}) = do
   -- Remove the destroyed window from our tree.
   -- Usually, unmap will be called first, but what if a minimized window
   -- gets killed? In that case, we won't get an unmap notifiction.
-  modify @(Fix Tiler) $ cata (Fix . fromMaybe (error "No root!") . ripOut (Fix $ Wrap ev_window))
+  modify @(Fix Tiler) $
+    fromMaybe (error "No roooot!") . cata (fmap Fix . (>>= ripOut (Fix $ Wrap ev_window)) . reduce)
   return []
 
 -- Called when a window should no longer be drawn
@@ -84,8 +85,8 @@ handler (XorgEvent UnmapEvent {..}) = do
   mins <- get @(Set Window)
   -- Remove the destroyed window from our tree if we aren't the
   -- reason it was unmapped.
-  unless (member ev_window mins) $ modify @(Fix Tiler) $ cata
-    (Fix . fromMaybe (error "No root!") . ripOut (Fix $ Wrap ev_window))
+  unless (member ev_window mins) $ modify @(Fix Tiler) $ 
+    fromMaybe (error "No roooot!") . cata (fmap Fix . (>>= ripOut (Fix $ Wrap ev_window)) . reduce)
   return []
 
 -- Tell the window it can configure itself however it wants.
@@ -132,11 +133,11 @@ handler (XorgEvent MotionEvent {..}) = do
   root <- ask @Window
 
   -- Get the locations of every window
-  sized::Cofree Tiler Plane <- topDown placeWindow (Plane (Rect 0 0 width height) 0) <$> get
+  sized::Cofree Tiler (Transformer Plane) <- topDown placeWindow (Transformer id id $ Plane (Rect 0 0 width height) 0) <$> get
 
   -- Find the one that comes right after the input controller
   case journey $ ana @(Path _ _) getInput sized of
-    (rotations, Just Plane {rect = size}) -> do
+    (rotations, Just (Transformer i o (Plane {rect = size}))) -> do
       let rotation :: Bool = foldr ($) False rotations
 
       -- Change Move the tiler based on the mouse movement
@@ -152,7 +153,7 @@ handler (XorgEvent MotionEvent {..}) = do
   -- We know what button is pressed, now we need to update the location
   updateMouseLoc (fromIntegral ev_x, fromIntegral ev_y)
   return []
- where getInput :: Cofree Tiler Plane -> PathF (Maybe Plane) (Bool -> Bool) (Cofree Tiler Plane)
+ where getInput :: Cofree Tiler (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree Tiler (Transformer Plane))
        getInput (_ :< InputController a) = FinishF $ fmap extract a
        getInput (_ :< Reflect a) = BreakF not a
        getInput (_ :< b) = RoadF $ getFocused b
@@ -288,6 +289,17 @@ handler (Insert t) = do
               FullScreen -> FocusFull $ Fix w
               Hovering -> Floating $ NE (Bottom $ Fix w) []
 
+handler MakeSpecial = do
+  modify @(Fix Tiler) . cata $ applyInput (fmap makeSpecial)
+  return []
+    where makeSpecial t =
+            case t of
+              Floating (NE l ls) -> Floating $ NE (mkBottom l) $ fmap mkTop ls
+              _ -> t
+          mkTop t@(Top _) = t
+          mkTop (Bottom t) = Top (RRect 10 10 100 100, t)
+          mkBottom = Bottom . extract 
+
 -- handler ChangeSize = do
 --   (width, height) <- ask
 --   sized::Cofree Tiler Plane <- topDown placeWindow (Plane (Rect 0 0 width height) 0) <$> get
@@ -333,6 +345,7 @@ getWindowByClass wName = do
 -- Moves windows around
 type RenderEffect r =
      ( Members (Readers [(Dimension, Dimension), Borders]) r
+     , Member (State (Fix Tiler)) r
      , Members [WindowMover, WindowMinimizer, Colorer] r
      )
 render
@@ -341,12 +354,12 @@ render
   -> Sem r ()
 render t = do
   (width, height) <- ask
-  let locations = topDown placeWindow (Plane (Rect 0 0 width height) 0) t
+  let locations = topDown placeWindow (Transformer id id $ Plane (Rect 0 0 width height) 0) t
   -- Draw the tiler we've been given
-  cataA draw locations
+  cataA draw $ fmap unTransform locations
   -- Hide all of the popped tilers
   get @[Fix Tiler]
-    >>= traverse_ (cataA draw . topDown placeWindow (Plane (Rect 0 0 0 0) 0))
+    >>= traverse_ (cataA draw . fmap unTransform . topDown placeWindow (Transformer id id $ Plane (Rect 0 0 0 0) 0))
  where draw :: RenderEffect r => Base (Cofree Tiler Plane) (Sem r ()) -> Sem r ()
        draw (Plane (Rect _ _ 0 0) _ :<~ Wrap win) = minimize win
        draw (Plane Rect {..} _ :<~ Wrap win) = do
@@ -357,25 +370,48 @@ render t = do
        draw (Plane Rect{..} depth :<~ InputController t) = do
           sequence_ t
           -- Extract the border windows
-          (l, u, r, d) <- ask @(Window, Window, Window, Window)
+          (l, u, r, d) <- ask @Borders
           let winList = [l, u, r, d]
 
           -- Calculate the color for our depth
           let hue = 360.0 * ((0.5 + (fromIntegral depth * 0.618033988749895)) `mod'` 1)
-          color <- getColor $ "TekHVC:"++show hue++"/50/95"
+          -- color <- getColor $ "TekHVC:"++show hue++"/50/95"
 
-          -- Convince our windows to be redrawn with the right color and position
-          traverse_ (`changeLocation` Rect 0 0 1 1) winList
-          traverse_ (`changeColor` color) winList
 
           -- Draw them with the right color and position
-          changeLocation l $ Rect x y 5 h
-          changeLocation u $ Rect x y w 5
-          changeLocation d $ Rect x (y+fromIntegral h-5) w 5
-          changeLocation r $ Rect (x+fromIntegral w-5) y 5 h
+          changeLocationS l $ Rect x y 2 h
+          changeLocationS u $ Rect x y w 10
+          changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
+          changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
+
+          -- Convince our windows to be redrawn with the right color and position
+          -- traverse_ (`changeLocationS` Rect 0 0 1 1) winList
+          traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
+          get >>= drawText u . cata getFocusList
+          traverse_ bufferSwap winList
+
        draw (_ :<~ t) = sequence_ t
+       hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)
+       hsvToRgb h s v = let c = v * s
+                            x = c * (1 - abs ((h / 60) `mod'` 2 - 1))
+                            m = v - c
+                            (r, g, b) = if
+                               | h < 60 -> (c, x, 0)
+                               | h < 120 -> (x, c, 0)
+                               | h < 180 -> (0, c, x)
+                               | h < 240 -> (0, x, c)
+                               | h < 300 -> (x, 0, c)
+                               | otherwise -> (c, 0, x)
+                        in (round $ (r+m)*255, round $ (g+m)*255, round $ (b+m)*255)
+
           
           
+writePath :: Members '[State (Fix Tiler), Reader Borders, Colorer, PropertyReader] r 
+          => Sem r ()
+writePath = do
+  (_, u, _, _) <- ask @Borders
+  root <- get @(Fix Tiler)
+  drawText u $ cata getFocusList root
 
 -- |Focus the X window
 xFocus

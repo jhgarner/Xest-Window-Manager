@@ -39,6 +39,8 @@ dependencies:
 - quickcheck-instances
 - chunked-data
 - vector-sized
+- sdl2
+- sdl2-ttf
 
 library:
   source-dirs: src
