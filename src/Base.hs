@@ -92,6 +92,7 @@ data WindowMover m a where
   ChangeLocation :: Window -> Rect -> WindowMover m ()
   ChangeLocationS :: SDL.Window -> Rect -> WindowMover m ()
   Raise ::Window -> WindowMover m ()
+  Restack :: [Window] -> WindowMover m ()
   ConfigureWin ::Event -> WindowMover m ()
 makeSem ''WindowMover
 
@@ -108,6 +109,7 @@ data GlobalX m a where
    GetTree ::GlobalX m [Window]
    RebindKeys ::Mode -> GlobalX m ()
    GetXEvent ::GlobalX m Event
+   CheckXEvent ::GlobalX m Bool
 makeSem ''GlobalX
 
 data Colorer m a where
@@ -193,6 +195,10 @@ runWindowMover = interpret $ \case
     d <- ask
     sendM $ raiseWindow d win
     return ()
+  Restack wins -> do
+    d <- ask
+    sendM $ restackWindows d wins
+    return ()
   ConfigureWin ConfigureRequestEvent {..} ->
     let wc = WindowChanges ev_x
                            ev_y
@@ -263,6 +269,9 @@ runGlobalX = interpret $ \case
       untilM isConfNot $ allocaXEvent \p -> nextEvent d p >> getEvent p
    where isConfNot ConfigureEvent {} = False
          isConfNot _ = True
+  CheckXEvent ->
+    ask >>= sendM @IO . pending >>= return . (> 0)
+
 
 runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a
 runColorer = interpret $ \case

@@ -12,7 +12,6 @@ import           Polysemy.State
 import           Polysemy.Reader
 import           Core
 import           Data.Bits
-import           Foreign.Ptr
 import           Foreign.C.String
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Display
@@ -21,7 +20,6 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Screen
 import           Graphics.X11.Xlib.Atom
-import           Graphics.X11.Xlib.Window (createSimpleWindow, mapWindow)
 import           Graphics.X11.Xlib.Misc
 import           SDL hiding (get, Window, Display, trace)
 import qualified SDL.Raw.Video as Raw
@@ -30,7 +28,6 @@ import qualified SDL.Internal.Types as SI (Window(..))
 import           Types
 import           Base
 import           Tiler
-import           FocusList
 import           Data.Char                      ( ord )
 
 -- | Starting point of the program. Should never return
@@ -43,10 +40,12 @@ startWM = do
 
   -- Grab a display to capture. The chosen display cannot have a WM already running.
   -- TODO use variables to determine display number
-  display <- openDisplay ":99"
+  args <- getArgs
+  let displayNumber = fromMaybe "0" $ headMay args
+  display <- openDisplay $ ":" ++ unpack displayNumber
 
   -- Read the config file
-  c <- readConfig display "./config.conf"
+  c <- readConfig display "/home/jack/.config/xest/config.conf"
 
   -- X orders windows like a tree
   let root = defaultRootWindow display
@@ -118,20 +117,23 @@ mainLoop :: Actions -> DoAll r
 -- When there are no actions to perform, render the windows and find new actions to do
 mainLoop [] = do
   -- modify $ cata $ Fix . reduce
-  xFocus
-  -- get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
-  get >>= render
-  makeTopWindows
-  writePath
-  get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
+  get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
+  whenM (not <$> checkXEvent) $ do
+    xFocus
+    get >>= render
+    makeTopWindows
+    writePath
+    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
   l <- sequence [XorgEvent <$> getXEvent]
-  -- trace ((\[XorgEvent t] -> show t) l) return l
-  return l
+  tree <- getTree
+  trace ((\[XorgEvent t] -> "==================\n" ++ show tree ++ "\n" ++ show t) l) return l
+  -- return l
   -- return []
 
 -- When there are actions to perform, do them and add the results to the list of actions
 mainLoop (a : as) = do
   -- trace (show a) return ()
+  get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
   newActions <- handler a
   -- Post processors can override state changes
   postResult <-

@@ -75,7 +75,7 @@ handler (XorgEvent DestroyWindowEvent {..}) = do
   -- Remove the destroyed window from our tree.
   -- Usually, unmap will be called first, but what if a minimized window
   -- gets killed? In that case, we won't get an unmap notifiction.
-  modify @(Fix Tiler) $
+  trace (show ev_window) (modify @(Fix Tiler)) $
     fromMaybe (error "No roooot!") . cata (fmap Fix . (>>= ripOut (Fix $ Wrap ev_window)) . reduce)
   return []
 
@@ -297,34 +297,11 @@ handler MakeSpecial = do
               Floating (NE l ls) -> Floating $ NE (mkBottom l) $ fmap mkTop ls
               _ -> t
           mkTop t@(Top _) = t
-          mkTop (Bottom t) = Top (RRect 10 10 100 100, t)
+          mkTop (Bottom t) = Top (RRect 0 0 0.2 0.2, t)
           mkBottom = Bottom . extract 
-
--- handler ChangeSize = do
---   (width, height) <- ask
---   sized::Cofree Tiler Plane <- topDown placeWindow (Plane (Rect 0 0 width height) 0) <$> get
---   let (size :< _) = extract $ (ana getInput sized :: DualList _)
---   changeSize
---   return []
---  where getInput :: Cofree Tiler Plane -> DualListF (Cofree Tiler Plane) (Cofree Tiler Plane)
---        getInput (_ :< InputController a) = EndF a
---        getInput (_ :< b) = ContinueF $ fromMaybe (error "Wrong") $ getFocused b
 
 
 -- Random stuff --
-
-
--- | Move all of the Tilers from root to newT
--- TODO remove recursion
--- changeLayout :: Tiler (Fix Tiler) -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
--- changeLayout newT root = doPopping root newT
---  where
---   doPopping ot t = case popWindow (Left Front) ot of
---     (Nothing, _) -> t
---     (Just win, wins) ->
---       doPopping wins $ add Back (isFocused win) win t
---   isFocused t = if t == focused then Focused else Unfocused
---   focused = fromMaybe (Fix undefined) . fst $ popWindow (Right Focused) root
 
 -- Would be used for reparenting (title bar)
 manage :: Member AttributeWriter r => Window -> Sem r (Fix Tiler)
@@ -356,19 +333,19 @@ render t = do
   (width, height) <- ask
   let locations = topDown placeWindow (Transformer id id $ Plane (Rect 0 0 width height) 0) t
   -- Draw the tiler we've been given
-  cataA draw $ fmap unTransform locations
+  let (winOrder, io) = cata draw $ fmap unTransform locations
+  io
+  restack $ reverse winOrder
   -- Hide all of the popped tilers
   get @[Fix Tiler]
-    >>= traverse_ (cataA draw . fmap unTransform . topDown placeWindow (Transformer id id $ Plane (Rect 0 0 0 0) 0))
- where draw :: RenderEffect r => Base (Cofree Tiler Plane) (Sem r ()) -> Sem r ()
-       draw (Plane (Rect _ _ 0 0) _ :<~ Wrap win) = minimize win
-       draw (Plane Rect {..} _ :<~ Wrap win) = do
+    >>= traverse_ (snd . cata draw . fmap unTransform . topDown placeWindow (Transformer id id $ Plane (Rect 0 0 0 0) 0))
+ where draw :: RenderEffect r => Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
+       draw (Plane (Rect _ _ 0 0) _ :<~ Wrap win) = ([], minimize win)
+       draw (Plane Rect {..} _ :<~ Wrap win) = ([win], do
            restore win
-           -- let realX = if w > 0 then x else x + fromIntegral w
-           -- let realY = if h > 0 then y else y + fromIntegral h
-           changeLocation win $ Rect x y (abs w) (abs h)
-       draw (Plane Rect{..} depth :<~ InputController t) = do
-          sequence_ t
+           changeLocation win $ Rect x y (abs w) (abs h))
+       draw (Plane Rect{..} depth :<~ InputController t) = (maybe [] fst t, do
+          mapM_ snd t
           -- Extract the border windows
           (l, u, r, d) <- ask @Borders
           let winList = [l, u, r, d]
@@ -388,9 +365,17 @@ render t = do
           -- traverse_ (`changeLocationS` Rect 0 0 1 1) winList
           traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
           get >>= drawText u . cata getFocusList
-          traverse_ bufferSwap winList
+          traverse_ bufferSwap winList)
 
-       draw (_ :<~ t) = sequence_ t
+       draw (_ :<~ Floating ls) = 
+         (bottoms ++ tops, mapM_ (snd . getEither) ls)
+             where tops = foldl' onlyTops [] ls
+                   onlyTops acc (Top (_, (ws, _))) = ws ++ acc
+                   onlyTops acc _ = acc
+                   bottoms = foldl' onlyBottoms [] ls
+                   onlyBottoms acc (Bottom (ws, _)) = acc ++ ws
+                   onlyBottoms acc _ = acc
+       draw (_ :<~ t) = (concatMap fst t, mapM_ snd t)
        hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)
        hsvToRgb h s v = let c = v * s
                             x = c * (1 - abs ((h / 60) `mod'` 2 - 1))
@@ -437,7 +422,7 @@ updateMouseLoc pos = modify @MouseButtons $ \case
 changeSize :: (Int, Int) -> Rect -> MouseButtons -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
 changeSize (dx, dy) Rect{..} m = \case
   Horiz fl ->
-    -- TODO Rewrite in less scary way
+    -- TODO Rewrite in a less scary way
     let numWins = fromIntegral $ length fl
         windowSize = 1 / numWins
         mouseDelta = fromIntegral dx
@@ -468,13 +453,18 @@ changeSize (dx, dy) Rect{..} m = \case
           $ vOrder fl
     in Horiz propagate
   Floating (NE (Top (RRect{..}, t)) ls) -> 
-    let (ddx, ddy) = (fromIntegral dx / fromIntegral w, fromIntegral dy / fromIntegral h) in Floating $ NE (case m of
-    RightButton _ -> Top (RRect xp yp (wp + ddx) (hp + ddy), t)
-    LeftButton _ -> Top (RRect (xp + ddx) (yp + ddy) wp hp, t)) $ ls
+    let (ddx, ddy) = (fromIntegral dx / fromIntegral w, fromIntegral dy / fromIntegral h) 
+        twoPx = 2 / fromIntegral w
+        boundedX = max (twoPx - wp) $ min (xp + ddx) (1 - twoPx)
+        boundedY = max (twoPx - hp) $ min (yp + ddy) (1 - twoPx)
+    in Floating $ NE (case m of
+      RightButton _ -> Top (RRect xp yp (wp + ddx) (hp + ddy), t)
+      LeftButton _ -> Top (RRect boundedX boundedY wp hp, t)) ls
   t -> t
 
 pushOrAdd :: Fix Tiler -> Maybe (Tiler (Fix Tiler)) -> Maybe (Tiler (Fix Tiler))
 pushOrAdd tWin = Just . maybe (Horiz $ makeFL (NE (Sized 0 tWin) []) 0) (\case
   Wrap w -> Horiz $ makeFL (NE (Sized 0 tWin) [Sized 0 . Fix $ Wrap w]) 0
   Reflect w -> Horiz $ makeFL (NE (Sized 0 tWin) [Sized 0 . Fix $ Reflect w]) 0
+  FocusFull w -> Horiz $ makeFL (NE (Sized 0 tWin) [Sized 0 . Fix $ FocusFull w]) 0
   t -> add Front Focused tWin t)

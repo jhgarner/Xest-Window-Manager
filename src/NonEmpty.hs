@@ -71,11 +71,15 @@ move i b (NE a as) = fromMaybe (error "move died")
 moveF :: Int -> (a -> Bool) -> NonEmpty a -> NonEmpty a
 moveF i b (NE a as) = fromMaybe (error "move died") 
   $ mkNE $ take i filtered ++ [found] ++ drop i filtered
-  where filtered = filter b $ a : as
+  where filtered = filter (not . b) $ a : as
         found = fromMaybe (error "Can't find for move") $ find b $ a : as
 
 mkMany :: Int -> a -> NonEmpty a
 mkMany n = fromMaybe (error "can't make 0 elements") . mkNE . replicate n 
+
+reverseNe :: NonEmpty a -> NonEmpty a
+reverseNe (NE a as) = NE newA newAs
+  where (newA : newAs) = reverse $ a : as
 
 infixr 7 +:
 (+:) :: a -> NonEmpty a -> NonEmpty a
@@ -85,4 +89,3 @@ instance IsList (NonEmpty a) where
   type Item (NonEmpty a) = a
   fromList = fromMaybe (error "Must have at least one element") . mkNE
   toList (NE a as) = a : as
-
