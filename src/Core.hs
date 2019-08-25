@@ -56,26 +56,29 @@ tempModePostprocessor _ _ _ = []
 handler :: Action -> DoAll r
 -- Called on window creation
 handler (XorgEvent MapRequestEvent {..}) = do
-  -- managing a window allows us to do any number of things to it
-  -- Currently we wrap it in a new type and ask for crossing events
-  tWin <- manage ev_window
-  -- Resend the mapWindow Xorg event.
-  -- We don't receive the mapWindow event from this because Xorg knows we sent it.
-  -- restore ev_window
-  -- This adds the new window to whatever tiler comes after inputController
-  -- If you've zoomed the inputController in, you get nesting as a result
-  modify . cata . applyInput $ pushOrAdd tWin
-  -- Make the newly created window into the focused one
-  -- We have to keep Xorg's idea of focus in sync with our own
-  -- setFocus ev_window
+  -- Before we do anything else, let's see if we already manage this window.
+  -- I don't know why, but things like Inkscape map windows multiple times.
+  tree <- get @(Fix Tiler)
+  unless (cata (findWindow ev_window) tree) $ do
+    -- managing a window allows us to do any number of things to it
+    -- Currently we wrap it in a new type and ask for crossing events
+    tWin <- manage ev_window
+    -- Resend the mapWindow Xorg event.
+    -- We don't receive the mapWindow event from this because Xorg knows we sent it.
+    -- restore ev_window
+    -- This adds the new window to whatever tiler comes after inputController
+    -- If you've zoomed the inputController in, you get nesting as a result
+    modify . cata . applyInput $ pushOrAdd tWin
   return []
+  where findWindow w (Wrap w') = w == w'
+        findWindow _ t = or t
 
 -- Called on window destruction
 handler (XorgEvent DestroyWindowEvent {..}) = do
   -- Remove the destroyed window from our tree.
   -- Usually, unmap will be called first, but what if a minimized window
   -- gets killed? In that case, we won't get an unmap notifiction.
-  trace (show ev_window) (modify @(Fix Tiler)) $
+  modify @(Fix Tiler) $
     fromMaybe (error "No roooot!") . cata (fmap Fix . (>>= ripOut (Fix $ Wrap ev_window)) . reduce)
   return []
 
@@ -351,7 +354,7 @@ render t = do
           let winList = [l, u, r, d]
 
           -- Calculate the color for our depth
-          let hue = 360.0 * ((0.5 + (fromIntegral depth * 0.618033988749895)) `mod'` 1)
+          let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
           -- color <- getColor $ "TekHVC:"++show hue++"/50/95"
 
 

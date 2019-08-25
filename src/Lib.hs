@@ -21,6 +21,7 @@ import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Screen
 import           Graphics.X11.Xlib.Atom
 import           Graphics.X11.Xlib.Misc
+import           Graphics.X11.Xlib.Window
 import           SDL hiding (get, Window, Display, trace)
 import qualified SDL.Raw.Video as Raw
 import qualified SDL.Font as Font
@@ -57,33 +58,22 @@ startWM = do
       rootTiler   = InputController Nothing
 
   -- Create our border windows which will follow the InputController
-  [lWin, dWin, uWin, rWin] <- replicateM 4 $ do
-    print "Yay"
-    -- win <- createSimpleWindow display root
-    --        10 10 300 300 0 0
-    --        $ whitePixel display (defaultScreen display)
-    win <- SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
-    -- win <- SI.Window <$> withCString "test" (\s -> Raw.createWindow s 0 0 100 100 0)
-    winSurface <- SDL.getWindowSurface win
+  [lWin, dWin, uWin, rWin] <- replicateM 4 $
+    SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
 
-    SDL.surfaceFillRect winSurface Nothing $ SDL.V4 255 255 255 0
-    SDL.updateWindowSurface win
-    -- id <- Raw.getWindowID sWin
-    -- print id
-    -- allocaSetWindowAttributes $ \wa ->
-    --   set_override_redirect wa True
-    --   >> changeWindowAttributes display win cWOverrideRedirect wa
-    -- mapWindow display win
-    print win
-    -- print (fromIntegral win :: Word32)
-    -- window <- undefined--SI.Window <$> getWindowFromID (fromIntegral win)
-
-    -- print window
-    return win
+  -- EWMH wants us to create an extra window to verify we really
+  -- can handle some of the EWMH spec. This window does that.
+  ewmhWin <- createSimpleWindow display root
+          10000 10000 1 1 0 0
+          $ whitePixel display (defaultScreen display)
+  allocaSetWindowAttributes $ \wa ->
+    set_override_redirect wa True
+    >> changeWindowAttributes display ewmhWin cWOverrideRedirect wa
+  mapWindow display ewmhWin
 
   -- Find and register ourselves with the root window
   -- These two masks allow us to intercept various Xorg events useful for a WM
-  initEwmh display root
+  initEwmh display root ewmhWin
   selectInput display root
     $   substructureNotifyMask
     .|. substructureRedirectMask
@@ -123,6 +113,8 @@ mainLoop [] = do
     get >>= render
     makeTopWindows
     writePath
+    setClientList
+    writeActiveWindow
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
   l <- sequence [XorgEvent <$> getXEvent]
   tree <- getTree
@@ -148,17 +140,24 @@ mainLoop (a : as) = do
 getAtom :: Display -> String -> IO Atom
 getAtom display t = internAtom display t False
 
-initEwmh :: Display -> Window -> IO ()
-initEwmh display root = do
+initEwmh :: Display -> Window -> Window -> IO ()
+initEwmh display root upper = do
   a    <- getAtom display "_NET_SUPPORTED"
+  nswc <- getAtom display "_NET_SUPPORTING_WM_CHECK"
+  xestName <- getAtom display "xest"
   c    <- getAtom display "ATOM"
   supp <- mapM
     (getAtom display)
     [ "_NET_NUMBER_OF_DESKTOPS"
     , "_NET_NUMBER_OF_DESKTOPS"
     , "_NET_CURRENT_DESKTOP"
+    , "_NET_CLIENT_LIST"
+    , "_NET_ACTIVE_WINDOW"
+    , "_NET_SUPPORTING_WM_CHECK"
     ]
   changeProperty32 display root a c propModeReplace (fmap fromIntegral supp)
+  changeProperty32 display root a c propModeReplace [fromIntegral upper]
+  changeProperty32 display upper a c propModeReplace [fromIntegral xestName]
 
 
 writeWorkspaces
@@ -187,3 +186,23 @@ makeTopWindows = do
             <$> traverse (isSameAtom "_NET_WM_STATE_ABOVE") states
             )
           $ raise win
+
+setClientList :: (Members '[State (Fix Tiler), Reader Window, PropertyWriter] r)
+              => Sem r ()
+setClientList = do
+  root <- ask
+  tilers <- get
+  setProperty32 "_NET_CLIENT_LIST" "WINDOW[]" root $ cata winList tilers
+    where winList (Wrap w) = [fromIntegral w]
+          winList t = concat t
+
+writeActiveWindow :: (Members '[State (Fix Tiler), Reader Window, PropertyWriter] r)
+              => Sem r ()
+writeActiveWindow = do
+  root <- ask
+  tilers <- get
+  setProperty32 "_NET_ACTIVE_WINDOW" "WINDOW" root [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
+    where makeList (Fix (Wrap w))              = EndF . Just $ fromIntegral w
+          makeList (Fix (InputController (Just t))) = ContinueF t
+          makeList (Fix (InputController Nothing)) = EndF Nothing
+          makeList (Fix t) = ContinueF (getFocused t)
