@@ -29,7 +29,7 @@ import qualified SDL.Internal.Types as SI (Window(..))
 import           Types
 import           Base
 import           Tiler
-import           Data.Char                      ( ord )
+import           Data.Char                      ( ord, chr )
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
@@ -109,23 +109,34 @@ mainLoop [] = do
   -- modify $ cata $ Fix . reduce
   get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
   whenM (not <$> checkXEvent) $ do
+    printMe "Drawing"
+    -- tell X to focus whatever we're focusing
     xFocus
-    get >>= render
-    makeTopWindows
+
+    -- Write the path to the upper border
     writePath
+
+    -- restack all of teh windows
+    topWindows <- makeTopWindows
+    bottomWindows <- getBottomWindows
+    get >>= render >>= restack . \wins -> topWindows ++ wins ++ bottomWindows
+
+
+    -- Do some EWMH stuff
     setClientList
     writeActiveWindow
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
-  l <- sequence [XorgEvent <$> getXEvent]
+  waiting <- checkXEvent
+  printMe $ "waiting on " ++ show waiting
+  l <- pure . XorgEvent <$> getXEvent
   tree <- getTree
   trace ((\[XorgEvent t] -> "==================\n" ++ show tree ++ "\n" ++ show t) l) return l
   -- return l
-  -- return []
 
 -- When there are actions to perform, do them and add the results to the list of actions
 mainLoop (a : as) = do
   -- trace (show a) return ()
-  get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
+  -- get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
   newActions <- handler a
   -- Post processors can override state changes
   postResult <-
@@ -171,21 +182,43 @@ writeWorkspaces (names, i) = do
   setProperty32 "_NET_NUMBER_OF_DESKTOPS" "CARDINAL" root [length names, 0]
   setProperty32 "_NET_CURRENT_DESKTOP"    "CARDINAL" root [i, 0]
 
+-- Some windows (like Polybar) want to be on top of everything else
+-- This function finds those windows and returns them in a list.
 makeTopWindows
   :: (Members '[PropertyReader, GlobalX, WindowMover] r)
-  => Sem r ()
+  => Sem r [Window]
 makeTopWindows = do
+  -- Get a list of all windows
   wins <- getTree
-  forM_ wins $ \win -> do
+  higherWins <- for wins $ \win -> do
+    -- EWMH defines how to do this.
+    -- Check out their spec if you're curious.
     prop <- getProperty 32 "_NET_WM_STATE" win
     case prop of
-      Nothing -> return ()
+      Nothing -> return []
       Just states ->
-        whenM
-            (   any (&& True)
-            <$> traverse (isSameAtom "_NET_WM_STATE_ABOVE") states
-            )
-          $ raise win
+        ifM (or <$> traverse (isSameAtom "_NET_WM_STATE_ABOVE") states)
+            (return [win])
+            (return [])
+  return $ join higherWins
+
+getBottomWindows
+  :: (Members '[PropertyReader, GlobalX, WindowMover] r)
+  => Sem r [Window]
+getBottomWindows = do
+  -- Get a list of all windows
+  wins <- getTree
+  lowerWindows <- for wins $ \win -> do
+    -- EWMH defines how to do this.
+    -- Check out their spec if you're curious.
+    prop <- (getProperty @_ @Word8) 8 "WM_NAME" win
+    case prop of
+      Nothing -> return []
+      Just states ->
+        return if (== "fakeWindowDontManage") $ fmap (chr . fromIntegral) states
+          then [win]
+          else []
+  return $ join lowerWindows
 
 setClientList :: (Members '[State (Fix Tiler), Reader Window, PropertyWriter] r)
               => Sem r ()

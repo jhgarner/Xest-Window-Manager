@@ -331,17 +331,17 @@ type RenderEffect r =
 render
   :: (RenderEffect r, Member (State [Fix Tiler]) r)
   => Fix Tiler
-  -> Sem r ()
+  -> Sem r [Window]
 render t = do
   (width, height) <- ask
   let locations = topDown placeWindow (Transformer id id $ Plane (Rect 0 0 width height) 0) t
   -- Draw the tiler we've been given
   let (winOrder, io) = cata draw $ fmap unTransform locations
   io
-  restack $ reverse winOrder
   -- Hide all of the popped tilers
   get @[Fix Tiler]
     >>= traverse_ (snd . cata draw . fmap unTransform . topDown placeWindow (Transformer id id $ Plane (Rect 0 0 0 0) 0))
+  return winOrder
  where draw :: RenderEffect r => Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
        draw (Plane (Rect _ _ 0 0) _ :<~ Wrap win) = ([], minimize win)
        draw (Plane Rect {..} _ :<~ Wrap win) = ([win], do

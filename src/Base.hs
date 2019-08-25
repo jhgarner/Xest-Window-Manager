@@ -110,6 +110,7 @@ data GlobalX m a where
    RebindKeys ::Mode -> GlobalX m ()
    GetXEvent ::GlobalX m Event
    CheckXEvent ::GlobalX m Bool
+   PrintMe ::String -> GlobalX m ()
 makeSem ''GlobalX
 
 data Colorer m a where
@@ -187,9 +188,11 @@ runWindowMover = interpret $ \case
     d <- ask
     void . sendM $ moveWindow d win x y >> resizeWindow d win h w
   ChangeLocationS win (Rect x y h w) -> do
-    sendM $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
-    SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
-    -- sendM $ SDL.updateWindowSurface win
+    SDL.V2 oldX oldY <- sendM $ SDL.getWindowAbsolutePosition win
+    SDL.V2 oldH oldW <- sendM $ SDL.get $ SDL.windowSize win
+    when (x /= fromIntegral oldX || y /= fromIntegral oldY || w /= fromIntegral oldW || h /= fromIntegral oldH) $ do
+      trace ("w: " ++show w ++ " " ++ show oldH) sendM $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
+      SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
 
   Raise win -> do
     d <- ask
@@ -267,10 +270,37 @@ runGlobalX = interpret $ \case
   GetXEvent ->
     ask >>= \d -> sendM @IO $
       untilM isConfNot $ allocaXEvent \p -> nextEvent d p >> getEvent p
+      -- allocaXEvent \p -> nextEvent d p >> getEvent p
    where isConfNot ConfigureEvent {} = False
          isConfNot _ = True
   CheckXEvent ->
-    ask >>= sendM @IO . pending >>= return . (> 0)
+    ask >>= \d -> sendM @IO $ do
+      -- If p > 0, getting the next event won't block
+      -- and that would be true except we filter out Configure notifications.
+      -- So if the queue were full of configure notifications, we would still
+      -- end up blocking.
+      p <- eventsQueued d queuedAlready
+      -- I decided to write this super imperitively.
+      -- Basically, we want to remove the top p events if they would be filtered
+      pRef <- newIORef $ fromIntegral p :: IO (IORef Int)
+      -- If p < 1, we get to take the easy way out.
+      if p < 1 
+         then return False
+         else do
+          -- Otherwise, we loop for a while
+          untilM (<1) $ allocaXEvent \p -> do
+            event <- peekEvent d p >> getEvent p
+            if isConfNot event 
+               -- We got something that won't be filtered so stop looping.
+              then writeIORef pRef (-1)
+              -- We got something that will be filtered so drop it.
+              else modifyIORef pRef (subtract 1) >> nextEvent d p
+            readIORef pRef
+          -- If P ended at -1, return True because the queue wasn't empty
+          (/= 0) <$> readIORef pRef
+   where isConfNot ConfigureEvent {} = False
+         isConfNot _ = True
+  PrintMe s -> sendM @IO $ print s
 
 
 runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a

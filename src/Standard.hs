@@ -20,6 +20,7 @@ module Standard
     , unTransform
     , journey
     , pattern (:<~)
+    , ifM
     ) where
 
 import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
@@ -88,3 +89,8 @@ instance Comonad Beam where
 
 mapFold :: Traversable t => (acc -> a -> (acc, b)) -> acc -> t a -> t b
 mapFold f i ta = snd . run $ runState i $ traverse (\a -> Polysemy.State.get >>= \acc -> let (newAcc, newA) = f acc a in put newAcc >> return newA) ta
+
+ifM :: Monad m => m Bool -> m a -> m a -> m a
+ifM condM thenM elseM = do
+  cond <- condM
+  if cond then thenM else elseM
