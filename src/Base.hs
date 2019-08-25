@@ -191,7 +191,7 @@ runWindowMover = interpret $ \case
     SDL.V2 oldX oldY <- sendM $ SDL.getWindowAbsolutePosition win
     SDL.V2 oldH oldW <- sendM $ SDL.get $ SDL.windowSize win
     when (x /= fromIntegral oldX || y /= fromIntegral oldY || w /= fromIntegral oldW || h /= fromIntegral oldH) $ do
-      trace ("w: " ++show w ++ " " ++ show oldH) sendM $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
+      sendM $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
       SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
 
   Raise win -> do

@@ -371,7 +371,7 @@ render t = do
           traverse_ bufferSwap winList)
 
        draw (_ :<~ Floating ls) = 
-         (bottoms ++ tops, mapM_ (snd . getEither) ls)
+         (tops ++ bottoms, mapM_ (snd . getEither) ls)
              where tops = foldl' onlyTops [] ls
                    onlyTops acc (Top (_, (ws, _))) = ws ++ acc
                    onlyTops acc _ = acc
@@ -466,7 +466,7 @@ changeSize (dx, dy) Rect{..} m = \case
   t -> t
 
 pushOrAdd :: Fix Tiler -> Maybe (Tiler (Fix Tiler)) -> Maybe (Tiler (Fix Tiler))
-pushOrAdd tWin = Just . maybe (Horiz $ makeFL (NE (Sized 0 tWin) []) 0) (\case
+pushOrAdd tWin = Just . fromMaybe (unfix tWin) . fmap (\case
   Wrap w -> Horiz $ makeFL (NE (Sized 0 tWin) [Sized 0 . Fix $ Wrap w]) 0
   Reflect w -> Horiz $ makeFL (NE (Sized 0 tWin) [Sized 0 . Fix $ Reflect w]) 0
   FocusFull w -> Horiz $ makeFL (NE (Sized 0 tWin) [Sized 0 . Fix $ FocusFull w]) 0

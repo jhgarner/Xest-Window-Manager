@@ -119,7 +119,7 @@ mainLoop [] = do
     -- restack all of teh windows
     topWindows <- makeTopWindows
     bottomWindows <- getBottomWindows
-    get >>= render >>= restack . \wins -> topWindows ++ wins ++ bottomWindows
+    get >>= render >>= restack . \wins -> topWindows ++ bottomWindows ++ wins
 
 
     -- Do some EWMH stuff
