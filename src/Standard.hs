@@ -23,8 +23,9 @@ module Standard
     , ifM
     ) where
 
-import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
+import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector, Index, index)
 import Data.Foldable as All (find)
+import Control.Lens as All hiding ((:<), (<.>), (<|), _head, _tail, cons, para, snoc, uncons, unsnoc, none)
 
 import Polysemy.State
 import Polysemy

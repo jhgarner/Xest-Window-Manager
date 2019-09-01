@@ -41,6 +41,7 @@ dependencies:
 - vector-sized
 - sdl2
 - sdl2-ttf
+- lens
 
 library:
   source-dirs: src

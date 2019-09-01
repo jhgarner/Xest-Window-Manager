@@ -16,7 +16,7 @@ import           FocusList
 -- | Add a new Tiler at the given location. Is the opposite of popping.
 add :: Direction -> Focus -> a -> Tiler a -> Tiler a
 add dir foc w (Horiz fl) = Horiz $ push dir foc (Sized 0 w) fl
-add _ foc w (Floating ls) = Floating $ if foc == Focused then Top (RRect 0 0 0.2 0.2, w) +: ls else append ls [Top (RRect 0 0 0.2 0.2, w)]
+add _ foc w (Floating ls) = Floating $ if foc == Focused then consNe#(Top (RRect 0 0 0.2 0.2, w), Just ls) else snocNe#(Just ls, Top (RRect 0 0 0.2 0.2, w))
 add _ _ _ _ = error "Attempted to add to something that isn't addable"
 -- add dir foc w r@(Reflect _ _) = fmap (Fix . add dir foc w . unfix) r
 -- add _ _ _ (InputController _) =
@@ -55,8 +55,8 @@ popWindow howToPop (Horiz fl) =
   getItem *** fmap Horiz $ pop howToPop fl
 
 popWindow howToPop (Floating ls) = second (fmap Floating) $ case howToPop of
-  Right Unfocused -> (getEither $ last ls, init ls)
-  _ -> (getEither $ head ls, tail ls)
+  Right Unfocused -> first getEither $ ls ^?! snocNe.swapped
+  _ -> first getEither $ ls ^?! consNe
 
 popWindow _ (Reflect t) = (t, Nothing)
 popWindow _ (FocusFull t) = (t, Nothing)
@@ -88,10 +88,12 @@ placeWindow (Transformer input o p) (Horiz fl) =
     let numWins = fromIntegral $ flLength fl -- Find the number of windows
         location i lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round(size * fromIntegral w)) h
         newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
-     in Horiz $ fromVis realfl $ map (\(i, (lSize, size, t)) -> Sized size (Transformer input o . o . Plane (location i lSize size) $ depth + 1, t))
+     in Horiz $ realfl & vOrder %~ map (\(i, (lSize, size, t)) -> Sized size (Transformer input o . o . Plane (location i lSize size) $ depth + 1, t))
     $ zip [0 ..]
     $ vOrder realfl
-  where realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
+  where 
+    realfl :: FocusedList 
+    realfl = fl & vOrder %~ mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0
         (Plane Rect {..} depth) = input p
 
 placeWindow (Transformer i o p) (Floating ls) =
