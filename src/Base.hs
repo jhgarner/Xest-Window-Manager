@@ -111,6 +111,7 @@ data GlobalX m a where
    GetXEvent ::GlobalX m Event
    CheckXEvent ::GlobalX m Bool
    PrintMe ::String -> GlobalX m ()
+   Kill ::Window -> GlobalX m (Maybe Window)
 makeSem ''GlobalX
 
 data Colorer m a where
@@ -164,15 +165,15 @@ runAttributeWriter = interpret $ \case
   CaptureButton NewMode {modeName = name}  -> ask @Display >>= \d -> do
       ms <- asks definedModes
       root <- ask @Window
-      when (not . null $ filter (\(NewMode m _ _ hasButtons) -> m == name && hasButtons) ms)
+      when (not . null $ filter (\(NewMode m _ _ hasButtons _) -> m == name && hasButtons) ms)
         $ void . sendM @IO $ grabPointer d root False pointerMotionMask grabModeAsync grabModeAsync root none currentTime
-      when (null $ filter (\(NewMode m _ _ hasButtons) -> m == name && hasButtons) ms)
+      when (null $ filter (\(NewMode m _ _ hasButtons _) -> m == name && hasButtons) ms)
         $ void . sendM @IO $ ungrabPointer d currentTime
   GetButton w -> ask @Display >>= \d -> sendM @IO $ do 
     (_, _, _, _, _, _, _, b) <- queryPointer d w
 
     allowEvents d (syncPointer) currentTime
-    return case b of
+    return $ case b of
              _ | b .&. button1Mask /= 0-> LeftButton (0, 0)
                | b .&. button3Mask /= 0-> RightButton (0, 0)
                | otherwise -> None
@@ -301,7 +302,18 @@ runGlobalX = interpret $ \case
    where isConfNot ConfigureEvent {} = False
          isConfNot _ = True
   PrintMe s -> sendM @IO $ print s
-
+  Kill w -> ask >>= \d -> sendM @IO $ do
+    deleteName  <- internAtom d "WM_DELETE_WINDOW" False
+    protocols <- internAtom d "WM_PROTOCOLS" True
+    supportedProtocols <- getWMProtocols d w
+    -- Thanks Xmonad for the kill window code
+    if protocols `elem` supportedProtocols
+      then allocaXEvent $ \ev -> do
+              setEventType ev clientMessage
+              setClientMessageEvent ev w protocols 32 deleteName currentTime
+              sendEvent d w False noEventMask ev
+              return Nothing
+      else killClient d w >> return (Just w)
 
 runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a
 runColorer = interpret $ \case

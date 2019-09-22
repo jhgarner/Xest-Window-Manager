@@ -1,0 +1,2 @@
+let Tilers = /home/jack/.config/xest/tilers
+in < Insert : { _1 : Tilers } | RunCommand : { _1 : Text } | ChangeModeTo : { _1 : Text } | ShowWindow : { _1 : Text } | HideWindow : { _1 : Text } | ZoomInInput : {} | ZoomOutInput : {} | PopTiler : {} | PushTiler : {} | MakeSpecial : {} | ChangeNamed : { _1 : Text } | Move : { _1 : Bool } | KillActive : {} >

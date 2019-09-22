@@ -69,22 +69,22 @@ getFocused = fst . popWindow (Right Focused)
 -- | Render a given tiler. Operates in a continuous passing style so we can pretend like
 -- catamorphisms operate from the root down to the leaves
 placeWindow
-  :: Transformer Plane
+  :: Bool -> Transformer Plane
   -> Tiler (Fix Tiler)
   -> Tiler (Transformer Plane, Fix Tiler)
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
-placeWindow _ (Wrap win) = Wrap win
-placeWindow p (Reflect t) = Reflect (newTransformer, t)
+placeWindow _ _ (Wrap win) = Wrap win
+placeWindow _ p (Reflect t) = Reflect (newTransformer, t)
   where trans (Plane (Rect rx ry rw rh) keepD) = Plane (Rect ry rx rh rw) keepD
         newTransformer = overReal (\(Plane r d) -> Plane r $ d+1) $ addTrans trans trans p
-placeWindow (Transformer i o (Plane r depth)) (FocusFull (Fix t)) = 
+placeWindow _ (Transformer i o (Plane r depth)) (FocusFull (Fix t)) = 
   case t of
     InputController realt -> FocusFull $ (Transformer i o (Plane r $ depth + 1), Fix $ InputController realt)
     _ -> modFocused (first $ const (Transformer i o . Plane r $ depth + 1)) $ fmap (Transformer i o . Plane (Rect 0 0 0 0) $ depth + 1,) t
 
 -- | Place tilers along an axis
-placeWindow (Transformer input o p) (Horiz fl) =
+placeWindow _ (Transformer input o p) (Horiz fl) =
     let numWins = fromIntegral $ flLength fl -- Find the number of windows
         location i lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round(size * fromIntegral w)) h
         newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
@@ -94,15 +94,17 @@ placeWindow (Transformer input o p) (Horiz fl) =
   where realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
         (Plane Rect {..} depth) = input p
 
-placeWindow (Transformer i o p) (Floating ls) =
+placeWindow _ (Transformer i o p) (Floating ls) =
   Floating $ map (\case
     Top (rr@RRect {..}, t) -> Top (rr, (Transformer i o . o $ Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
     Bottom t -> Bottom (Transformer i o . o $ Plane r $ depth + 1, t)) ls
       where (Plane r@Rect{..} depth) = i p
 
 -- | Has no effect on the placement
-placeWindow trans (InputController t) =
+placeWindow True trans (InputController t) =
   InputController $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect (x + 2) (y + 10) (w - 6) (h - 14)) depth) trans,) <$> t
+placeWindow False trans (InputController t) =
+  InputController $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) <$> t
 -- Can't be placed but will still take up space in other Tilers
 
 

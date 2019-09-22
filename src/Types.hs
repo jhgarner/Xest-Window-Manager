@@ -119,6 +119,7 @@ data Action
   | PopTiler
   | PushTiler
   | MakeSpecial
+  | KillActive
   | KeyboardEvent KeyTrigger Bool -- TODO use something other than Bool for keyPressed
   | XorgEvent Event
   deriving Show
@@ -131,12 +132,13 @@ data Mode = NewMode { modeName     :: Text
                     , introActions :: Actions
                     , exitActions  :: Actions
                     , hasButtons :: Bool
+                    , hasBorders :: Bool
                     }
 instance Eq Mode where
   n1 == n2 = modeName n1 == modeName n2
 
 instance Show Mode where
-  show (NewMode t _ _ _) = show t
+  show (NewMode t _ _ _ _) = show t
 
 -- | The user provided configuration.
 data Conf = Conf { keyBindings  :: [KeyTrigger]

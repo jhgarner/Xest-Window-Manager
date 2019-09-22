@@ -102,8 +102,9 @@ handler (XorgEvent cre@ConfigureRequestEvent{}) = do
 handler (XorgEvent KeyEvent {..}) = do
   -- Watched keys are stored in bindings
   Conf bindings _ <- ask @Conf
+  mode <- get @Mode
   -- Is ev_keycode (the key that was pressed) equal to k (the bound k)
-  return $ case find (\(k, _, _) -> ev_keycode == k) bindings of
+  return $ case find (\(k, m, _) -> ev_keycode == k && m == mode) bindings of
     Nothing -> []
     Just kt -> [KeyboardEvent kt (ev_event_type == keyPress)]
 
@@ -117,7 +118,8 @@ handler (XorgEvent CrossingEvent {..}) = do
   -- weird is going on and the newRoot is probably bad.
   -- Usually this happens if the crossed window isn't in our tree and causes
   -- the InputController to disappear.
-  when (status == Both) $ put @(Fix Tiler) $ fromMaybe (error "No root!") newRoot
+  when (status == Both) $ 
+    put @(Fix Tiler) $ fromMaybe (error "No root!") newRoot
   return []
 
 -- Called when a mouse button is pressed
@@ -134,9 +136,10 @@ handler (XorgEvent MotionEvent {..}) = do
   (width, height) <- ask
   mb <- get @MouseButtons
   root <- ask @Window
+  mode <- gets @Mode hasBorders
 
   -- Get the locations of every window
-  sized::Cofree Tiler (Transformer Plane) <- topDown placeWindow (Transformer id id $ Plane (Rect 0 0 width height) 0) <$> get
+  sized::Cofree Tiler (Transformer Plane) <- topDown (placeWindow mode) (Transformer id id $ Plane (Rect 0 0 width height) 0) <$> get
 
   -- Find the one that comes right after the input controller
   case journey $ ana @(Path _ _) getInput sized of
@@ -303,6 +306,21 @@ handler MakeSpecial = do
           mkTop (Bottom t) = Top (RRect 0 0 0.2 0.2, t)
           mkBottom = Bottom . extract 
 
+handler KillActive = do
+  root <- get @(Fix Tiler)
+  let w = extract $ ana @(Beam _) makeList root
+  l <- traverse kill w
+  case join l of
+    Nothing -> return ()
+    Just killed ->
+      modify @(Fix Tiler) $
+        fromMaybe (error "No roooot!") . cata (fmap Fix . (>>= ripOut (Fix $ Wrap killed)) . reduce)
+  return []
+    where 
+      makeList (Fix (Wrap w))              = EndF $ Just w
+      makeList (Fix (InputController (Just t))) = ContinueF t
+      makeList (Fix (InputController Nothing)) = EndF Nothing
+      makeList (Fix t) = ContinueF (getFocused t)
 
 -- Random stuff --
 
@@ -325,7 +343,7 @@ getWindowByClass wName = do
 -- Moves windows around
 type RenderEffect r =
      ( Members (Readers [(Dimension, Dimension), Borders]) r
-     , Member (State (Fix Tiler)) r
+     , Members (States [Fix Tiler, Mode]) r
      , Members [WindowMover, WindowMinimizer, Colorer] r
      )
 render
@@ -334,13 +352,14 @@ render
   -> Sem r [Window]
 render t = do
   (width, height) <- ask
-  let locations = topDown placeWindow (Transformer id id $ Plane (Rect 0 0 width height) 0) t
+  mode <- gets @Mode hasBorders
+  let locations = topDown (placeWindow mode) (Transformer id id $ Plane (Rect 0 0 width height) 0) t
   -- Draw the tiler we've been given
   let (winOrder, io) = cata draw $ fmap unTransform locations
   io
   -- Hide all of the popped tilers
   get @[Fix Tiler]
-    >>= traverse_ (snd . cata draw . fmap unTransform . topDown placeWindow (Transformer id id $ Plane (Rect 0 0 0 0) 0))
+    >>= traverse_ (snd . cata draw . fmap unTransform . topDown (placeWindow mode) (Transformer id id $ Plane (Rect 0 0 0 0) 0))
   return winOrder
  where draw :: RenderEffect r => Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
        draw (Plane (Rect _ _ 0 0) _ :<~ Wrap win) = ([], minimize win)
@@ -357,17 +376,27 @@ render t = do
           let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
           -- color <- getColor $ "TekHVC:"++show hue++"/50/95"
 
+          currentMode <- get
+          if hasBorders currentMode
+             then do
+                -- Draw them with the right color and position
+                changeLocationS l $ Rect x y 2 h
+                changeLocationS u $ Rect x y w 10
+                changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
+                changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
 
-          -- Draw them with the right color and position
-          changeLocationS l $ Rect x y 2 h
-          changeLocationS u $ Rect x y w 10
-          changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
-          changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
-
-          -- Convince our windows to be redrawn with the right color and position
-          -- traverse_ (`changeLocationS` Rect 0 0 1 1) winList
-          traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
-          get >>= drawText u . cata getFocusList
+                -- Convince our windows to be redrawn with the right color and position
+                -- traverse_ (`changeLocationS` Rect 0 0 1 1) winList
+                traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
+                get @(Fix Tiler) >>= drawText u . cata getFocusList
+             else do
+                changeLocationS l $ Rect 10000 0 0 0
+                changeLocationS u $ Rect 10000 0 0 0
+                changeLocationS d $ Rect 10000 0 0 0
+                changeLocationS r $ Rect 10000 0 0 0
+                traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
+                get @(Fix Tiler) >>= drawText u . cata getFocusList
+                
           traverse_ bufferSwap winList)
 
        draw (_ :<~ Floating ls) = 

@@ -62,6 +62,7 @@ data Action
   | PopTiler
   | PushTiler
   | MakeSpecial
+  | KillActive
   deriving (Generic, Show, Eq, Interpret)
 
 -- | See other *ToType functions
@@ -75,6 +76,7 @@ actionToType _ ZoomOutInput       = T.ZoomOutInput
 actionToType _ PopTiler           = T.PopTiler
 actionToType _ PushTiler          = T.PushTiler
 actionToType _ MakeSpecial           = T.MakeSpecial
+actionToType _ KillActive           = T.KillActive
 actionToType _ (ChangeNamed s)    = T.ChangeNamed s
 -- actionToType _ (ChangeLayoutTo s)    = T.ChangeLayoutTo s
 actionToType _ (Move        s)    = if s then T.Move Front else T.Move Back
@@ -94,13 +96,14 @@ data Mode = NewMode { modeName     :: Text
                     , introActions :: [Action]
                     , exitActions  :: [Action]
                     , hasButtons :: Bool
+                    , hasBorders :: Bool
                     }
   deriving (Generic, Show, Eq, Interpret)
 
 -- | See other *ToType functions
 modeToType :: Map Text Mode -> Mode -> T.Mode
-modeToType m (NewMode a b c d) =
-  T.NewMode a (actionToType m <$> b) (actionToType m <$> c) d
+modeToType m (NewMode a b c d e) =
+  T.NewMode a (actionToType m <$> b) (actionToType m <$> c) d e
 
 -- | Lookup a mode and crash if it doesn't exist
 getMode :: Text -> Map Text Mode -> Mode
