@@ -121,27 +121,27 @@ data Colorer m a where
   BufferSwap :: SDL.Window -> Colorer m ()
 makeSem ''Colorer
 
-type Interpret e r a = Members [Lift IO, Reader Display] r => Sem (e ': r) a -> Sem r a
+type Interpret e r a = Members [Embed IO, Reader Display] r => Sem (e ': r) a -> Sem r a
 
 runPropertyReader :: Interpret PropertyReader r a
 runPropertyReader = interpret $ \case
-  GetProperty size aName w -> ask >>= \d -> sendM @IO $ do
+  GetProperty size aName w -> ask >>= \d -> embed @IO $ do
     atom <- liftIO $ internAtom d aName False
     liftIO $ rawGetWindowProperty size d atom w
-  IsSameAtom aName atom -> ask >>= \d -> sendM @IO $ do
+  IsSameAtom aName atom -> ask >>= \d -> embed @IO $ do
     otherAtom <- liftIO $ internAtom d aName False
     return $ atom == otherAtom
 
 runPropertyWriter :: Interpret PropertyWriter r a
 runPropertyWriter = interpret $ \case
-  SetProperty32 aName mType w msg -> ask >>= \d -> sendM @IO $ do
+  SetProperty32 aName mType w msg -> ask >>= \d -> embed @IO $ do
     atom  <- internAtom d aName False
     aType <- internAtom d mType False
     void
       .  changeProperty32 d w atom aType propModeReplace
       $  fmap fromIntegral msg
       ++ [0]
-  SetProperty8 aName mType w msg -> ask >>= \d -> sendM @IO $ do
+  SetProperty8 aName mType w msg -> ask >>= \d -> embed @IO $ do
     atom  <- liftIO $ internAtom d aName False
     aType <- liftIO $ internAtom d mType False
     liftIO
@@ -154,22 +154,22 @@ runAttributeWriter
   :: (Members [Reader Window, Reader Conf] r)
   => Interpret AttributeWriter r a
 runAttributeWriter = interpret $ \case
-  SelectFlags w flags -> ask >>= \d -> sendM @IO $ do
+  SelectFlags w flags -> ask >>= \d -> embed @IO $ do
     selectInput d w flags
     grabButton d anyButton anyModifier w False (buttonPressMask .|. buttonReleaseMask) grabModeSync grabModeAsync none none
 
   SetFocus w          -> ask @Display
-    >>= \d -> sendM @IO $ do
+    >>= \d -> embed @IO $ do
       setInputFocus d w revertToNone currentTime
       allowEvents d (replayPointer) currentTime
   CaptureButton NewMode {modeName = name}  -> ask @Display >>= \d -> do
       ms <- asks definedModes
       root <- ask @Window
       when (not . null $ filter (\(NewMode m _ _ hasButtons _) -> m == name && hasButtons) ms)
-        $ void . sendM @IO $ grabPointer d root False pointerMotionMask grabModeAsync grabModeAsync root none currentTime
+        $ void . embed @IO $ grabPointer d root False pointerMotionMask grabModeAsync grabModeAsync root none currentTime
       when (null $ filter (\(NewMode m _ _ hasButtons _) -> m == name && hasButtons) ms)
-        $ void . sendM @IO $ ungrabPointer d currentTime
-  GetButton w -> ask @Display >>= \d -> sendM @IO $ do 
+        $ void . embed @IO $ ungrabPointer d currentTime
+  GetButton w -> ask @Display >>= \d -> embed @IO $ do 
     (_, _, _, _, _, _, _, b) <- queryPointer d w
 
     allowEvents d (syncPointer) currentTime
@@ -181,27 +181,27 @@ runAttributeWriter = interpret $ \case
 runAttributeReader :: Interpret AttributeReader r a
 runAttributeReader = interpret $ \case
   GetClassName win ->
-    ask >>= \d -> sendM $ getClassHint d win >>= \(ClassHint _ n) -> return n
+    ask >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return n
 
 runWindowMover :: Interpret WindowMover r a
 runWindowMover = interpret $ \case
   ChangeLocation win (Rect x y h w) -> do
     d <- ask
-    void . sendM $ moveWindow d win x y >> resizeWindow d win h w
+    void . embed $ moveWindow d win x y >> resizeWindow d win h w
   ChangeLocationS win (Rect x y h w) -> do
-    SDL.V2 oldX oldY <- sendM $ SDL.getWindowAbsolutePosition win
-    SDL.V2 oldH oldW <- sendM $ SDL.get $ SDL.windowSize win
+    SDL.V2 oldX oldY <- embed $ SDL.getWindowAbsolutePosition win
+    SDL.V2 oldH oldW <- embed $ SDL.get $ SDL.windowSize win
     when (x /= fromIntegral oldX || y /= fromIntegral oldY || w /= fromIntegral oldW || h /= fromIntegral oldH) $ do
-      sendM $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
+      embed $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
       SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
 
   Raise win -> do
     d <- ask
-    sendM $ raiseWindow d win
+    embed $ raiseWindow d win
     return ()
   Restack wins -> do
     d <- ask
-    sendM $ restackWindows d wins
+    embed $ restackWindows d wins
     return ()
   ConfigureWin ConfigureRequestEvent {..} ->
     let wc = WindowChanges ev_x
@@ -211,7 +211,7 @@ runWindowMover = interpret $ \case
                            ev_border_width
                            ev_above
                            ev_detail
-    in  ask >>= \d -> sendM @IO $ configureWindow d ev_window ev_value_mask wc
+    in  ask >>= \d -> embed @IO $ configureWindow d ev_window ev_value_mask wc
   ConfigureWin _ -> error "Don't call Configure Window with other events"
 
 runWindowMinimizer
@@ -219,22 +219,22 @@ runWindowMinimizer
 runWindowMinimizer = interpret $ \case
   Minimize win -> do
     d <- ask
-    WindowAttributes { wa_map_state = mapped } <- sendM
+    WindowAttributes { wa_map_state = mapped } <- embed
       $ getWindowAttributes d win
     when (mapped /= waIsUnmapped) $ do
       modify $ S.insert win
-      sendM @IO $ unmapWindow d win
+      embed @IO $ unmapWindow d win
   Restore win -> do
     d <- ask
-    WindowAttributes { wa_map_state = mapped } <- sendM
+    WindowAttributes { wa_map_state = mapped } <- embed
       $ getWindowAttributes d win
     when (mapped == waIsUnmapped) $ do
       modify $ S.delete win
-      sendM @IO $ mapWindow d win
-      sendM @IO $ setInputFocus d win revertToNone currentTime
-runExecutor :: Member (Lift IO) r => Sem (Executor ': r) a -> Sem r a
+      embed @IO $ mapWindow d win
+      embed @IO $ setInputFocus d win revertToNone currentTime
+runExecutor :: Member (Embed IO) r => Sem (Executor ': r) a -> Sem r a
 runExecutor = interpret $ \case
-  Execute s -> void . sendM $ spawnCommand s
+  Execute s -> void . embed $ spawnCommand s
 
 runGlobalX
   :: (Members [Reader Window, Reader Conf] r)
@@ -243,7 +243,7 @@ runGlobalX = interpret $ \case
   GetTree -> do
     display <- ask @Display
     root    <- ask @Window
-    sendM @IO $ alloca
+    embed @IO $ alloca
       (\numChildrenPtr -> alloca
         (\childrenListPtr -> do
           uselessPtr <- alloca $ \x -> return x
@@ -261,7 +261,7 @@ runGlobalX = interpret $ \case
     Conf kb _ <- ask @Conf
     d         <- ask @Display
     win       <- ask @Window
-    sendM $ forM_ kb $ toggleModel activeMode d win
+    embed $ forM_ kb $ toggleModel activeMode d win
 
    where
     toggleModel :: Mode -> Display -> Window -> KeyTrigger -> IO ()
@@ -269,13 +269,13 @@ runGlobalX = interpret $ \case
       then grabKey d k anyModifier win False grabModeAsync grabModeAsync
       else ungrabKey d k anyModifier win
   GetXEvent ->
-    ask >>= \d -> sendM @IO $
+    ask >>= \d -> embed @IO $
       untilM isConfNot $ allocaXEvent \p -> nextEvent d p >> getEvent p
       -- allocaXEvent \p -> nextEvent d p >> getEvent p
    where isConfNot ConfigureEvent {} = False
          isConfNot _ = True
   CheckXEvent ->
-    ask >>= \d -> sendM @IO $ do
+    ask >>= \d -> embed @IO $ do
       -- If p > 0, getting the next event won't block
       -- and that would be true except we filter out Configure notifications.
       -- So if the queue were full of configure notifications, we would still
@@ -301,8 +301,8 @@ runGlobalX = interpret $ \case
           (/= 0) <$> readIORef pRef
    where isConfNot ConfigureEvent {} = False
          isConfNot _ = True
-  PrintMe s -> sendM @IO $ print s
-  Kill w -> ask >>= \d -> sendM @IO $ do
+  PrintMe s -> embed @IO $ print s
+  Kill w -> ask >>= \d -> embed @IO $ do
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
     protocols <- internAtom d "WM_PROTOCOLS" True
     supportedProtocols <- getWMProtocols d w
@@ -320,21 +320,21 @@ runColorer = interpret $ \case
   GetColor color -> do
     display <- ask @Display
     let colorMap = defaultColormap display (defaultScreen display)
-    sendM @IO $ fmap fst $ allocNamedColor display colorMap color
+    embed @IO $ fmap fst $ allocNamedColor display colorMap color
   ChangeColor w (h, s, v) -> do
-    winSurface <- sendM $ SDL.getWindowSurface w
-    sendM $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
+    winSurface <- embed $ SDL.getWindowSurface w
+    embed $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
   DrawText w s -> do
     display <- ask @Display
     whenM (null <$> get @(Maybe Font.Font)) $ do
-      font <- sendM @IO $ Font.load "/usr/share/fonts/adobe-source-code-pro/SourceCodePro-Medium.otf" 10
+      font <- embed @IO $ Font.load "/usr/share/fonts/adobe-source-code-pro/SourceCodePro-Medium.otf" 10
       put $ Just font
     mfont <- get @(Maybe Font.Font)
     let Just font = mfont
-    surface <- sendM $ Font.blended font (SDL.V4 0 0 0 0) $ pack s
-    winSurface <- sendM $ SDL.getWindowSurface w
-    void . sendM $ SDL.surfaceBlit surface Nothing winSurface Nothing
-  BufferSwap w -> sendM $ SDL.updateWindowSurface w
+    surface <- embed $ Font.blended font (SDL.V4 0 0 0 0) $ pack s
+    winSurface <- embed $ SDL.getWindowSurface w
+    void . embed $ SDL.surfaceBlit surface Nothing winSurface Nothing
+  BufferSwap w -> embed $ SDL.updateWindowSurface w
 
 
 type DoAll r

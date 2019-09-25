@@ -33,7 +33,7 @@ import Control.Comonad.Cofree as All (Cofree((:<)))
 -- import Control.Comonad.Cofree as C
 import Control.Comonad as All
 import qualified Control.Comonad.Trans.Cofree as C hiding (Cofree)
-import Data.Functor.Foldable as All hiding (fold, unfold)
+import Data.Functor.Foldable as All hiding (fold, unfold, embed)
 import Data.Fixed as All (mod')
 import Data.Functor.Foldable.TH as All
 import NonEmpty as All

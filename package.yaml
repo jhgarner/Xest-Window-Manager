@@ -32,8 +32,6 @@ dependencies:
 - comonad
 - deriving-compat
 - containers
-- polysemy
-- polysemy-plugin
 - QuickCheck
 - generic-arbitrary
 - quickcheck-instances
@@ -41,6 +39,9 @@ dependencies:
 - vector-sized
 - sdl2
 - sdl2-ttf
+- polysemy
+- polysemy-plugin
+- polysemy-zoo
 
 library:
   source-dirs: src
