@@ -70,12 +70,21 @@ getEither :: BottomOrTop a -> a
 getEither (Bottom a) = a
 getEither (Top (_, a)) = a
 
+data ChildParent = ChildParent Window Window
+  deriving Show
+
+inChildParent :: Window -> ChildParent -> Bool
+inChildParent w (ChildParent ww ww') = w == ww || w == ww'
+
+instance Eq ChildParent where
+  (ChildParent a b) == (ChildParent a' b') = a == a' || b == b'
+
 data Tiler a
   = Horiz (FocusedList (Sized a))
   | Floating (NonEmpty (BottomOrTop a))
   | Reflect a
   | FocusFull a
-  | Wrap Window
+  | Wrap ChildParent
   | InputController (Maybe a)
   deriving (Eq, Show, Functor, Foldable, Traversable)
 instance MonoFoldable (Tiler a)

@@ -2,6 +2,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TupleSections #-}
 
 
 module Core where
@@ -70,7 +71,7 @@ handler (XorgEvent MapRequestEvent {..}) = do
     -- If you've zoomed the inputController in, you get nesting as a result
     modify . cata . applyInput $ pushOrAdd tWin
   return []
-  where findWindow w (Wrap w') = w == w'
+  where findWindow w (Wrap w') = inChildParent w w'
         findWindow _ t = or t
 
 -- Called on window destruction
@@ -78,8 +79,10 @@ handler (XorgEvent DestroyWindowEvent {..}) = do
   -- Remove the destroyed window from our tree.
   -- Usually, unmap will be called first, but what if a minimized window
   -- gets killed? In that case, we won't get an unmap notifiction.
-  modify @(Fix Tiler) $
-    fromMaybe (error "No roooot!") . cata (fmap Fix . (>>= ripOut (Fix $ Wrap ev_window)) . reduce)
+  oldRoot <- get
+  traverse_ (kill True) $ findParent ev_window oldRoot
+  modify @(Fix Tiler) $ fromMaybe (error "No roooot!") . 
+    cata (fmap Fix . (>>= ripOut (Fix $ Wrap $ ChildParent ev_window ev_window)) . reduce)
   return []
 
 -- Called when a window should no longer be drawn
@@ -88,8 +91,11 @@ handler (XorgEvent UnmapEvent {..}) = do
   mins <- get @(Set Window)
   -- Remove the destroyed window from our tree if we aren't the
   -- reason it was unmapped.
+  oldRoot <- get
+  traverse_ (kill True) $ findParent ev_window oldRoot
   unless (member ev_window mins) $ modify @(Fix Tiler) $ 
-    fromMaybe (error "No roooot!") . cata (fmap Fix . (>>= ripOut (Fix $ Wrap ev_window)) . reduce)
+    fromMaybe (error "No roooot!") . 
+      cata (fmap Fix . (>>= ripOut (Fix $ Wrap $ ChildParent ev_window ev_window)) . reduce)
   return []
 
 -- Tell the window it can configure itself however it wants.
@@ -118,7 +124,9 @@ handler (XorgEvent CrossingEvent {..}) = do
   -- weird is going on and the newRoot is probably bad.
   -- Usually this happens if the crossed window isn't in our tree and causes
   -- the InputController to disappear.
-  when (status == Both) $ 
+  when (status == Both) $ do
+    realWin <- getChild ev_window
+    traverse_ setFocus realWin
     put @(Fix Tiler) $ fromMaybe (error "No root!") newRoot
   return []
 
@@ -128,7 +136,10 @@ handler (XorgEvent ButtonEvent {..}) = do
   rootT <- get @(Fix Tiler)
   setFocus ev_window
   let (newRoot, status) = cata (focusWindow ev_window) rootT
-  when (status == Both) $ put @(Fix Tiler) $ fromMaybe (error "No root!") newRoot
+  when (status == Both) $ do
+    realWin <- getChild ev_window
+    traverse_ setFocus realWin
+    put @(Fix Tiler) $ fromMaybe (error "No root!") newRoot
   return []
 
 --While in a resize mode, the pointer moved.
@@ -309,15 +320,21 @@ handler MakeSpecial = do
 handler KillActive = do
   root <- get @(Fix Tiler)
   let w = extract $ ana @(Beam _) makeList root
-  l <- traverse kill w
-  case join l of
+  l <- case w of
+         Just (ww, ww') -> do
+           _ <- kill False ww'
+           shouldKill <- kill True ww
+           return $ fmap (,ww') shouldKill
+         Nothing -> return Nothing
+  printMe $ "\n\n--------------------\n\n" ++ show l ++ "\n\n"
+  case l of
     Nothing -> return ()
-    Just killed ->
+    Just (killed, w') ->
       modify @(Fix Tiler) $
-        fromMaybe (error "No roooot!") . cata (fmap Fix . (>>= ripOut (Fix $ Wrap killed)) . reduce)
+        fromMaybe (error "No roooot!") . cata (fmap Fix . (>>= ripOut (Fix $ Wrap $ ChildParent killed w')) . reduce)
   return []
     where 
-      makeList (Fix (Wrap w))              = EndF $ Just w
+      makeList (Fix (Wrap (ChildParent w w')))              = EndF $ Just (w, w')
       makeList (Fix (InputController (Just t))) = ContinueF t
       makeList (Fix (InputController Nothing)) = EndF Nothing
       makeList (Fix t) = ContinueF (getFocused t)
@@ -325,10 +342,12 @@ handler KillActive = do
 -- Random stuff --
 
 -- Would be used for reparenting (title bar)
-manage :: Member AttributeWriter r => Window -> Sem r (Fix Tiler)
+manage :: Members [AttributeWriter, GlobalX] r => Window -> Sem r (Fix Tiler)
 manage w = do
-  selectFlags w (enterWindowMask .|. buttonPressMask .|. buttonReleaseMask)
-  return . Fix $ Wrap w
+  -- selectFlags w (structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
+  newWin <- newWindow w
+  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. buttonPressMask .|. buttonReleaseMask)
+  return . Fix $ Wrap $ ChildParent newWin w
 
 -- Find a window with a class name
 getWindowByClass
@@ -362,10 +381,12 @@ render t = do
     >>= traverse_ (snd . cata draw . fmap unTransform . topDown (placeWindow mode) (Transformer id id $ Plane (Rect 0 0 0 0) 0))
   return winOrder
  where draw :: RenderEffect r => Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
-       draw (Plane (Rect _ _ 0 0) _ :<~ Wrap win) = ([], minimize win)
-       draw (Plane Rect {..} _ :<~ Wrap win) = ([win], do
+       draw (Plane (Rect _ _ 0 0) _ :<~ Wrap (ChildParent win _)) = ([], minimize win)
+       draw (Plane Rect {..} _ :<~ Wrap (ChildParent win win')) = ([win], do
            restore win
-           changeLocation win $ Rect x y (abs w) (abs h))
+           restore win'
+           changeLocation win $ Rect x y (abs w) (abs h)
+           changeLocation win' $ Rect 0 0 (abs w) (abs h))
        draw (Plane Rect{..} depth :<~ InputController t) = (maybe [] fst t, do
           mapM_ snd t
           -- Extract the border windows
@@ -440,7 +461,7 @@ xFocus = do
   traverse_ restore w
   traverse_ setFocus w
  where
-  makeList (Fix (Wrap w))              = EndF $ Just w
+  makeList (Fix (Wrap (ChildParent w _)))              = EndF $ Just w
   makeList (Fix (InputController (Just t))) = ContinueF t
   makeList (Fix (InputController Nothing)) = EndF Nothing
   makeList (Fix t) = ContinueF (getFocused t)

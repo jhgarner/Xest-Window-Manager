@@ -17,6 +17,7 @@ import           Standard
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Reader
+import           Polysemy.Output
 import           Data.Bits
 import           Data.Kind
 import           Graphics.X11.Types
@@ -86,6 +87,7 @@ makeSem ''AttributeWriter
 
 data AttributeReader m a where
   GetClassName ::Window -> AttributeReader m String
+  GetChild ::Window -> AttributeReader m (Maybe Window)
 makeSem ''AttributeReader
 
 data WindowMover m a where
@@ -107,11 +109,13 @@ makeSem ''Executor
 
 data GlobalX m a where
    GetTree ::GlobalX m [Window]
+   NewWindow ::Window -> GlobalX m Window
    RebindKeys ::Mode -> GlobalX m ()
    GetXEvent ::GlobalX m Event
    CheckXEvent ::GlobalX m Bool
    PrintMe ::String -> GlobalX m ()
-   Kill ::Window -> GlobalX m (Maybe Window)
+   -- Bool True == kill softly. False == kill hard
+   Kill ::Bool -> Window -> GlobalX m (Maybe Window)
 makeSem ''GlobalX
 
 data Colorer m a where
@@ -182,6 +186,22 @@ runAttributeReader :: Interpret AttributeReader r a
 runAttributeReader = interpret $ \case
   GetClassName win ->
     ask >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return n
+  GetChild win -> do
+    display <- ask @Display
+    embed @IO $ alloca
+      (\numChildrenPtr -> alloca
+        (\childrenListPtr -> do
+          uselessPtr <- alloca $ \x -> return x
+          _          <- xQueryTree display
+                                   win
+                                   uselessPtr
+                                   uselessPtr
+                                   childrenListPtr
+                                   numChildrenPtr
+          numChildren <- peek numChildrenPtr
+          headMay <$> (peek childrenListPtr >>= peekArray (fromIntegral numChildren))
+        )
+      )
 
 runWindowMover :: Interpret WindowMover r a
 runWindowMover = interpret $ \case
@@ -257,6 +277,17 @@ runGlobalX = interpret $ \case
           peek childrenListPtr >>= peekArray (fromIntegral numChildren)
         )
       )
+  NewWindow w -> do
+    d         <- ask @Display
+    rootWin       <- ask @Window
+    let defScr = defaultScreen d
+    xwin <- embed $ createSimpleWindow d rootWin
+      0 0 400 200 0
+      (blackPixel d defScr)
+      (whitePixel d defScr)
+    embed $ reparentWindow d w xwin 0 0
+    return xwin
+
   RebindKeys activeMode -> do
     Conf kb _ <- ask @Conf
     d         <- ask @Display
@@ -301,8 +332,8 @@ runGlobalX = interpret $ \case
           (/= 0) <$> readIORef pRef
    where isConfNot ConfigureEvent {} = False
          isConfNot _ = True
-  PrintMe s -> embed @IO $ print s
-  Kill w -> ask >>= \d -> embed @IO $ do
+  PrintMe s -> embed @IO $ putStrLn $ pack s
+  Kill isSoft w -> ask >>= \d -> embed @IO $ do
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
     protocols <- internAtom d "WM_PROTOCOLS" True
     supportedProtocols <- getWMProtocols d w
@@ -313,6 +344,7 @@ runGlobalX = interpret $ \case
               setClientMessageEvent ev w protocols 32 deleteName currentTime
               sendEvent d w False noEventMask ev
               return Nothing
+      else if isSoft then destroyWindow d w >> return (Just w)
       else killClient d w >> return (Just w)
 
 runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a
@@ -335,7 +367,6 @@ runColorer = interpret $ \case
     winSurface <- embed $ SDL.getWindowSurface w
     void . embed $ SDL.surfaceBlit surface Nothing winSurface Nothing
   BufferSwap w -> embed $ SDL.updateWindowSurface w
-
 
 type DoAll r
   = (Members (States

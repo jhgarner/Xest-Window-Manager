@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Lib
   ( startWM
@@ -77,6 +78,7 @@ startWM = do
   selectInput display root
     $   substructureNotifyMask
     .|. substructureRedirectMask
+    .|. leaveWindowMask
     .|. enterWindowMask
     .|. buttonPressMask
     .|. buttonReleaseMask
@@ -107,9 +109,9 @@ mainLoop :: Actions -> DoAll r
 -- When there are no actions to perform, render the windows and find new actions to do
 mainLoop [] = do
   -- modify $ cata $ Fix . reduce
-  get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
+  get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
   whenM (not <$> checkXEvent) $ do
-    printMe "Drawing"
+    printMe "Drawing\n\n"
     -- tell X to focus whatever we're focusing
     xFocus
 
@@ -126,17 +128,18 @@ mainLoop [] = do
     setClientList
     writeActiveWindow
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
-  waiting <- checkXEvent
-  printMe $ "waiting on " ++ show waiting
+  -- waiting <- checkXEvent
   l <- pure . XorgEvent <$> getXEvent
   tree <- getTree
-  trace ((\[XorgEvent t] -> "==================\n" ++ show tree ++ "\n" ++ show t) l) return l
-  -- return l
+  props <- traverse (\w -> (,w) . fmap (fmap (chr . fromIntegral)) <$> (getProperty @_ @Word8) 8 "WM_NAME" w) tree
+  printMe ((\[XorgEvent t] -> "\n==================\n\n" ++ show props ++ "\n\n" ++ show t) l)
+  return l
 
 -- When there are actions to perform, do them and add the results to the list of actions
 mainLoop (a : as) = do
-  -- trace (show a) return ()
-  -- get @(Tiler (Fix Tiler)) >>= \t -> trace ("\n"++show t) return ()
+  printMe ("On action: "++ show a ++ "\n\n")
+  printMe ("Rest is: " ++ show as ++ "\n\n")
+  get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
   newActions <- handler a
   -- Post processors can override state changes
   postResult <-
@@ -226,7 +229,7 @@ setClientList = do
   root <- ask
   tilers <- get
   setProperty32 "_NET_CLIENT_LIST" "WINDOW[]" root $ cata winList tilers
-    where winList (Wrap w) = [fromIntegral w]
+    where winList (Wrap (ChildParent _ w)) = [fromIntegral w]
           winList t = concat t
 
 writeActiveWindow :: (Members '[State (Fix Tiler), Reader Window, PropertyWriter] r)
@@ -235,7 +238,7 @@ writeActiveWindow = do
   root <- ask
   tilers <- get
   setProperty32 "_NET_ACTIVE_WINDOW" "WINDOW" root [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
-    where makeList (Fix (Wrap w))              = EndF . Just $ fromIntegral w
+    where makeList (Fix (Wrap (ChildParent _ w))) = EndF . Just $ fromIntegral w
           makeList (Fix (InputController (Just t))) = ContinueF t
           makeList (Fix (InputController Nothing)) = EndF Nothing
           makeList (Fix t) = ContinueF (getFocused t)

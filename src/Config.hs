@@ -13,6 +13,7 @@ where
 
 import           Standard
 import           Dhall
+import qualified Dhall.Core
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types
 import qualified Types                         as T
@@ -114,5 +115,5 @@ getMode s modeList =
 -- | A simple function to wrap everything else up
 readConfig :: Display -> Text -> IO T.Conf
 readConfig display fileName = do
-  x <- input auto fileName
+  x <- detailed $ input (autoWith $ defaultInterpretOptions {singletonConstructors = Bare}) fileName
   confToType display x

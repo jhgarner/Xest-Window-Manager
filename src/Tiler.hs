@@ -18,13 +18,6 @@ add :: Direction -> Focus -> a -> Tiler a -> Tiler a
 add dir foc w (Horiz fl) = Horiz $ push dir foc (Sized 0 w) fl
 add _ foc w (Floating ls) = Floating $ if foc == Focused then Top (RRect 0 0 0.2 0.2, w) +: ls else append ls [Top (RRect 0 0 0.2 0.2, w)]
 add _ _ _ _ = error "Attempted to add to something that isn't addable"
--- add dir foc w r@(Reflect _ _) = fmap (Fix . add dir foc w . unfix) r
--- add _ _ _ (InputController _) =
---   error "Tried to add a window to an Input controller but that isn't allowed"
--- add Front Focused   t       w@(Wrap _) = Horiz $ makeFL [Sized 0 t, Sized 0 $ Fix w] 0
--- add Back  Focused   t       w@(Wrap _) = Horiz $ makeFL [Sized 0 $ Fix w, Sized 0 t] 1
--- add Front Unfocused t       w@(Wrap _) = Horiz $ makeFL [Sized 0 t, Sized 0 $ Fix w] 1
--- add Back  Unfocused t       w@(Wrap _) = Horiz $ makeFL [Sized 0 $ Fix w, Sized 0 t] 0
 
 -- | Remove a Tiler if it exists
 ripOut :: Fix Tiler -> Tiler (Fix Tiler) -> Maybe (Tiler (Fix Tiler))
@@ -137,7 +130,7 @@ modFocused f (InputController t) = InputController $ fmap f t --error "Input con
 focus :: Eq a => a -> Tiler a -> Tiler a
 focus newF (  Horiz fl ) = Horiz $ focusElem (Sized 0 newF) fl
 focus newF (  Floating ls ) = Floating $ moveF 0 ((== newF) . getEither) ls
-focus _    t@(Wrap            _) = t
+focus _    t@(Wrap _) = t
 focus _    t@(Reflect _) = t
 focus _    t@(FocusFull _) = t
 focus _    t@(InputController _) = t
@@ -162,7 +155,7 @@ focusWindow
   -> Tiler (Maybe (Fix Tiler), ControllerOrWin)
   -> (Maybe (Fix Tiler), ControllerOrWin)
 -- TODO I am particularly unhappy with the code quality of this function
-focusWindow w (Wrap            w'             ) = (Just . Fix $ Wrap w', if w == w' then Win else Neither)
+focusWindow w (Wrap w') = (Just . Fix $ Wrap w', if inChildParent w w' then Win else Neither)
 focusWindow _ (InputController (Just (Just t, Win)))  = (Just . Fix . InputController $ Just t, Both)
 focusWindow _ (InputController t) = (t >>= fst, Controller)
 focusWindow _ t                                 = case (hasController, shouldFocus) of
@@ -189,3 +182,10 @@ getFocusList (Floating (NE t _)) = "Floating|" ++ extract t
 getFocusList (Reflect t) = "Rotate-" ++ t
 getFocusList (FocusFull t) = "Full-" ++ t
 getFocusList (Wrap _) = "window"
+
+findParent :: Window -> Fix Tiler -> Maybe Window
+findParent w = cata step
+  where step (Wrap (ChildParent ww ww')) 
+          | ww' == w = Just ww
+          | otherwise = Nothing
+        step t = foldl' (<|>) Nothing t
