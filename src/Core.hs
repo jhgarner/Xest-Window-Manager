@@ -118,28 +118,30 @@ handler (XorgEvent KeyEvent {..}) = do
 handler (XorgEvent CrossingEvent {..}) = do
   rootT <- get @(Fix Tiler)
   -- Make certain that the focused window is the one we're hovering over
-  setFocus ev_window
   let (newRoot, status) = cata (focusWindow ev_window) rootT
   -- If status is anything but Both, it means that something super
   -- weird is going on and the newRoot is probably bad.
   -- Usually this happens if the crossed window isn't in our tree and causes
   -- the InputController to disappear.
-  when (status == Both) $ do
+  if status == Both then do
     realWin <- getChild ev_window
+    printMe $ "RealWin: " ++ show realWin ++ "\n\n"
     traverse_ setFocus realWin
     put @(Fix Tiler) $ fromMaybe (error "No root!") newRoot
+  else setFocus ev_window
   return []
 
 -- Called when a mouse button is pressed
 handler (XorgEvent ButtonEvent {..}) = do
   -- Just focus the clicked window. The same as above
   rootT <- get @(Fix Tiler)
-  setFocus ev_window
   let (newRoot, status) = cata (focusWindow ev_window) rootT
-  when (status == Both) $ do
+  if status == Both then do
     realWin <- getChild ev_window
+    printMe $ "RealWin: " ++ show realWin ++ "\n\n"
     traverse_ setFocus realWin
     put @(Fix Tiler) $ fromMaybe (error "No root!") newRoot
+  else setFocus ev_window
   return []
 
 --While in a resize mode, the pointer moved.
@@ -326,7 +328,6 @@ handler KillActive = do
            shouldKill <- kill True ww
            return $ fmap (,ww') shouldKill
          Nothing -> return Nothing
-  printMe $ "\n\n--------------------\n\n" ++ show l ++ "\n\n"
   case l of
     Nothing -> return ()
     Just (killed, w') ->
@@ -346,7 +347,7 @@ manage :: Members [AttributeWriter, GlobalX] r => Window -> Sem r (Fix Tiler)
 manage w = do
   -- selectFlags w (structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
   newWin <- newWindow w
-  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. buttonPressMask .|. buttonReleaseMask)
+  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask )-- .|. buttonPressMask .|. buttonReleaseMask)
   return . Fix $ Wrap $ ChildParent newWin w
 
 -- Find a window with a class name
@@ -458,10 +459,10 @@ xFocus
 xFocus = do
   root <- get @(Fix Tiler)
   let w = extract $ ana @(Beam _) makeList root
-  traverse_ restore w
-  traverse_ setFocus w
+  traverse_ (restore . fst) w
+  traverse_ (setFocus . snd) w
  where
-  makeList (Fix (Wrap (ChildParent w _)))              = EndF $ Just w
+  makeList (Fix (Wrap (ChildParent w w')))              = EndF $ Just (w, w')
   makeList (Fix (InputController (Just t))) = ContinueF t
   makeList (Fix (InputController Nothing)) = EndF Nothing
   makeList (Fix t) = ContinueF (getFocused t)

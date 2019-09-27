@@ -284,7 +284,7 @@ runGlobalX = interpret $ \case
     xwin <- embed $ createSimpleWindow d rootWin
       0 0 400 200 0
       (blackPixel d defScr)
-      (whitePixel d defScr)
+      (blackPixel d defScr)
     embed $ reparentWindow d w xwin 0 0
     return xwin
 
@@ -301,7 +301,12 @@ runGlobalX = interpret $ \case
       else ungrabKey d k anyModifier win
   GetXEvent ->
     ask >>= \d -> embed @IO $
-      untilM isConfNot $ allocaXEvent \p -> nextEvent d p >> getEvent p
+      untilM isConfNot $ do
+        allocaXEvent $ \p -> do
+          nextEvent d p
+          ep <- getEvent p 
+          print ep
+          return ep
       -- allocaXEvent \p -> nextEvent d p >> getEvent p
    where isConfNot ConfigureEvent {} = False
          isConfNot _ = True
