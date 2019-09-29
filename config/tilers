@@ -1,2 +1,2 @@
 let Degrees = ./degrees
-in < Horizontal : {} | Hovering : {} | Rotate : {} | FullScreen : {} > 
+in < Horizontal | Hovering | Rotate | FullScreen > 
