@@ -35,6 +35,7 @@ import           Graphics.X11.Xlib.Font
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
 import           Foreign.Storable
+import           System.Exit
 import qualified Data.Set                      as S
 import           System.Process
 import           Types
@@ -119,6 +120,7 @@ data GlobalX m a where
    Kill ::Bool -> Window -> GlobalX m (Maybe Window)
    GetScreens ::GlobalX m [Rect]
    GetPointer ::GlobalX m (Int32, Int32)
+   Exit ::GlobalX m Void
 makeSem ''GlobalX
 
 data Colorer m a where
@@ -345,6 +347,8 @@ runGlobalX = interpret $ \case
      where isConfNot root ConfigureEvent {ev_window=win} = win == root
            isConfNot _ _ = True
   PrintMe s -> embed @IO $ putStrLn $ pack s
+  -- add back in the putStrLn to debug. TODO totally rethink effects
+  PrintMe s -> embed @IO $ return () --putStrLn $ pack s
   Kill isSoft w -> ask >>= \d -> embed @IO $ do
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
     protocols <- internAtom d "WM_PROTOCOLS" True
@@ -364,6 +368,7 @@ runGlobalX = interpret $ \case
     root <- ask @Window
     (_, _, _, x, y, _, _, _) <- embed $ queryPointer d root
     return (fromIntegral x, fromIntegral y)
+  Exit -> embed exitSuccess
 
 runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a
 runColorer = interpret $ \case

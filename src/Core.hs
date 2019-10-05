@@ -360,7 +360,10 @@ handler (ChangeNamed s) = do
   return []
  where
   changer t@(Horiz fl) = case readMay s of
-    Just i  -> Horiz $ focusVIndex (i - 1) fl
+    Just i  -> Horiz $ 
+      if flLength fl >= i
+         then focusVIndex (i - 1) fl
+         else fl
     Nothing -> t
   changer t = t
 
@@ -398,6 +401,7 @@ handler PushTiler = do
     [] -> return ()
   return []
 
+-- Insert a tiler right after the input controller
 handler (Insert t) = do
   pointer <- getPointer
   screens <- getScreens
@@ -411,6 +415,7 @@ handler (Insert t) = do
               FullScreen -> FocusFull $ Fix w
               Hovering -> Floating $ NE (Bottom $ Fix w) []
 
+-- Perform some special action based on the focused tiler
 handler MakeSpecial = do
   pointer <- getPointer
   screens <- getScreens
@@ -447,6 +452,8 @@ handler KillActive = do
       makeList (Fix (Monitor _ (Just t))) = ContinueF t
       makeList (Fix (Monitor _ Nothing)) = EndF Nothing
       makeList (Fix t) = ContinueF (getFocused t)
+
+handler ExitNow = absurd <$> exit
 
 -- Random stuff --
 

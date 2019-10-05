@@ -75,7 +75,7 @@ placeWindow _ _ _ (Transformer i o (Plane r depth)) (FocusFull (Fix t)) =
   case t of
     InputController i' realt -> FocusFull (Transformer i o (Plane r $ depth + 1), Fix $ InputController i' realt)
     Monitor i' realt -> FocusFull (Transformer i o (Plane r $ depth + 1), Fix $ Monitor i' realt)
-    _ -> modFocused (first $ const (Transformer i o . Plane r $ depth + 1)) $ fmap (Transformer i o . Plane (Rect 0 0 0 0) $ depth + 1,) t
+    _ -> modFocused (first $ const (Transformer i o . Plane r $ depth + 2)) $ fmap (Transformer i o . Plane (Rect 0 0 0 0) $ depth + 1,) t
 
 -- | Place tilers along an axis
 placeWindow _ _ _ (Transformer input o p) (Horiz fl) =

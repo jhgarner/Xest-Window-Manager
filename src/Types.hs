@@ -132,6 +132,7 @@ data Action
   | PushTiler
   | MakeSpecial
   | KillActive
+  | ExitNow
   | KeyboardEvent KeyTrigger Bool -- TODO use something other than Bool for keyPressed
   | XorgEvent Event
   deriving Show

@@ -23,6 +23,8 @@ module Standard
     , ifM
     , allInList
     , anyInList
+    , Void
+    , absurd
     ) where
 
 import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
@@ -102,3 +104,8 @@ allInList ls l = all ($ l) ls
 
 anyInList :: (MonoFoldable f, Element f ~ (a -> Bool)) => f -> a -> Bool
 anyInList ls l = all ($ l) ls
+-- Thanks void package on Hackage
+newtype Void = Void Void
+absurd :: Void -> a
+absurd a = a `seq` spin a where
+   spin (Void b) = spin b
