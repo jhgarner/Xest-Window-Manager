@@ -19,7 +19,6 @@ import           Graphics.X11.Xlib.Display
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
-import           Graphics.X11.Xlib.Screen
 import           Graphics.X11.Xlib.Atom
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
@@ -31,6 +30,7 @@ import           Types
 import           Base
 import           Tiler
 import           Data.Char                      ( ord, chr )
+import qualified System.Environment as Env
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
@@ -47,7 +47,8 @@ startWM = do
   display <- openDisplay $ ":" ++ unpack displayNumber
 
   -- Read the config file
-  c <- readConfig display "/home/jack/.config/xest/config.conf"
+  homeDir <- Env.getEnv "HOME"
+  c <- readConfig display . pack $ homeDir ++ "/.config/xest/config.conf"
 
   -- X orders windows like a tree
   let root = defaultRootWindow display

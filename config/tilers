@@ -1,2 +1,1 @@
-let Degrees = ./degrees
-in < Horizontal | Hovering | Rotate | FullScreen > 
+< Horizontal | Hovering | Rotate | FullScreen > 
