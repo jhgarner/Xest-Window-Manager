@@ -52,11 +52,10 @@ startWM = do
   -- X orders windows like a tree
   let root = defaultRootWindow display
 
+
   -- Perform various pure actions for getting state
   let screen      = defaultScreenOfDisplay display
       initialMode = fromMaybe (error "No modes") . headMay $ definedModes c
-      dims        = (widthOfScreen screen, heightOfScreen screen)
-      rootTiler   = InputController Nothing
 
   -- Create our border windows which will follow the InputController
   [lWin, dWin, uWin, rWin] <- replicateM 4 $
@@ -78,6 +77,7 @@ startWM = do
   selectInput display root
     $   substructureNotifyMask
     .|. substructureRedirectMask
+    .|. structureNotifyMask
     .|. leaveWindowMask
     .|. enterWindowMask
     .|. buttonPressMask
@@ -87,18 +87,19 @@ startWM = do
   -- allowEvents display (replayPointer .|. replayKeyboard .|. asyncBoth) currentTime
   -- xSetErrorHandler
   -- Grabs the initial keybindings
-  _ <-
+  screens <-
     runM
     $ runReader c
     $ runReader display
     $ runReader root
     $ runGlobalX
-    $ rebindKeys initialMode
+    $ rebindKeys initialMode  >> getScreens
+  let Just (Fix rootTiler)   = foldl' (\acc (i, _) -> Just . Fix . Monitor i . Just . Fix . InputController i $ acc) Nothing $ zip [0..] screens
 
   setDefaultErrorHandler
 
   -- Execute the main loop. Will never return unless Xest exits
-  doAll rootTiler c initialMode dims display root (lWin, dWin, uWin, rWin) (chain mainLoop [])
+  doAll rootTiler c initialMode display root (lWin, dWin, uWin, rWin) (chain mainLoop [])
     >> say "Exiting"
 
     -- Chain takes a function and calls it over and over tying it into itself
@@ -108,10 +109,14 @@ startWM = do
 mainLoop :: Actions -> DoAll r
 -- When there are no actions to perform, render the windows and find new actions to do
 mainLoop [] = do
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
   -- modify $ cata $ Fix . reduce
   get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
+  screens <- getScreens
+  printMe $ "Got screens" ++ show screens ++ "\n\n"
   whenM (not <$> checkXEvent) $ do
-    printMe "Drawing\n\n"
     -- tell X to focus whatever we're focusing
     xFocus
 
@@ -127,7 +132,7 @@ mainLoop [] = do
     -- Do some EWMH stuff
     setClientList
     writeActiveWindow
-    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
+    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput i (fmap (getDesktopState . unfix))
   -- waiting <- checkXEvent
   l <- pure . XorgEvent <$> getXEvent
   tree <- getTree
@@ -239,6 +244,8 @@ writeActiveWindow = do
   tilers <- get
   setProperty32 "_NET_ACTIVE_WINDOW" "WINDOW" root [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
     where makeList (Fix (Wrap (ChildParent _ w))) = EndF . Just $ fromIntegral w
-          makeList (Fix (InputController (Just t))) = ContinueF t
-          makeList (Fix (InputController Nothing)) = EndF Nothing
+          makeList (Fix (InputController _ (Just t))) = ContinueF t
+          makeList (Fix (InputController _ Nothing)) = EndF Nothing
+          makeList (Fix (Monitor _ (Just t))) = ContinueF t
+          makeList (Fix (Monitor _ Nothing)) = EndF Nothing
           makeList (Fix t) = ContinueF (getFocused t)

@@ -85,7 +85,8 @@ data Tiler a
   | Reflect a
   | FocusFull a
   | Wrap ChildParent
-  | InputController (Maybe a)
+  | InputController Int (Maybe a)
+  | Monitor Int (Maybe a)
   deriving (Eq, Show, Functor, Foldable, Traversable)
 instance MonoFoldable (Tiler a)
 deriveShow1 ''Tiler
@@ -125,6 +126,8 @@ data Action
   | HideWindow String
   | ZoomInInput
   | ZoomOutInput
+  | ZoomInMonitor
+  | ZoomOutMonitor
   | PopTiler
   | PushTiler
   | MakeSpecial
@@ -166,6 +169,53 @@ type Borders = (SDL.Window, SDL.Window, SDL.Window, SDL.Window)
 data MouseButtons = LeftButton (Int, Int) | RightButton (Int, Int) | None
   deriving Show
 
-data ControllerOrWin = Neither | Controller | Win | Both
-  deriving (Eq, Show)
+-- TODO should this all be here
+type Reparenter = Maybe (Tiler (Fix Tiler)) -> Maybe (Fix Tiler)
+type Unparented = Maybe (Fix Tiler)
+data TreeCombo = Neither | Unmovable | Movable (Reparenter, Unparented) | Both
+
+getMovable :: TreeCombo -> Maybe (Reparenter, Unparented)
+getMovable (Movable m) = Just m
+getMovable _ = Nothing
+
+isUnmovable :: TreeCombo -> Bool
+isUnmovable Unmovable = True
+isUnmovable _ = False
+
+isBoth :: TreeCombo -> Bool
+isBoth Both = True
+isBoth _ = False
+
+instance Semigroup TreeCombo where
+  Neither <> a = a
+  a <> Neither = a
+  Both <> _ = Both
+  _ <> Both = Both
+  _ <> _ = Both
+  
+instance Monoid TreeCombo where
+  mempty = Neither
+instance Show TreeCombo where
+  show Both = "Both"
+  show Neither = "Neither"
+  show Unmovable = "Unmovable"
+  show (Movable _) = "Movable"
+-- data TreeCombo = TreeCombo { hasMovable :: Bool
+--                            , hasMonitor :: Bool
+--                            , hasWin :: Bool
+--                            }
+--   deriving (Eq, Show)
+
+-- withController :: TreeCombo
+-- withController = TreeCombo True False False
+-- withMonitor :: TreeCombo
+-- withMonitor = TreeCombo False True False
+-- withWin :: TreeCombo
+-- withWin = TreeCombo False False True
+
+-- instance Semigroup TreeCombo where
+--   TreeCombo a b c <> TreeCombo a2 b2 c2 = TreeCombo (a&&a2) (b&&b2) (c&&c2)
+
+-- instance Monoid TreeCombo where
+--   mempty = TreeCombo False False False
 

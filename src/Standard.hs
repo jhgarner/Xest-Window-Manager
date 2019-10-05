@@ -21,6 +21,8 @@ module Standard
     , journey
     , pattern (:<~)
     , ifM
+    , allInList
+    , anyInList
     ) where
 
 import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
@@ -94,3 +96,9 @@ ifM :: Monad m => m Bool -> m a -> m a -> m a
 ifM condM thenM elseM = do
   cond <- condM
   if cond then thenM else elseM
+
+allInList :: (MonoFoldable f, Element f ~ (a -> Bool)) => f -> a -> Bool
+allInList ls l = all ($ l) ls
+
+anyInList :: (MonoFoldable f, Element f ~ (a -> Bool)) => f -> a -> Bool
+anyInList ls l = all ($ l) ls

@@ -60,6 +60,9 @@ handler (XorgEvent MapRequestEvent {..}) = do
   -- Before we do anything else, let's see if we already manage this window.
   -- I don't know why, but things like Inkscape map windows multiple times.
   tree <- get @(Fix Tiler)
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
   unless (cata (findWindow ev_window) tree) $ do
     -- managing a window allows us to do any number of things to it
     -- Currently we wrap it in a new type and ask for crossing events
@@ -69,7 +72,7 @@ handler (XorgEvent MapRequestEvent {..}) = do
     -- restore ev_window
     -- This adds the new window to whatever tiler comes after inputController
     -- If you've zoomed the inputController in, you get nesting as a result
-    modify . cata . applyInput $ pushOrAdd tWin
+    modify . cata . applyInput i $ pushOrAdd tWin
   return []
   where findWindow w (Wrap w') = inChildParent w w'
         findWindow _ t = or t
@@ -104,6 +107,28 @@ handler (XorgEvent cre@ConfigureRequestEvent{}) = do
   configureWin cre
   return []
 
+handler (XorgEvent ConfigureEvent{}) = do
+  root <- get @(Fix Tiler)
+  screens <- getScreens
+  let len = length screens
+  put @(Fix Tiler) $ fromMaybe (error "Uh oh. Where'd the root go?") $ cata (removeMonitor len) root
+  put @(Fix Tiler) $ fromMaybe (error "Uh oh. Where'd the root go?") $ cata (removeIC len) root
+  if cata (findMonitor (len - 1)) root
+     then return ()
+     else  put @(Tiler (Fix Tiler)) . Monitor (len - 1) . Just . Fix . InputController (len - 1) $ Just root
+  return []
+    where removeMonitor i (Monitor i' t)
+            | i == i' = join t
+            | otherwise = Just . Fix . Monitor i' $ join t
+          removeMonitor _ t = Fix <$> reduce t
+          removeIC i (InputController i' t)
+            | i == i' = join t
+            | otherwise = Just . Fix . InputController i' $ join t
+          removeIC _ t = Fix <$> reduce t
+
+          findMonitor i (Monitor i' rest) = i == i' || fromMaybe False rest
+          findMonitor _ t = or t
+
 -- Called when a watched key is pressed or released
 handler (XorgEvent KeyEvent {..}) = do
   -- Watched keys are stored in bindings
@@ -117,52 +142,59 @@ handler (XorgEvent KeyEvent {..}) = do
 -- Called when the cursor moves between windows
 handler (XorgEvent CrossingEvent {..}) = do
   rootT <- get @(Fix Tiler)
+  screens <- getScreens
   -- Make certain that the focused window is the one we're hovering over
-  let (newRoot, status) = cata (focusWindow ev_window) rootT
+  let mNewRoot = 
+        focusWindow (fst . whichScreen (fromIntegral ev_x_root, fromIntegral ev_y_root) $ zip [0..] screens) ev_window rootT
   -- If status is anything but Both, it means that something super
   -- weird is going on and the newRoot is probably bad.
   -- Usually this happens if the crossed window isn't in our tree and causes
   -- the InputController to disappear.
-  if status == Both then do
-    realWin <- getChild ev_window
-    printMe $ "RealWin: " ++ show realWin ++ "\n\n"
-    traverse_ setFocus realWin
-    put @(Fix Tiler) $ fromMaybe (error "No root!") newRoot
-  else setFocus ev_window
+  case mNewRoot of
+    Just newRoot -> do
+      realWin <- getChild ev_window
+      traverse_ setFocus realWin
+      put @(Fix Tiler) newRoot
+    Nothing -> setFocus ev_window
   return []
 
 -- Called when a mouse button is pressed
 handler (XorgEvent ButtonEvent {..}) = do
-  -- Just focus the clicked window. The same as above
   rootT <- get @(Fix Tiler)
-  let (newRoot, status) = cata (focusWindow ev_window) rootT
-  if status == Both then do
-    realWin <- getChild ev_window
-    printMe $ "RealWin: " ++ show realWin ++ "\n\n"
-    traverse_ setFocus realWin
-    put @(Fix Tiler) $ fromMaybe (error "No root!") newRoot
-  else setFocus ev_window
+  screens <- getScreens
+  -- Make certain that the focused window is the one we're hovering over
+  let mNewRoot = 
+        focusWindow (fst . whichScreen (fromIntegral ev_x_root, fromIntegral ev_y_root) $ zip [0..] screens) ev_window rootT
+  case mNewRoot of
+    Just newRoot -> do
+      realWin <- getChild ev_window
+      traverse_ setFocus realWin
+      put @(Fix Tiler) newRoot
+    Nothing -> setFocus ev_window
   return []
 
 --While in a resize mode, the pointer moved.
 handler (XorgEvent MotionEvent {..}) = do
-  (width, height) <- ask
+  screens <- getScreens
+  pointer <- getPointer
+  let Identity (Rect _ _ width height) = whichScreen pointer $ fmap Identity screens
   mb <- get @MouseButtons
   root <- ask @Window
   mode <- gets @Mode hasBorders
+  let i' = fst . whichScreen pointer $ zip [0..] screens
 
   -- Get the locations of every window
-  sized::Cofree Tiler (Transformer Plane) <- topDown (placeWindow mode) (Transformer id id $ Plane (Rect 0 0 width height) 0) <$> get
+  sized::Cofree Tiler (Transformer Plane) <- topDown (placeWindow mode i' screens) (Transformer id id $ Plane (Rect 0 0 width height) 0) <$> get
 
   -- Find the one that comes right after the input controller
-  case journey $ ana @(Path _ _) getInput sized of
+  case journey $ ana @(Path _ _) (getInput i') sized of
     (rotations, Just (Transformer i o (Plane {rect = size}))) -> do
       let rotation :: Bool = foldr ($) False rotations
 
       -- Change Move the tiler based on the mouse movement
       modify $ case mb of
-        LeftButton (ox, oy) -> cata (applyInput (fmap $ changeSize (adjustedMouse rotation ox oy) size (LeftButton (0, 0))))
-        RightButton (ox, oy) -> cata (applyInput (fmap $ changeSize (adjustedMouse rotation ox oy) size (RightButton (0, 0))))
+        LeftButton (ox, oy) -> cata (applyInput i' (fmap $ changeSize (adjustedMouse rotation ox oy) size (LeftButton (0, 0))))
+        RightButton (ox, oy) -> cata (applyInput i' (fmap $ changeSize (adjustedMouse rotation ox oy) size (RightButton (0, 0))))
         _ -> id
     _ -> return ()
 
@@ -172,10 +204,14 @@ handler (XorgEvent MotionEvent {..}) = do
   -- We know what button is pressed, now we need to update the location
   updateMouseLoc (fromIntegral ev_x, fromIntegral ev_y)
   return []
- where getInput :: Cofree Tiler (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree Tiler (Transformer Plane))
-       getInput (_ :< InputController a) = FinishF $ fmap extract a
-       getInput (_ :< Reflect a) = BreakF not a
-       getInput (_ :< b) = RoadF $ getFocused b
+ where getInput :: Int -> Cofree Tiler (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree Tiler (Transformer Plane))
+       getInput i (_ :< InputController i' a)
+         | i == i' = FinishF $ fmap extract a
+         | otherwise = maybe (FinishF Nothing) RoadF a
+       getInput _ (_ :< Monitor _ (Just a)) = RoadF a
+       getInput _ (_ :< Monitor _ Nothing) = FinishF Nothing
+       getInput _ (_ :< Reflect a) = BreakF not a
+       getInput _ (_ :< b) = RoadF $ getFocused b
        adjustedMouse False ox oy = (fromIntegral ev_x - ox, fromIntegral ev_y - oy)
        adjustedMouse True ox oy = (fromIntegral ev_y - oy, fromIntegral ev_x - ox)
 
@@ -212,37 +248,98 @@ handler (HideWindow wName) = do
 -- Zoom the inputController towards the focused window
 handler ZoomInInput = do
   root <- get @(Fix Tiler)
-  put $ cata reorder root
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
+  put $ cata (reorder i) root
   return []
  where
   -- Since a Wrap doesn't hold anything, we'll lose the InputController
   -- if we zoom in.
-  reorder t@(InputController (Just (Fix (Wrap _)))) = Fix t
+  reorder _ t@(InputController _ (Just (Fix (Wrap _)))) = Fix t
   -- Same fo undefined
-  reorder t@(InputController Nothing) = Fix t
+  reorder _ t@(InputController _ Nothing) = Fix t
   -- Now we can safely zoom in
-  reorder (InputController (Just (Fix t))) =
-    Fix $ modFocused (Fix . InputController . Just) t
+  reorder i ic@(InputController i' (Just (Fix t)))
+    | i == i' = Fix $ modFocused (Fix . InputController i' . Just) t
+    | otherwise = Fix ic
 
-  reorder t = Fix t
+  reorder _ t = Fix t
+
+handler ZoomInMonitor = do
+  root <- get @(Fix Tiler)
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
+  put @(Fix Tiler) $ cata (reorder i) root
+  return []
+ where
+  reorder i m@(Monitor i' (Just (Fix (InputController i'' t))))
+    | i'' == i = Fix m
+    | i == i' = Fix . InputController i'' . Just . Fix $ Monitor i' t
+  reorder _ t@(Monitor _ Nothing) = Fix t
+  reorder i m@(Monitor i' (Just (Fix t)))
+    | i == i' = Fix $ modFocused (Fix . Monitor i' . Just) t
+    | otherwise = Fix m
+
+  reorder _ t = Fix t
 
 -- Move the input controller towards the root
 handler ZoomOutInput = do
   root <- get
   -- Don't zoom the controller out of existence
-  unless (isController root) $ put $ fromMaybe (error "e") $ para reorder root
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
+  unless (isJust $ isController i root) $ put $ fromMaybe (error "e") $ para (reorder i) root
   return []
  where
   -- The input disappears and will hopefully be added back later
-  reorder :: Tiler (Fix Tiler, Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
-  reorder (InputController t) = t >>= snd
+  reorder :: Int -> Tiler (Fix Tiler, Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
+  reorder i ic@(InputController i' t)
+    | i == i' = t >>= snd
+    | otherwise =
+      case t >>= isController i . fst of
+        Just controller -> Just . Fix . controller . Just . Fix . InputController i' $ t >>= snd
+        Nothing -> Just . Fix . InputController i' $ t >>= snd
+  -- The controller should always be in front of the screen
+  reorder i m@(Monitor i' (Just (Fix (InputController i'' _), t)))
+    | i'' == i' && i' == i = Just . Fix $ InputController i'' t
+    | i == i'' = Just . Fix . InputController i'' . Just . Fix $ Monitor i' t
+    | otherwise = fmap Fix . reduce $ fmap snd m
+  -- reorder _ (Monitor i' (Just t)) = Just . Fix $ Monitor i' $ snd t
   -- If the tiler held the controller, add back the controller around it
-  reorder t                        = fmap Fix $ if any (isController . fst) t
-    then Just . InputController . fmap Fix . reduce $ fmap snd t
-    else reduce $ fmap snd t
+  reorder i t = fmap Fix $ 
+    case asum $ isController i . fst <$> t of
+      Just controller -> Just . controller . fmap Fix . reduce $ fmap snd t
+      Nothing -> reduce $ fmap snd t
 
-  isController (Fix (InputController _)) = True
-  isController _                         = False
+  isController i (Fix (InputController i' _)) = if i == i' then Just $ InputController i' else Nothing
+  isController i (Fix (Monitor i' (Just (Fix (InputController i'' _)))))
+    | i == i' && i' == i'' = Just $ Monitor i'
+    | otherwise = Nothing
+  isController _ _                         = Nothing
+
+handler ZoomOutMonitor = do
+  root <- get @(Fix Tiler)
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
+  unless (isMonitor i root) $ put $ fromMaybe (error "e") $ para (reorder i) root
+  return []
+ where
+  reorder :: Int -> Tiler (Fix Tiler, Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
+  reorder i (Monitor i' t) = 
+    if i == i'
+       then t >>= snd
+       else Just . Fix . Monitor i' $ t >>= snd
+  reorder i t =
+    if any (isMonitor i . fst) t
+       then Just . Fix . Monitor i . fmap Fix . reduce $ fmap snd t
+       else fmap Fix . reduce $ fmap snd t
+
+  isMonitor i (Fix (Monitor i' _)) = i == i'
+  isMonitor _ _ = False
 
 -- Change the current mode to something else
 handler (ChangeModeTo newM) = do
@@ -253,15 +350,12 @@ handler (ChangeModeTo newM) = do
   --Combine the two lists of actions to be executed. Execute exit actions first.
   return $ eActions ++ introActions newM
 
--- Change the layout of whatever comes after the input controller to something else
--- handler (ChangeLayoutTo (Fix insertable)) =
---   modify $ cata (applyInput (changeLayout newT))
---   return []
---     where changeLayout (Left Rotate) = Reflect
-
 -- Change the focus to some named action
 handler (ChangeNamed s) = do
-  modify $ cata (applyInput $ fmap changer)
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
+  modify $ cata (applyInput i $ fmap changer)
   -- xFocus
   return []
  where
@@ -272,8 +366,10 @@ handler (ChangeNamed s) = do
 
 -- Change focus in a given direction
 handler (Move newD) = do
-  modify $ cata (applyInput . fmap $ changer newD)
-  -- xFocus
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
+  modify $ cata (applyInput i . fmap $ changer newD)
   return []
  where
   changer dir (Horiz fl) = Horiz $ focusDir dir fl
@@ -282,24 +378,31 @@ handler (Move newD) = do
 -- Move a tiler from the tree into a stack
 handler PopTiler = do
   root <- get
-  sequence_ $ onInput (fmap (modify @[Fix Tiler] . (:))) root
-  modify $ cata (applyInput $ const Nothing)
-  return [ZoomOutInput]
-    -- where popIt :: Fix Tiler -> Sem '[State [Fix Tiler]] ()
-    --       popIt = 
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
+  sequence_ $ (onInput i) (fmap (modify @[Fix Tiler] . (:))) root
+  modify $ cata (applyInput i $ const Nothing)
+  return []
 
 -- Move a tiler from the stack into the tree
 handler PushTiler = do
   popped <- get @[Fix Tiler]
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
   case popped of
     (t:ts) -> do
       put ts
-      modify $ cata (applyInput $ pushOrAdd t)
+      modify $ cata (applyInput i $ pushOrAdd t)
     [] -> return ()
   return []
 
 handler (Insert t) = do
-  modify @(Fix Tiler) . cata $ applyInput (fmap toTiler)
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
+  modify @(Fix Tiler) . cata $ applyInput i (fmap toTiler)
   return []
     where toTiler w =
             case t of
@@ -309,7 +412,10 @@ handler (Insert t) = do
               Hovering -> Floating $ NE (Bottom $ Fix w) []
 
 handler MakeSpecial = do
-  modify @(Fix Tiler) . cata $ applyInput (fmap makeSpecial)
+  pointer <- getPointer
+  screens <- getScreens
+  let i = fst . whichScreen pointer $ zip [0..] screens
+  modify @(Fix Tiler) . cata $ applyInput i (fmap makeSpecial)
   return []
     where makeSpecial t =
             case t of
@@ -336,8 +442,10 @@ handler KillActive = do
   return []
     where 
       makeList (Fix (Wrap (ChildParent w w')))              = EndF $ Just (w, w')
-      makeList (Fix (InputController (Just t))) = ContinueF t
-      makeList (Fix (InputController Nothing)) = EndF Nothing
+      makeList (Fix (InputController _ (Just t))) = ContinueF t
+      makeList (Fix (InputController _ Nothing)) = EndF Nothing
+      makeList (Fix (Monitor _ (Just t))) = ContinueF t
+      makeList (Fix (Monitor _ Nothing)) = EndF Nothing
       makeList (Fix t) = ContinueF (getFocused t)
 
 -- Random stuff --
@@ -362,74 +470,80 @@ getWindowByClass wName = do
 
 -- Moves windows around
 type RenderEffect r =
-     ( Members (Readers [(Dimension, Dimension), Borders]) r
+     ( Member (Reader Borders) r
      , Members (States [Fix Tiler, Mode]) r
-     , Members [WindowMover, WindowMinimizer, Colorer] r
+     , Members [WindowMover, WindowMinimizer, Colorer, GlobalX] r
      )
 render
   :: (RenderEffect r, Member (State [Fix Tiler]) r)
   => Fix Tiler
   -> Sem r [Window]
 render t = do
-  (width, height) <- ask
+  screens <- getScreens
   mode <- gets @Mode hasBorders
-  let locations = topDown (placeWindow mode) (Transformer id id $ Plane (Rect 0 0 width height) 0) t
+  pointer <- getPointer
+  let i' = fst . whichScreen pointer $ zip [0..] screens
+  let locations = topDown (placeWindow mode i' screens) (Transformer id id $ Plane (Rect 0 0 0 0) 0) t
   -- Draw the tiler we've been given
-  let (winOrder, io) = cata draw $ fmap unTransform locations
+  let (winOrder, io) = cata (draw i') $ fmap unTransform locations
   io
   -- Hide all of the popped tilers
   get @[Fix Tiler]
-    >>= traverse_ (snd . cata draw . fmap unTransform . topDown (placeWindow mode) (Transformer id id $ Plane (Rect 0 0 0 0) 0))
+    >>= traverse_ (snd . cata (draw i') . fmap unTransform . topDown (placeWindow mode i' $ repeat $ Rect 0 0 0 0) (Transformer id id $ Plane (Rect 0 0 0 0) 0))
   return winOrder
- where draw :: RenderEffect r => Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
-       draw (Plane (Rect _ _ 0 0) _ :<~ Wrap (ChildParent win _)) = ([], minimize win)
-       draw (Plane Rect {..} _ :<~ Wrap (ChildParent win win')) = ([win], do
+ where draw :: RenderEffect r => Int -> Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
+       draw _ (Plane (Rect _ _ 0 0) _ :<~ Wrap (ChildParent win _)) = ([], minimize win)
+       draw _ (Plane Rect {..} _ :<~ Wrap (ChildParent win win')) = ([win], do
            restore win
            restore win'
            changeLocation win $ Rect x y (abs w) (abs h)
            changeLocation win' $ Rect 0 0 (abs w) (abs h))
-       draw (Plane Rect{..} depth :<~ InputController t) = (maybe [] fst t, do
-          mapM_ snd t
-          -- Extract the border windows
-          (l, u, r, d) <- ask @Borders
-          let winList = [l, u, r, d]
+       draw i' (Plane Rect{..} depth :<~ InputController i t)
+         | i == i' = 
+           (maybe [] fst t, do
+              mapM_ snd t
+              -- Extract the border windows
+              (l, u, r, d) <- ask @Borders
+              let winList = [l, u, r, d]
 
-          -- Calculate the color for our depth
-          let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
-          -- color <- getColor $ "TekHVC:"++show hue++"/50/95"
+              -- Calculate the color for our depth
+              let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
+              -- color <- getColor $ "TekHVC:"++show hue++"/50/95"
 
-          currentMode <- get
-          if hasBorders currentMode
-             then do
-                -- Draw them with the right color and position
-                changeLocationS l $ Rect x y 2 h
-                changeLocationS u $ Rect x y w 10
-                changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
-                changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
+              currentMode <- get
+              if hasBorders currentMode
+                then do
+                    -- Draw them with the right color and position
+                    changeLocationS l $ Rect x y 2 h
+                    changeLocationS u $ Rect (x + 2) y (w-2) 10
+                    changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
+                    changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
 
-                -- Convince our windows to be redrawn with the right color and position
-                -- traverse_ (`changeLocationS` Rect 0 0 1 1) winList
-                traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
-                get @(Fix Tiler) >>= drawText u . cata getFocusList
-             else do
-                changeLocationS l $ Rect 10000 0 0 0
-                changeLocationS u $ Rect 10000 0 0 0
-                changeLocationS d $ Rect 10000 0 0 0
-                changeLocationS r $ Rect 10000 0 0 0
-                traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
-                get @(Fix Tiler) >>= drawText u . cata getFocusList
-                
-          traverse_ bufferSwap winList)
+                    -- Convince our windows to be redrawn with the right color and position
+                    -- traverse_ (`changeLocationS` Rect 0 0 1 1) winList
+                    traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
+                    get @(Fix Tiler) >>= drawText u . cata getFocusList
+                else do
+                    changeLocationS l $ Rect 10000 0 0 0
+                    changeLocationS u $ Rect 10000 0 0 0
+                    changeLocationS d $ Rect 10000 0 0 0
+                    changeLocationS r $ Rect 10000 0 0 0
+                    traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
+                    get @(Fix Tiler) >>= drawText u . cata getFocusList
+                    
+              traverse_ bufferSwap winList
+           )
+         | otherwise = (maybe [] fst t, mapM_ snd t)
 
-       draw (_ :<~ Floating ls) = 
-         (tops ++ bottoms, mapM_ (snd . getEither) ls)
-             where tops = foldl' onlyTops [] ls
-                   onlyTops acc (Top (_, (ws, _))) = ws ++ acc
-                   onlyTops acc _ = acc
-                   bottoms = foldl' onlyBottoms [] ls
-                   onlyBottoms acc (Bottom (ws, _)) = acc ++ ws
-                   onlyBottoms acc _ = acc
-       draw (_ :<~ t) = (concatMap fst t, mapM_ snd t)
+       draw _ (_ :<~ Floating ls) = 
+          (tops ++ bottoms, mapM_ (snd . getEither) ls)
+              where tops = foldl' onlyTops [] ls
+                    onlyTops acc (Top (_, (ws, _))) = ws ++ acc
+                    onlyTops acc _ = acc
+                    bottoms = foldl' onlyBottoms [] ls
+                    onlyBottoms acc (Bottom (ws, _)) = acc ++ ws
+                    onlyBottoms acc _ = acc
+       draw _ (_ :<~ t) = (concatMap fst t, mapM_ snd t)
        hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)
        hsvToRgb h s v = let c = v * s
                             x = c * (1 - abs ((h / 60) `mod'` 2 - 1))
@@ -463,8 +577,11 @@ xFocus = do
   traverse_ (setFocus . snd) w
  where
   makeList (Fix (Wrap (ChildParent w w')))              = EndF $ Just (w, w')
-  makeList (Fix (InputController (Just t))) = ContinueF t
-  makeList (Fix (InputController Nothing)) = EndF Nothing
+  -- TODO there's a lot of code duplication here between InputController and Monitor
+  makeList (Fix (InputController _ (Just t))) = ContinueF t
+  makeList (Fix (InputController _ Nothing)) = EndF Nothing
+  makeList (Fix (Monitor _ (Just t))) = ContinueF t
+  makeList (Fix (Monitor _ Nothing)) = EndF Nothing
   makeList (Fix t) = ContinueF (getFocused t)
 
 updateMouseLoc :: Member (State MouseButtons) r => (Int, Int) -> Sem r ()
@@ -518,7 +635,9 @@ changeSize (dx, dy) Rect{..} m = \case
 
 pushOrAdd :: Fix Tiler -> Maybe (Tiler (Fix Tiler)) -> Maybe (Tiler (Fix Tiler))
 pushOrAdd tWin = Just . fromMaybe (unfix tWin) . fmap (\case
-  Wrap w -> Horiz $ makeFL (NE (Sized 0 tWin) [Sized 0 . Fix $ Wrap w]) 0
-  Reflect w -> Horiz $ makeFL (NE (Sized 0 tWin) [Sized 0 . Fix $ Reflect w]) 0
-  FocusFull w -> Horiz $ makeFL (NE (Sized 0 tWin) [Sized 0 . Fix $ FocusFull w]) 0
-  t -> add Front Focused tWin t)
+  Wrap w -> Horiz $ makeFL (NE (Sized 0 . Fix $ Wrap w) [Sized 0 tWin]) 0
+  Reflect w -> Horiz $ makeFL (NE (Sized 0 . Fix $ Reflect w) [Sized 0 tWin]) 0
+  FocusFull w -> Horiz $ makeFL (NE (Sized 0 . Fix $ FocusFull w) [Sized 0 tWin]) 0
+  Monitor i w -> Horiz $ makeFL (NE (Sized 0 . Fix $ Monitor i w) [Sized 0 tWin]) 0
+  InputController i w -> Horiz $ makeFL (NE (Sized 0 . Fix $ InputController i w) [Sized 0 tWin]) 0
+  t -> add Back Focused tWin t)

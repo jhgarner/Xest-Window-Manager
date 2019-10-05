@@ -59,7 +59,9 @@ data Action
   | ShowWindow Text
   | HideWindow Text
   | ZoomInInput
+  | ZoomInMonitor
   | ZoomOutInput
+  | ZoomOutMonitor
   | PopTiler
   | PushTiler
   | MakeSpecial
@@ -74,6 +76,8 @@ actionToType _ (ShowWindow     a) = T.ShowWindow $ unpack a
 actionToType _ (HideWindow     a) = T.HideWindow $ unpack a
 actionToType _ ZoomInInput        = T.ZoomInInput
 actionToType _ ZoomOutInput       = T.ZoomOutInput
+actionToType _ ZoomInMonitor        = T.ZoomInMonitor
+actionToType _ ZoomOutMonitor       = T.ZoomOutMonitor
 actionToType _ PopTiler           = T.PopTiler
 actionToType _ PushTiler          = T.PushTiler
 actionToType _ MakeSpecial           = T.MakeSpecial

@@ -31,7 +31,8 @@ reduce (Horiz fl) = fmap Horiz $ fmap (fmap $ fromMaybe (error "Impossible")) <$
 reduce (Floating ls) = newTiler
   where newTiler = Floating . fmap (fmap $ fromMaybe (error "Impossible")) <$> newFront
         newFront = filterNe (not . null . getEither) ls
-reduce (InputController t) = Just . InputController $ join t
+reduce (InputController i t) = Just . InputController i $ join t
+reduce (Monitor i t) = Just . Monitor i $ join t
 reduce (Reflect t) = fmap Reflect t
 reduce (FocusFull t) = fmap FocusFull t
 reduce (Wrap w) = Just $ Wrap w
@@ -59,25 +60,25 @@ popWindow e t = error $ "Attempted to pop the unpopable" ++ show e ++ " " ++ sho
 getFocused :: Show a => Tiler a -> a
 getFocused = fst . popWindow (Right Focused)
 
--- | Render a given tiler. Operates in a continuous passing style so we can pretend like
--- catamorphisms operate from the root down to the leaves
+-- | Places a tiler somewhere on the screen without actually placing it
 placeWindow
-  :: Bool -> Transformer Plane
+  :: Bool -> Int -> [Rect] -> Transformer Plane
   -> Tiler (Fix Tiler)
   -> Tiler (Transformer Plane, Fix Tiler)
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
-placeWindow _ _ (Wrap win) = Wrap win
-placeWindow _ p (Reflect t) = Reflect (newTransformer, t)
+placeWindow _ _ _ _ (Wrap win) = Wrap win
+placeWindow _ _ _ p (Reflect t) = Reflect (newTransformer, t)
   where trans (Plane (Rect rx ry rw rh) keepD) = Plane (Rect ry rx rh rw) keepD
         newTransformer = overReal (\(Plane r d) -> Plane r $ d+1) $ addTrans trans trans p
-placeWindow _ (Transformer i o (Plane r depth)) (FocusFull (Fix t)) = 
+placeWindow _ _ _ (Transformer i o (Plane r depth)) (FocusFull (Fix t)) = 
   case t of
-    InputController realt -> FocusFull $ (Transformer i o (Plane r $ depth + 1), Fix $ InputController realt)
+    InputController i' realt -> FocusFull (Transformer i o (Plane r $ depth + 1), Fix $ InputController i' realt)
+    Monitor i' realt -> FocusFull (Transformer i o (Plane r $ depth + 1), Fix $ Monitor i' realt)
     _ -> modFocused (first $ const (Transformer i o . Plane r $ depth + 1)) $ fmap (Transformer i o . Plane (Rect 0 0 0 0) $ depth + 1,) t
 
 -- | Place tilers along an axis
-placeWindow _ (Transformer input o p) (Horiz fl) =
+placeWindow _ _ _ (Transformer input o p) (Horiz fl) =
     let numWins = fromIntegral $ flLength fl -- Find the number of windows
         location i lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round(size * fromIntegral w)) h
         newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
@@ -87,32 +88,40 @@ placeWindow _ (Transformer input o p) (Horiz fl) =
   where realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
         (Plane Rect {..} depth) = input p
 
-placeWindow _ (Transformer i o p) (Floating ls) =
+placeWindow _ _ _ (Transformer i o p) (Floating ls) =
   Floating $ map (\case
     Top (rr@RRect {..}, t) -> Top (rr, (Transformer i o . o $ Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
     Bottom t -> Bottom (Transformer i o . o $ Plane r $ depth + 1, t)) ls
       where (Plane r@Rect{..} depth) = i p
 
 -- | Has no effect on the placement
-placeWindow True trans (InputController t) =
-  InputController $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect (x + 2) (y + 10) (w - 6) (h - 14)) depth) trans,) <$> t
-placeWindow False trans (InputController t) =
-  InputController $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) <$> t
--- Can't be placed but will still take up space in other Tilers
+placeWindow True i _ trans (InputController i' t)
+  | i == i' = InputController i' $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect (x + 2) (y + 10) (w - 6) (h - 14)) depth) trans,) <$> t
+  | otherwise = InputController i' $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) <$> t
+placeWindow False _ _ trans (InputController i t) =
+  InputController i $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) <$> t
 
+placeWindow _ _ screens trans (Monitor i t) =
+   Monitor i $ (overReal (\(Plane _ depth) -> Plane (Rect x y w h) depth) trans,) <$> t
+     where Rect x y w h = fromMaybe (error $ "Not enough screens " ++ show i) $ index screens i
 
 -- | Given something that wants to modify a Tiler,
 -- apply it to the first Tiler after the inputController
 -- Often used with cata to create a new root Tiler
 applyInput
-  :: (Maybe (Tiler (Fix Tiler)) -> Maybe (Tiler (Fix Tiler))) -> Tiler (Fix Tiler) -> Fix Tiler
-applyInput f (InputController t) = Fix . InputController . fmap Fix . f $ fmap unfix t
-applyInput _ t                         = Fix t
+  :: Int -> (Maybe (Tiler (Fix Tiler)) -> Maybe (Tiler (Fix Tiler))) -> Tiler (Fix Tiler) -> Fix Tiler
+applyInput i f ic@(InputController i' t)
+  | i == i' = Fix . InputController i' . fmap Fix . f $ fmap unfix t
+  | otherwise = Fix ic
+applyInput _ _ t                         = Fix t
 
-onInput :: (Maybe (Fix Tiler) -> a) -> Fix Tiler -> a
-onInput f root = f $ extract $ ana @(Beam _) findIC (Just root)
+onInput :: Int -> (Maybe (Fix Tiler) -> a) -> Fix Tiler -> a
+onInput i f root = f $ extract $ ana @(Beam _) findIC  (Just root)
  where
-  findIC (Just (Fix (InputController t))) = EndF t
+  findIC (Just (Fix (InputController i' t)))
+    | i == i' = EndF t
+    | otherwise = ContinueF t
+  findIC (Just (Fix (Monitor _ t))) = ContinueF t
   findIC (Just t) = ContinueF . Just . getFocused . unfix $ t
   findIC _ = EndF Nothing
 
@@ -123,7 +132,8 @@ modFocused f (Floating (NE a as)) = Floating $ NE (fmap f a) as
 modFocused f (Reflect t) = Reflect $ f t
 modFocused f (FocusFull t) = FocusFull $ f t
 modFocused _ wp@(Wrap _) = wp
-modFocused f (InputController t) = InputController $ fmap f t --error "Input controller can't handle focus"
+modFocused f (InputController i t) = InputController i $ fmap f t
+modFocused f (Monitor i t) = Monitor i $ fmap f t
 
 
 -- | Change the focus of a Tiler
@@ -133,41 +143,95 @@ focus newF (  Floating ls ) = Floating $ moveF 0 ((== newF) . getEither) ls
 focus _    t@(Wrap _) = t
 focus _    t@(Reflect _) = t
 focus _    t@(FocusFull _) = t
-focus _    t@(InputController _) = t
+focus _    t@(InputController _ _) = t
+focus _    t@(Monitor _ _) = t
 -- focus _    t@undefined          = t
 
--- |Given a window to focus, try to focus it. Should be called with cata.
--- fst returns the new tiler while snd gives some status information
+-- |Sometimes, we end up with a tree that's in an invalid state.
+-- Usually, we can fix that by finding the closest parent between
+-- two nodes and moving one of the nodes there. This function
+-- implements that logic.
 --
--- The first element in the input tuple is the new child. The second
--- holds information about what lies down that child. The first element in
--- the bool tuple holds whether the input controller was originally down
--- there. The second holds whether the newly focused window is down there.
---
--- The returned tuple is similar; the first element is the new tiler and
--- the second is what exists down this path.
---
--- (False, False) is used as both the initial state and the ending state.
--- If we don't end in (False, False), it means the thing the user focused
--- isn't in our tree.
-focusWindow
-  :: Window
-  -> Tiler (Maybe (Fix Tiler), ControllerOrWin)
-  -> (Maybe (Fix Tiler), ControllerOrWin)
--- TODO I am particularly unhappy with the code quality of this function
-focusWindow w (Wrap w') = (Just . Fix $ Wrap w', if inChildParent w w' then Win else Neither)
-focusWindow _ (InputController (Just (Just t, Win)))  = (Just . Fix . InputController $ Just t, Both)
-focusWindow _ (InputController t) = (t >>= fst, Controller)
-focusWindow _ t                                 = case (hasController, shouldFocus) of
-  (True , Just newFoc) -> (Just . Fix . InputController $ Fix . focus newFoc <$> dropExtra, Both)
-  (False, Just newFoc) -> (Fix . focus newFoc <$> dropExtra, Win)
-  _                   -> (fmap Fix dropExtra, if hasController then Controller else neitherOrBoth)
- where
-   hasController = any ((== Controller) . snd) t
-   shouldFocus   = find ((== Win) . snd) t >>= fst
-   dropExtra     = reduce $ fmap fst t
-   neitherOrBoth = if any ((== Both) . snd) t then Both else Neither
+-- In addition to moving the node, this function also ensures that
+-- the movable node is always a parent of the unmovable node.
+moveToClosestParent
+  :: (Tiler (Maybe (Fix Tiler)) -> Bool) -- |Function used to find the unmovable part
+  -> (Tiler (Maybe (Fix Tiler)) -> Maybe (Reparenter, Unparented)) -- |Function used to find the movable part.
+  -> Tiler (Maybe (Fix Tiler), TreeCombo)
+  -> (Maybe (Fix Tiler), TreeCombo)
+moveToClosestParent predicateUnmove predicateMove t 
+  | predicateUnmove $ fmap fst t =
+    -- We are looking at the unmovable part
+    case asum $ fmap (getMovable . snd) t of
+      -- We haven't seen the movable part, so just set the Unmovable flag and be done
+      Nothing -> (withNewFocus, Unmovable)
+      -- We already saw the movable part so add that in as this thing's parents
+      Just (reparentFunction, _) -> (reparentFunction $ fmap unfix withNewFocus, Both)
+  | otherwise =
+    case predicateMove $ fmap fst t of
+      -- Whatever we found, it's neither of the parts. It might be the parent though.
+      Nothing ->
+        case hasBothIndividually t of
+          -- We found the parent! Let's make it the parent.
+          Just (reparentFunction, _) -> (reparentFunction $ fmap unfix withNewFocus, Both)
+          -- This node is uneventful. Let's just make sure its focus is correct
+          Nothing -> (withNewFocus, foldMap snd t)
+      -- We found the movable part!
+      Just functions@(_, unparented) ->
+        if any (isUnmovable . snd) t
+           -- If it already contained the unmovable part, we're done!
+           then (withNewFocus, Both)
+           -- Otherwise, let's remove it and set the right flag
+           else (unparented, Movable functions)
+  where reduceAndFixed = fmap Fix . reduce $ fmap fst t
+        withNewFocus = fromMaybe reduceAndFixed $ do
+          elementToFoc :: Fix Tiler <- find (\(_, tc) -> isUnmovable tc || isBoth tc) t >>= fst
+          reduced <- unfix <$> reduceAndFixed
+          Just $ Just $ Fix $ focus elementToFoc reduced 
+        hasBothIndividually t = 
+          if any (isUnmovable . snd) t 
+             then asum $ fmap (getMovable . snd) t
+             else Nothing
 
+-- |Specialization of the above for moving an InputController towards a window
+moveToWindow
+  :: Window
+  -> Int
+  -> Fix Tiler
+  -> (Maybe (Fix Tiler), Bool)
+moveToWindow window i =
+  second isBoth . cata (moveToClosestParent isWindow isInputController)
+  where isInputController (InputController i' t)
+          | i == i' = Just (Just . Fix . InputController i' . fmap Fix, join t)
+          | otherwise = Nothing
+        isInputController _ = Nothing
+        isWindow (Wrap childParent) = inChildParent window childParent
+        isWindow _ = False
+
+-- |Specialization of the above for moving a moniter towards the inputController
+moveToIC
+  :: Int
+  -> Fix Tiler
+  -> (Maybe (Fix Tiler), Bool)
+moveToIC screenNumber =
+  second isBoth . cata (moveToClosestParent isInputController isMonitor)
+  where isMonitor (Monitor i t) 
+          | i == screenNumber = Just (Just . Fix . Monitor i . fmap Fix, join t)
+          | otherwise = Nothing
+        isMonitor _ = Nothing
+        isInputController (InputController i _) = screenNumber == i
+        isInputController _ = False
+
+-- |Do both of the above in sequence. This is the function that's actually used elsewhere
+focusWindow
+  :: Int
+  -> Window
+  -> Fix Tiler
+  -> Maybe (Fix Tiler)
+focusWindow screenNumber window root =
+  let (newRoot, b1) = moveToWindow window screenNumber root
+      (newestRoot, b2) = maybe (Nothing, False) (moveToIC screenNumber) newRoot
+   in if b1 && b2 then newestRoot else Nothing
 
 getDesktopState :: Tiler (Fix Tiler) -> ([Text], Int)
 getDesktopState (Horiz fl) =
@@ -176,11 +240,12 @@ getDesktopState (Horiz fl) =
 getDesktopState _ = (["None"], 0)
 
 getFocusList :: Tiler String -> String
-getFocusList (InputController s) = "*" ++ fromMaybe "" s
+getFocusList (InputController i s) = "*" ++ show i ++ "*" ++ fromMaybe "" s
+getFocusList (Monitor i s) = "@" ++ show i ++ "@" ++ fromMaybe "" s
 getFocusList (Horiz fl) = "Horiz|" ++ getItem (fst (pop (Right Focused) fl))
 getFocusList (Floating (NE t _)) = "Floating|" ++ extract t
-getFocusList (Reflect t) = "Rotate-" ++ t
-getFocusList (FocusFull t) = "Full-" ++ t
+getFocusList (Reflect t) = "Rotate|" ++ t
+getFocusList (FocusFull t) = "Full|" ++ t
 getFocusList (Wrap _) = "window"
 
 findParent :: Window -> Fix Tiler -> Maybe Window
@@ -189,3 +254,8 @@ findParent w = cata step
           | ww' == w = Just ww
           | otherwise = Nothing
         step t = foldl' (<|>) Nothing t
+
+whichScreen :: (Eq (f Bool), Functor f, Show (f Rect)) => (Int32, Int32) -> [f Rect] -> f Rect
+whichScreen (mx, my) rects = fromMaybe (trace ("GOT: " ++ show mx ++ "," ++ show my ++ " " ++ show rects) (error "Where's the mouse?")) $ foldl' findOverlap Nothing rects
+  where findOverlap acc wrapped = acc <|> if (wrapped $> True) == fmap inside wrapped then Just wrapped else Nothing
+        inside Rect {..} = mx >= x && my >= y && mx < x + fromIntegral w && my < y + fromIntegral h

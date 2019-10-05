@@ -22,6 +22,7 @@ import           Data.Bits
 import           Data.Kind
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
+import           Graphics.X11.Xinerama
 import           Graphics.X11.Xlib.Display
 import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
@@ -116,6 +117,8 @@ data GlobalX m a where
    PrintMe ::String -> GlobalX m ()
    -- Bool True == kill softly. False == kill hard
    Kill ::Bool -> Window -> GlobalX m (Maybe Window)
+   GetScreens ::GlobalX m [Rect]
+   GetPointer ::GlobalX m (Int32, Int32)
 makeSem ''GlobalX
 
 data Colorer m a where
@@ -299,19 +302,23 @@ runGlobalX = interpret $ \case
     toggleModel m d win (k, km, _) = if m == km
       then grabKey d k anyModifier win False grabModeAsync grabModeAsync
       else ungrabKey d k anyModifier win
-  GetXEvent ->
-    ask >>= \d -> embed @IO $
-      untilM isConfNot $ do
+  GetXEvent -> do
+    d <- ask
+    root <- ask
+    embed @IO $
+      untilM (isConfNot root) $ do
         allocaXEvent $ \p -> do
           nextEvent d p
           ep <- getEvent p 
           print ep
           return ep
       -- allocaXEvent \p -> nextEvent d p >> getEvent p
-   where isConfNot ConfigureEvent {} = False
-         isConfNot _ = True
-  CheckXEvent ->
-    ask >>= \d -> embed @IO $ do
+    where isConfNot root ConfigureEvent {ev_window=win} = win == root
+          isConfNot _ _ = True
+  CheckXEvent -> do
+    d <- ask 
+    root <- ask
+    embed @IO $ do
       -- If p > 0, getting the next event won't block
       -- and that would be true except we filter out Configure notifications.
       -- So if the queue were full of configure notifications, we would still
@@ -327,7 +334,7 @@ runGlobalX = interpret $ \case
           -- Otherwise, we loop for a while
           untilM (<1) $ allocaXEvent \p -> do
             event <- peekEvent d p >> getEvent p
-            if isConfNot event 
+            if isConfNot root event 
                -- We got something that won't be filtered so stop looping.
               then writeIORef pRef (-1)
               -- We got something that will be filtered so drop it.
@@ -335,8 +342,8 @@ runGlobalX = interpret $ \case
             readIORef pRef
           -- If P ended at -1, return True because the queue wasn't empty
           (/= 0) <$> readIORef pRef
-   where isConfNot ConfigureEvent {} = False
-         isConfNot _ = True
+     where isConfNot root ConfigureEvent {ev_window=win} = win == root
+           isConfNot _ _ = True
   PrintMe s -> embed @IO $ putStrLn $ pack s
   Kill isSoft w -> ask >>= \d -> embed @IO $ do
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
@@ -351,6 +358,12 @@ runGlobalX = interpret $ \case
               return Nothing
       else if isSoft then destroyWindow d w >> return (Just w)
       else killClient d w >> return (Just w)
+  GetScreens -> ask >>= \d -> embed @IO $ do
+    fmap (\(Rectangle x y w h) -> Rect {..}) <$> getScreenInfo d
+  GetPointer -> ask >>= \d -> do
+    root <- ask @Window
+    (_, _, _, x, y, _, _, _) <- embed $ queryPointer d root
+    return (fromIntegral x, fromIntegral y)
 
 runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a
 runColorer = interpret $ \case
@@ -379,7 +392,7 @@ type DoAll r
         , MouseButtons, Maybe Font.Font
         ]) r
     , Members (Readers
-        [ Conf, Window, (Dimension, Dimension), Borders ]) r
+        [ Conf, Window, Borders ]) r
     , Members
         [ WindowMover, PropertyReader, PropertyWriter, AttributeReader
         , AttributeWriter , WindowMinimizer , Executor , GlobalX , Colorer
@@ -391,18 +404,17 @@ doAll
   :: Tiler (Fix Tiler)
   -> Conf
   -> Mode
-  -> (Dimension, Dimension)
   -> Display
   -> Window
   -> Borders
   -> _ -- The super long Sem list which GHC can figure out on its own
   -> IO ()
-doAll t c m dims d w borders =
+doAll t c m d w borders =
   void
     . runM
     . runStates (m ::: S.empty @Window ::: Default ::: t ::: [] ::: None ::: Nothing ::: HNil)
     . fixState
-    . runReaders (w ::: d ::: dims ::: borders ::: c ::: HNil)
+    . runReaders (w ::: d ::: borders ::: c ::: HNil)
     . runPropertyReader
     . runPropertyWriter
     . runAttributeReader
