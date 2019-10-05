@@ -1,2 +1,2 @@
 let Tilers = /home/jack/.config/xest/tilers
-in < Insert : Tilers | RunCommand : Text | ChangeModeTo : Text | ShowWindow : Text | HideWindow : Text | ZoomInInput | ZoomInMonitor | ZoomOutInput | ZoomOutMonitor | PopTiler | PushTiler | MakeSpecial | ChangeNamed : Text | Move : Bool | KillActive >
+in < Insert : Tilers | RunCommand : Text | ChangeModeTo : Text | ShowWindow : Text | HideWindow : Text | ZoomInInput | ZoomInMonitor | ZoomOutInput | ZoomOutMonitor | PopTiler | PushTiler | MakeSpecial | ChangeNamed : Text | Move : Bool | KillActive | Exit >
