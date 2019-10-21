@@ -3,6 +3,8 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 
 module Tiler where
 
@@ -13,16 +15,19 @@ import           FocusList
 
 -- Tiler Handling Code --
 
+
 -- | Add a new Tiler at the given location. Is the opposite of popping.
 add :: Direction -> Focus -> a -> Tiler a -> Tiler a
 add dir foc w (Horiz fl) = Horiz $ push dir foc (Sized 0 w) fl
 add _ foc w (Floating ls) = Floating $ if foc == Focused then Top (RRect 0 0 0.2 0.2, w) +: ls else append ls [Top (RRect 0 0 0.2 0.2, w)]
 add _ _ _ _ = error "Attempted to add to something that isn't addable"
 
+
 -- | Remove a Tiler if it exists
 ripOut :: Fix Tiler -> Tiler (Fix Tiler) -> Maybe (Tiler (Fix Tiler))
 ripOut toDelete t = reduce $ fmap isEqual t
   where isEqual t = if t == toDelete then Nothing else Just t
+
 
 -- | Removes empty Tilers
 reduce :: Tiler (Maybe (Fix Tiler)) -> Maybe (Tiler (Fix Tiler))
@@ -57,8 +62,10 @@ popWindow _ (FocusFull t) = (t, Nothing)
 
 popWindow e t = error $ "Attempted to pop the unpopable" ++ show e ++ " " ++ show t
 
+
 getFocused :: Show a => Tiler a -> a
 getFocused = fst . popWindow (Right Focused)
+
 
 -- | Places a tiler somewhere on the screen without actually placing it
 placeWindow
@@ -255,7 +262,18 @@ findParent w = cata step
           | otherwise = Nothing
         step t = foldl' (<|>) Nothing t
 
-whichScreen :: (Eq (f Bool), Functor f, Show (f Rect)) => (Int32, Int32) -> [f Rect] -> f Rect
-whichScreen (mx, my) rects = fromMaybe (trace ("GOT: " ++ show mx ++ "," ++ show my ++ " " ++ show rects) (error "Where's the mouse?")) $ foldl' findOverlap Nothing rects
-  where findOverlap acc wrapped = acc <|> if (wrapped $> True) == fmap inside wrapped then Just wrapped else Nothing
-        inside Rect {..} = mx >= x && my >= y && mx < x + fromIntegral w && my < y + fromIntegral h
+whichScreen :: (Eq (f Bool), Functor f)
+            => (Int32, Int32) 
+            -> [f Rect] 
+            -> Maybe (f Rect)
+whichScreen (mx, my) = getFirst . foldMap findOverlap
+  where 
+    findOverlap wrapped = 
+      if (wrapped $> True) == fmap inside wrapped 
+         then return wrapped
+         else mempty
+    inside Rect {..} = 
+      mx >= x && 
+        my >= y && 
+          mx < x + fromIntegral w && 
+            my < y + fromIntegral h

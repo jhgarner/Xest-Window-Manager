@@ -112,7 +112,7 @@ mainLoop :: Actions -> DoAll r
 mainLoop [] = do
   pointer <- getPointer
   screens <- getScreens
-  let i = fst . whichScreen pointer $ zip [0..] screens
+  let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   -- modify $ cata $ Fix . reduce
   get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
   screens <- getScreens
@@ -169,7 +169,6 @@ initEwmh display root upper = do
   supp <- mapM
     (getAtom display)
     [ "_NET_NUMBER_OF_DESKTOPS"
-    , "_NET_NUMBER_OF_DESKTOPS"
     , "_NET_CURRENT_DESKTOP"
     , "_NET_CLIENT_LIST"
     , "_NET_ACTIVE_WINDOW"

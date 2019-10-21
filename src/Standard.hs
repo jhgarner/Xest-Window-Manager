@@ -41,6 +41,8 @@ import Data.Functor.Foldable as All hiding (fold, unfold, embed)
 import Data.Fixed as All (mod')
 import Data.Functor.Foldable.TH as All
 import NonEmpty as All
+import Data.Monoid as All (Alt(..), getAlt, getFirst)
+import Data.Coerce as All
 
 pattern (:<~) a b = a C.:< b
 
