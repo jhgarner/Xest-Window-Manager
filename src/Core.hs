@@ -105,14 +105,13 @@ handler (XorgEvent UnmapEvent {..}) = do
   -- Windows that weren't minimized but were unmapped are probably dying.
   mins <- get @(Set Window)
   oldRoot <- get
-  -- Kill the window. TODO I'm pretty confused about why this doesn't break
-  -- everything since it's outside of the unless.
-  traverse_ (kill True) $ findParent ev_window oldRoot
   -- Remove the destroyed window from our tree if we aren't the
   -- reason it was unmapped.
-  unless (member ev_window mins) $ modify @(Fix Tiler) $ 
-    fromMaybe (error "No roooot!") . 
-      cata (fmap Fix . (>>= ripOut (Fix $ Wrap $ ChildParent ev_window ev_window)) . reduce)
+  unless (member ev_window mins) $ do
+    traverse_ (kill True) $ findParent ev_window oldRoot
+    modify @(Fix Tiler) $ 
+      fromMaybe (error "No roooot!") . 
+        cata (fmap Fix . (>>= ripOut (Fix $ Wrap $ ChildParent ev_window ev_window)) . reduce)
   return []
 
 -- Tell the window it can configure itself however it wants.
@@ -465,7 +464,7 @@ handler KillActive = do
   let w = extract $ ana @(Beam _) makeList root
   l <- case w of
          Just (ww, ww') -> do
-           _ <- kill False ww'
+           _ <- kill True ww'
            shouldKill <- kill True ww
            return $ fmap (,ww') shouldKill
          Nothing -> return Nothing
