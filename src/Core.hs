@@ -483,6 +483,7 @@ handler KillActive = do
       makeList (Fix t) = ContinueF (getFocused t)
 
 handler ExitNow = absurd <$> exit
+handler ToggleLogging = toggleLogs >> return []
 
 -- Random stuff --
 
@@ -603,13 +604,14 @@ writePath = do
 
 -- |Focus the X window
 xFocus
-  :: Members [State (Fix Tiler), WindowMinimizer, AttributeWriter] r
+  :: Members [State (Fix Tiler), WindowMinimizer, AttributeWriter, Reader Window] r
   => Sem r ()
 xFocus = do
   root <- get @(Fix Tiler)
-  let w = extract $ ana @(Beam _) makeList root
-  traverse_ (restore . fst) w
-  traverse_ (setFocus . snd) w
+  rWin <- ask @Window
+  let w = fromMaybe (rWin, rWin) $ extract $ ana @(Beam _) makeList root
+  restore $ fst w
+  setFocus $ snd w
  where
   makeList (Fix (Wrap (ChildParent w w')))              = EndF $ Just (w, w')
   -- TODO there's a lot of code duplication here between InputController and Monitor

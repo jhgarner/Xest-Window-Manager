@@ -67,6 +67,7 @@ data Action
   | MakeSpecial
   | KillActive
   | Exit
+  | ToggleLogging
   deriving (Generic, Show, Eq, Interpret)
 
 -- | See other *ToType functions
@@ -84,6 +85,7 @@ actionToType _ PushTiler          = T.PushTiler
 actionToType _ MakeSpecial           = T.MakeSpecial
 actionToType _ KillActive           = T.KillActive
 actionToType _ Exit           = T.ExitNow
+actionToType _ ToggleLogging           = T.ToggleLogging
 actionToType _ (ChangeNamed s)    = T.ChangeNamed s
 -- actionToType _ (ChangeLayoutTo s)    = T.ChangeLayoutTo s
 actionToType _ (Move        s)    = if s then T.Move Front else T.Move Back

@@ -83,22 +83,28 @@ startWM = do
     .|. enterWindowMask
     .|. buttonPressMask
     .|. buttonReleaseMask
+    .|. keyPressMask
+    .|. keyReleaseMask
   -- grabButton display anyButton anyModifier root False (buttonPressMask .|. buttonReleaseMask) grabModeSync grabModeAsync none none
 
   -- allowEvents display (replayPointer .|. replayKeyboard .|. asyncBoth) currentTime
   -- xSetErrorHandler
   -- Grabs the initial keybindings
-  screens <-
+  (screens :: [Rect]) <-
     runM
     $ runReader c
     $ runReader display
     $ runReader root
+    $ evalState False
     $ runGlobalX
-    $ rebindKeys initialMode  >> getScreens
+    $ runAttributeReader
+    $ runAttributeWriter
+    $ rebindKeys initialMode >> getScreens
   let Just (Fix rootTiler)   = foldl' (\acc (i, _) -> Just . Fix . Monitor i . Just . Fix . InputController i $ acc) Nothing $ zip [0..] screens
 
   setDefaultErrorHandler
 
+  setInputFocus display root revertToNone currentTime
   -- Execute the main loop. Will never return unless Xest exits
   doAll rootTiler c initialMode display root (lWin, dWin, uWin, rWin) (chain mainLoop [])
     >> say "Exiting"
@@ -113,10 +119,8 @@ mainLoop [] = do
   pointer <- getPointer
   screens <- getScreens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
-  -- modify $ cata $ Fix . reduce
   get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
   screens <- getScreens
-  printMe $ "Got screens" ++ show screens ++ "\n\n"
   whenM (not <$> checkXEvent) $ do
     -- tell X to focus whatever we're focusing
     xFocus
@@ -124,7 +128,7 @@ mainLoop [] = do
     -- Write the path to the upper border
     writePath
 
-    -- restack all of teh windows
+    -- restack all of the windows
     topWindows <- makeTopWindows
     bottomWindows <- getBottomWindows
     get >>= render >>= restack . \wins -> topWindows ++ bottomWindows ++ wins

@@ -20,6 +20,7 @@ import           Polysemy.Reader
 import           Polysemy.Output
 import           Data.Bits
 import           Data.Kind
+import           System.IO
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xinerama
@@ -116,6 +117,7 @@ data GlobalX m a where
    GetXEvent ::GlobalX m Event
    CheckXEvent ::GlobalX m Bool
    PrintMe ::String -> GlobalX m ()
+   ToggleLogs ::GlobalX m ()
    -- Bool True == kill softly. False == kill hard
    Kill ::Bool -> Window -> GlobalX m (Maybe Window)
    GetScreens ::GlobalX m [Rect]
@@ -262,7 +264,7 @@ runExecutor = interpret $ \case
   Execute s -> void . embed $ spawnCommand s
 
 runGlobalX
-  :: (Members [Reader Window, Reader Conf] r)
+  :: (Members [Reader Window, Reader Conf, State Bool] r)
   => Interpret GlobalX r a
 runGlobalX = interpret $ \case
   GetTree -> do
@@ -302,7 +304,7 @@ runGlobalX = interpret $ \case
    where
     toggleModel :: Mode -> Display -> Window -> KeyTrigger -> IO ()
     toggleModel m d win (k, km, _) = if m == km
-      then grabKey d k anyModifier win False grabModeAsync grabModeAsync
+      then grabKey d k anyModifier win True grabModeAsync grabModeAsync
       else ungrabKey d k anyModifier win
   GetXEvent -> do
     d <- ask
@@ -312,7 +314,6 @@ runGlobalX = interpret $ \case
         allocaXEvent $ \p -> do
           nextEvent d p
           ep <- getEvent p 
-          print ep
           return ep
       -- allocaXEvent \p -> nextEvent d p >> getEvent p
     where isConfNot root ConfigureEvent {ev_window=win} = win == root
@@ -346,9 +347,13 @@ runGlobalX = interpret $ \case
           (/= 0) <$> readIORef pRef
      where isConfNot root ConfigureEvent {ev_window=win} = win == root
            isConfNot _ _ = True
-  PrintMe s -> embed @IO $ putStrLn $ pack s
+  PrintMe s -> whenM (get @Bool) $ embed @IO $ appendFile "/tmp/xest.log" s
   -- add back in the putStrLn to debug. TODO totally rethink effects
-  PrintMe s -> embed @IO $ return () --putStrLn $ pack s
+  ToggleLogs -> do
+    unlessM (get @Bool) $
+      embed @IO $ Standard.writeFile "/tmp/xest.log" ""
+
+    modify not
   Kill isSoft w -> ask >>= \d -> embed @IO $ do
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
     protocols <- internAtom d "WM_PROTOCOLS" True
@@ -394,7 +399,7 @@ runColorer = interpret $ \case
 type DoAll r
   = (Members (States
         [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler]
-        , MouseButtons, Maybe Font.Font
+        , MouseButtons, Maybe Font.Font, Bool
         ]) r
     , Members (Readers
         [ Conf, Window, Borders ]) r
@@ -417,7 +422,7 @@ doAll
 doAll t c m d w borders =
   void
     . runM
-    . runStates (m ::: S.empty @Window ::: Default ::: t ::: [] ::: None ::: Nothing ::: HNil)
+    . runStates (m ::: S.empty @Window ::: Default ::: t ::: [] ::: None ::: Nothing ::: False ::: HNil)
     . fixState
     . runReaders (w ::: d ::: borders ::: c ::: HNil)
     . runPropertyReader
