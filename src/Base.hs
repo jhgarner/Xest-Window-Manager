@@ -4,6 +4,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-|
    Base contains all of the IO facing code in project (except for the main
@@ -16,8 +17,9 @@ module Base where
 import           Standard
 import           Polysemy
 import           Polysemy.State
-import           Polysemy.Reader
+import           Polysemy.Input
 import           Polysemy.Output
+import           Polysemy.Several
 import           Data.Bits
 import           Data.Kind
 import           System.IO
@@ -33,168 +35,124 @@ import           Graphics.X11.Xlib.Atom
 import           Graphics.X11.Xlib.Color
 import           Graphics.X11.Xlib.Context
 import           Graphics.X11.Xlib.Font
+import           Data.Proxy
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
 import           Foreign.Storable
 import           System.Exit
 import qualified Data.Set                      as S
+import qualified Data.Map                      as M
 import           System.Process
 import           Types
 import qualified SDL
 import qualified SDL.Font as Font
 
 
--- Super list
-infixr 5 :::
-data HList a where
-    HNil :: HList '[]
-    (:::) :: a -> HList (b :: [Type]) -> HList (a ': b)
--- x = HCons 5 (HCons "Test" HNil)
+-- * Helper Polysemy functions
+-- $RunningSeveral
+--
+-- See "Polysemy.RunSeveral" for some more info about what's going on here.
+--
+-- If you're writing code which needs to operate on multiple inputs or
+-- states, you should probably use these.
 
-type family TMap (f :: a -> b) (xs :: [a]) where
-    TMap _ '[]       = '[]
-    TMap f (x ': xs) = f x ': TMap f xs
+-- |A type level function which takes a list of Types and turns them into
+-- inputs.
+type Inputs (a :: [Type]) = TypeMap Input a
+runInputs :: HList t -> Sem (TypeConcat (Inputs t) r) a -> Sem r a
+-- |Runs an HList of values as if they were values for a Reader.
+runInputs = runSeveral runInputConst
 
-type family TConcat (a :: [t]) (b :: [t]) where
-    TConcat '[] b = b
-    TConcat (a ': as) b = a ': TConcat as b
+-- |Same as above but for State.
+type States (a :: [Type]) = TypeMap State a
+-- |Same as above but for State. Throws away the state that would be returned
+runStates :: HList t -> Sem (TypeConcat (States t) r) a -> Sem r a
+runStates = runSeveral evalState
 
-type Readers (a :: [Type]) = TMap Reader a
--- toSem :: Members (TTail (TMap Reader t)) r => HList t -> Sem (Reader (THead t) ': r) a -> Sem r a
-runReaders :: HList t -> Sem (TConcat (Readers t) r) a -> Sem r a
-runReaders (a ::: as) = runReaders as . runReader a
-runReaders HNil = id
+-- |Pretty much everything needs effects when being run. This type alias makes
+-- that easiear to type.
+type Interpret e r a = Members [Embed IO, Input Display] r => Sem (e ': r) a -> Sem r a
 
-type States (a :: [Type]) = TMap State a
-runStates :: HList t -> Sem (TConcat (States t) r) a -> Sem r a
-runStates (a ::: as) = fmap snd . runStates as . runState a
-runStates HNil = id
+inputs :: Member (Input i) r => (i -> a) -> Sem r a
+inputs f = f <$> input
 
+-- * Effects
+--
+-- $WhyEffects
+--
+-- Xest makes use of the "Polysemy" package. Polysemy uses a ton of fairly
+-- advanced Haskell features so it can sometimes look a little scary. Why
+-- then do we use it?
+--
+--   * Effect systems like Polysemy make it easier to apply the principle
+--   of least privilage to the code. For example, we can have a function
+--   which can resize windows but would fail to compile if they tried to
+--   change any other properties on the window.
+--
+--   * Effect systems make it easy to swap out the implementation details
+--   without having to touch the code that uses the effects.
+--
+--   * Polysemy will have no performance cost once GHC 8.10 is released.
 
-data PropertyReader m a where
-  GetProperty ::Storable a => Int -> String -> Window -> PropertyReader m (Maybe [a])
-  IsSameAtom ::String -> Atom -> PropertyReader m Bool
-makeSem ''PropertyReader
+-- * Properties
 
-data PropertyWriter m a where
-  SetProperty32 ::String -> String -> Window -> [Int] -> PropertyWriter m ()
-  SetProperty8 ::String -> String -> Window -> [Int] -> PropertyWriter m ()
-makeSem ''PropertyWriter
+-- |X11 defines properties as a dictionary like object from Atoms and windows
+-- to bits. This effect allows you to read or write to those dictionaries.
+--
+-- It's worth noting that these properties are very untyped so be careful
+-- with what you pass in and try to get out.
+data Property m a where
+  -- |Gets a property from a window's dictionary
+  GetProperty :: Storable a
+              => Int -- ^ The number of bits in the property
+              -> Atom  -- ^ The property key
+              -> Window -- ^ The window who's properties we want to look at
+              -> Property m [a] -- ^ A list of values found at the key
 
-data AttributeWriter m a where
-  SelectFlags ::Window -> Mask -> AttributeWriter m ()
-  SetFocus ::Window -> AttributeWriter m ()
-  CaptureButton ::Mode -> AttributeWriter m ()
-  GetButton ::Window -> AttributeWriter m MouseButtons
-makeSem ''AttributeWriter
+  -- |Writes to a property in a window's dictionary
+  PutProperty :: Int -- ^ The number of bits in the property
+              -> Atom -- ^ The property key we want to write to
+              -> Window  -- ^ The window who's properties we want to look at
+              -> Atom -- ^ A string representing the type of the data
+              -> [Int] -- The data we want to write
+              -> Property m ()
 
-data AttributeReader m a where
-  GetClassName ::Window -> AttributeReader m String
-  GetChild ::Window -> AttributeReader m (Maybe Window)
-makeSem ''AttributeReader
+  -- |Although most properties are only loosely defined, the class property
+  -- is built into Xlib for some reason.
+  GetClassName :: Window -- ^ The Window we're interested in
+               -> Property m String -- ^ The window's class
 
-data WindowMover m a where
-  ChangeLocation :: Window -> Rect -> WindowMover m ()
-  ChangeLocationS :: SDL.Window -> Rect -> WindowMover m ()
-  Raise ::Window -> WindowMover m ()
-  Restack :: [Window] -> WindowMover m ()
-  ConfigureWin ::Event -> WindowMover m ()
-makeSem ''WindowMover
+  -- |Technically not a property but it kind of fits...
+  GetChild :: Window -- ^ The parent
+           -> Property m (Maybe Window) -- ^ The child
 
-data WindowMinimizer m a where
-  Minimize ::Window -> WindowMinimizer m ()
-  Restore ::Window -> WindowMinimizer m ()
-makeSem ''WindowMinimizer
+  -- |Turns a String into an X11 managed Atom. Think of atoms as pointers to
+  -- strings.
+  GetAtom :: Bool -- ^ Should we not create it if it doesn't exist?
+          -> String -- ^ The atom's name
+          -> Property m Atom -- ^ The atom created/retrieved from X11
+makeSem ''Property
 
-data Executor m a where
-  Execute ::String -> Executor m ()
-makeSem ''Executor
+-- |Runs a propertiy using IO
+runProperty :: Member (State (Map String Atom)) r => Interpret Property r a
+runProperty = interpret $ \case
+  GetProperty i atom win -> input >>= \d -> embed @IO $ do
+    fromMaybe [] <$> rawGetWindowProperty i d atom win
 
-data GlobalX m a where
-   GetTree ::GlobalX m [Window]
-   NewWindow ::Window -> GlobalX m Window
-   RebindKeys ::Mode -> GlobalX m ()
-   GetXEvent ::GlobalX m Event
-   CheckXEvent ::GlobalX m Bool
-   PrintMe ::String -> GlobalX m ()
-   ToggleLogs ::GlobalX m ()
-   -- Bool True == kill softly. False == kill hard
-   Kill ::Bool -> Window -> GlobalX m (Maybe Window)
-   GetScreens ::GlobalX m [Rect]
-   GetPointer ::GlobalX m (Int32, Int32)
-   Exit ::GlobalX m Void
-makeSem ''GlobalX
+  PutProperty i atomContent w atomType msg -> input >>= \d -> embed @IO $ do
+    let charMsg = fmap fromIntegral msg
+    let longMsg = fmap fromIntegral msg
+    case i of
+      8 -> changeProperty8 d w atomContent atomType propModeReplace $ charMsg ++ [0]
+      32 -> changeProperty32 d w atomContent atomType propModeReplace $ longMsg ++ [0]
+      _ -> error "Can only write 32 and 8 bit values to properties right now"
 
-data Colorer m a where
-  GetColor :: String -> Colorer m Color
-  ChangeColor :: SDL.Window -> (Int, Int, Int) -> Colorer m ()
-  DrawText :: SDL.Window -> String -> Colorer m ()
-  BufferSwap :: SDL.Window -> Colorer m ()
-makeSem ''Colorer
-
-type Interpret e r a = Members [Embed IO, Reader Display] r => Sem (e ': r) a -> Sem r a
-
-runPropertyReader :: Interpret PropertyReader r a
-runPropertyReader = interpret $ \case
-  GetProperty size aName w -> ask >>= \d -> embed @IO $ do
-    atom <- liftIO $ internAtom d aName False
-    liftIO $ rawGetWindowProperty size d atom w
-  IsSameAtom aName atom -> ask >>= \d -> embed @IO $ do
-    otherAtom <- liftIO $ internAtom d aName False
-    return $ atom == otherAtom
-
-runPropertyWriter :: Interpret PropertyWriter r a
-runPropertyWriter = interpret $ \case
-  SetProperty32 aName mType w msg -> ask >>= \d -> embed @IO $ do
-    atom  <- internAtom d aName False
-    aType <- internAtom d mType False
-    void
-      .  changeProperty32 d w atom aType propModeReplace
-      $  fmap fromIntegral msg
-      ++ [0]
-  SetProperty8 aName mType w msg -> ask >>= \d -> embed @IO $ do
-    atom  <- liftIO $ internAtom d aName False
-    aType <- liftIO $ internAtom d mType False
-    liftIO
-      $  changeProperty8 d w atom aType propModeReplace
-      $  fmap fromIntegral msg
-      ++ [0]
-    return ()
-
-runAttributeWriter
-  :: (Members [Reader Window, Reader Conf] r)
-  => Interpret AttributeWriter r a
-runAttributeWriter = interpret $ \case
-  SelectFlags w flags -> ask >>= \d -> embed @IO $ do
-    selectInput d w flags
-    grabButton d anyButton anyModifier w False (buttonPressMask .|. buttonReleaseMask) grabModeSync grabModeAsync none none
-
-  SetFocus w          -> ask @Display
-    >>= \d -> embed @IO $ do
-      setInputFocus d w revertToNone currentTime
-      allowEvents d (replayPointer) currentTime
-  CaptureButton NewMode {modeName = name}  -> ask @Display >>= \d -> do
-      ms <- asks definedModes
-      root <- ask @Window
-      when (not . null $ filter (\(NewMode m _ _ hasButtons _) -> m == name && hasButtons) ms)
-        $ void . embed @IO $ grabPointer d root False pointerMotionMask grabModeAsync grabModeAsync root none currentTime
-      when (null $ filter (\(NewMode m _ _ hasButtons _) -> m == name && hasButtons) ms)
-        $ void . embed @IO $ ungrabPointer d currentTime
-  GetButton w -> ask @Display >>= \d -> embed @IO $ do 
-    (_, _, _, _, _, _, _, b) <- queryPointer d w
-
-    allowEvents d (syncPointer) currentTime
-    return $ case b of
-             _ | b .&. button1Mask /= 0-> LeftButton (0, 0)
-               | b .&. button3Mask /= 0-> RightButton (0, 0)
-               | otherwise -> None
-
-runAttributeReader :: Interpret AttributeReader r a
-runAttributeReader = interpret $ \case
   GetClassName win ->
-    ask >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return n
+    input >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return n
+
   GetChild win -> do
-    display <- ask @Display
+    display <- input @Display
+    -- For some reason, xQueryTree hasn't been abstracted at all
     embed @IO $ alloca
       (\numChildrenPtr -> alloca
         (\childrenListPtr -> do
@@ -210,26 +168,106 @@ runAttributeReader = interpret $ \case
         )
       )
 
-runWindowMover :: Interpret WindowMover r a
-runWindowMover = interpret $ \case
+  GetAtom shouldCreate name -> input >>= \d -> do
+    maybeAtom <- (M.!? name) <$> get
+    case maybeAtom of
+      Nothing -> do
+        atom <- embed @IO $ internAtom d name shouldCreate
+        modify $ M.insert name atom
+        return atom
+      Just atom -> return atom
+
+-- * Event Flags
+
+-- |Controls the various event flags we can set on windows. See the Xlib docs for
+-- a description of what those are.
+data EventFlags m a where
+  -- |Directly ask for flags on a window
+  SelectFlags :: Window -- ^ The Window to set these flags on
+              -> Mask -- ^ The flags (represented as a bitmask) to grab
+              -> EventFlags m ()
+
+  -- |Grab all mouse events on the root window
+  SelectButtons :: Mode -- ^ The mode we want to bind buttons for
+                -> EventFlags m ()
+
+  -- |Grab all of the key evetns on the root window
+  RebindKeys :: Mode -- ^ The mode we want to bind keys for
+             -> EventFlags m ()
+makeSem ''EventFlags
+
+-- |Runs the event using IO
+runEventFlags
+  :: Members (Inputs [RootWindow, Conf]) r
+  => Interpret EventFlags r a
+runEventFlags = interpret $ \case
+  SelectFlags w flags -> input >>= \d -> embed @IO $ do
+    selectInput d w flags
+    -- This is a nasty function which just grabs button presses on a window
+    -- TODO why am I doing this here?
+    grabButton d anyButton anyModifier w False 
+               (buttonPressMask .|. buttonReleaseMask) 
+               grabModeSync grabModeAsync none none
+
+  SelectButtons NewMode {modeName = name}  -> do
+      d <- input @Display
+      ms <- inputs definedModes
+      root <- input @RootWindow
+      -- If the current mode wants to listen to the mouse, let it.
+      -- Otherwise, don't because capturing the mouse prevents everyone
+      -- else from using it.
+      void . embed @IO $
+        if null $ filter (\(NewMode m _ _ hasButtons _) -> 
+                            m == name && hasButtons
+                         ) ms
+           then ungrabPointer d currentTime
+           else void $ grabPointer d root False pointerMotionMask grabModeAsync
+                                   grabModeAsync root none currentTime
+
+  RebindKeys activeMode -> do
+    Conf kb _ <- input @Conf
+    d         <- input @Display
+    win       <- input @RootWindow
+    embed $ forM_ kb $ toggleModel activeMode d win
+
+   where
+    -- Toggles which keys are grabbed based on the mode
+    toggleModel :: Mode -> Display -> Window -> KeyTrigger -> IO ()
+    toggleModel m d win (k, km, _) = if m == km
+      then grabKey d k anyModifier win True grabModeAsync grabModeAsync
+      else ungrabKey d k anyModifier win
+
+-- * Mover
+
+-- |Anything that changes where a window sits goes in here.
+data Mover m a where
+  ChangeLocation :: Window -> Rect -> Mover m ()
+  -- |Like the above but asks on SDL windows
+  ChangeLocationS :: SDL.Window -> Rect -> Mover m ()
+  Restack :: [Window] -> Mover m ()
+  -- |A super light wrapper around actually configuring stuff
+  ConfigureWin :: Event -> Mover m ()
+makeSem ''Mover
+
+-- Move windows using IO
+runMover :: Interpret Mover r a
+runMover = interpret $ \case
   ChangeLocation win (Rect x y h w) -> do
-    d <- ask
+    d <- input
     void . embed $ moveWindow d win x y >> resizeWindow d win h w
+
   ChangeLocationS win (Rect x y h w) -> do
-    SDL.V2 oldX oldY <- embed $ SDL.getWindowAbsolutePosition win
-    SDL.V2 oldH oldW <- embed $ SDL.get $ SDL.windowSize win
+    -- Avoid moving the SDL windows more than we need to
+    SDL.V2 oldX oldY <- embed @IO $ SDL.getWindowAbsolutePosition win
+    SDL.V2 oldH oldW <- embed @IO $ SDL.get $ SDL.windowSize win
     when (x /= fromIntegral oldX || y /= fromIntegral oldY || w /= fromIntegral oldW || h /= fromIntegral oldH) $ do
-      embed $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
+      embed @IO $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
       SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
 
-  Raise win -> do
-    d <- ask
-    embed $ raiseWindow d win
-    return ()
   Restack wins -> do
-    d <- ask
-    embed $ restackWindows d wins
-    return ()
+    d <- input
+    void . embed $ restackWindows d wins
+
   ConfigureWin ConfigureRequestEvent {..} ->
     let wc = WindowChanges ev_x
                            ev_y
@@ -238,38 +276,126 @@ runWindowMover = interpret $ \case
                            ev_border_width
                            ev_above
                            ev_detail
-    in  ask >>= \d -> embed @IO $ configureWindow d ev_window ev_value_mask wc
+    in  input >>= \d -> embed @IO $ configureWindow d ev_window ev_value_mask wc
   ConfigureWin _ -> error "Don't call Configure Window with other events"
 
-runWindowMinimizer
-  :: Member (State (Set Window)) r => Interpret WindowMinimizer r a
-runWindowMinimizer = interpret $ \case
+-- * Minimizer
+
+-- |Anything that changes a state but doesn't actually move it goes here
+data Minimizer m a where
+  Minimize :: Window -> Minimizer m ()
+  Restore :: Window -> Minimizer m ()
+  SetFocus :: Window -> Minimizer m ()
+makeSem ''Minimizer
+
+-- |Do the actions in IO
+runMinimizer
+  :: Member (State (Set Window)) r => Interpret Minimizer r a
+runMinimizer = interpret $ \case
   Minimize win -> do
-    d <- ask
+    d <- input
+    -- We only want to minimize if it hasn't already been minimized
     WindowAttributes { wa_map_state = mapped } <- embed
       $ getWindowAttributes d win
     when (mapped /= waIsUnmapped) $ do
       modify $ S.insert win
       embed @IO $ unmapWindow d win
+
   Restore win -> do
-    d <- ask
+    d <- input
+    -- Only restore if it needs to be restored
     WindowAttributes { wa_map_state = mapped } <- embed
       $ getWindowAttributes d win
     when (mapped == waIsUnmapped) $ do
       modify $ S.delete win
       embed @IO $ mapWindow d win
-      embed @IO $ setInputFocus d win revertToNone currentTime
-runExecutor :: Member (Embed IO) r => Sem (Executor ': r) a -> Sem r a
-runExecutor = interpret $ \case
-  Execute s -> void . embed $ spawnCommand s
 
+  SetFocus w -> input @Display >>= \d -> embed @IO $ do
+      setInputFocus d w revertToNone currentTime
+      allowEvents d (replayPointer) currentTime
+
+-- * Executor
+
+-- |Actions that modify the world outside of X11 go here
+data Executor m a where
+  -- |Run a command
+  Execute :: String -> Executor m ()
+  -- |Toggle logging
+  ToggleLogs :: Executor m ()
+  -- |Prints in a controlled way
+  PrintMe :: String -> Executor m ()
+makeSem ''Executor
+
+-- |Do it in IO
+runExecutor :: Members [Embed IO, State Bool] r => Sem (Executor ': r) a -> Sem r a
+runExecutor = interpret $ \case
+  Execute s -> void . embed @IO $ spawnCommand s
+
+  ToggleLogs -> do
+    unlessM (get @Bool) $
+      -- Empty the last run of logging
+      embed @IO $ Standard.writeFile "/tmp/xest.log" ""
+    modify not
+
+  -- PrintMe s -> say $ pack s
+  PrintMe s -> whenM (get @Bool) $ embed @IO $ appendFile "/tmp/xest.log" s
+
+-- * Colorer
+
+-- |Handle any color stuff
+data Colorer m a where
+  GetColor :: String -> Colorer m Color
+  ChangeColor :: SDL.Window -> (Int, Int, Int) -> Colorer m ()
+  DrawText :: SDL.Window -> String -> Colorer m ()
+  BufferSwap :: SDL.Window -> Colorer m ()
+makeSem ''Colorer
+
+-- |More IO
+runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a
+runColorer = interpret $ \case
+  GetColor color -> do
+    display <- input @Display
+    let colorMap = defaultColormap display (defaultScreen display)
+    embed @IO $ fmap fst $ allocNamedColor display colorMap color
+  ChangeColor w (h, s, v) -> do
+    winSurface <- embed @IO $ SDL.getWindowSurface w
+    embed @IO $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
+  DrawText w s -> do
+    display <- input @Display
+    whenM (null <$> get @(Maybe Font.Font)) $ do
+      font <- embed @IO $ Font.load "/usr/share/fonts/adobe-source-code-pro/SourceCodePro-Medium.otf" 10
+      put $ Just font
+    mfont <- get @(Maybe Font.Font)
+    let Just font = mfont
+    surface <- embed @IO $ Font.blended font (SDL.V4 0 0 0 0) $ pack s
+    winSurface <- embed @IO $ SDL.getWindowSurface w
+    void . embed @IO $ SDL.surfaceBlit surface Nothing winSurface Nothing
+  BufferSwap w -> embed @IO $ SDL.updateWindowSurface w
+
+-- * Global X
+
+-- |Anything that doesn't fit somewhere else. This should probably be
+-- split up at some point.
+data GlobalX m a where
+   GetTree :: GlobalX m [Window]
+   NewWindow :: Window -> GlobalX m Window
+   MoveToRoot :: Window -> GlobalX m ()
+   GetXEvent :: GlobalX m Event
+   CheckXEvent :: GlobalX m Bool
+   -- |Bool True == kill softly. False == kill hard
+   Kill :: Bool -> Window -> GlobalX m (Maybe Window)
+   -- If you look into the void, you can find anything
+   Exit :: GlobalX m Void
+makeSem ''GlobalX
+
+-- |IO
 runGlobalX
-  :: (Members [Reader Window, Reader Conf, State Bool] r)
+  :: (Members [Input RootWindow, Input Conf, State Bool] r)
   => Interpret GlobalX r a
 runGlobalX = interpret $ \case
   GetTree -> do
-    display <- ask @Display
-    root    <- ask @Window
+    display <- input @Display
+    root    <- input @RootWindow
     embed @IO $ alloca
       (\numChildrenPtr -> alloca
         (\childrenListPtr -> do
@@ -284,31 +410,28 @@ runGlobalX = interpret $ \case
           peek childrenListPtr >>= peekArray (fromIntegral numChildren)
         )
       )
+
   NewWindow w -> do
-    d         <- ask @Display
-    rootWin       <- ask @Window
+    d         <- input @Display
+    rootWin       <- input @RootWindow
     let defScr = defaultScreen d
     xwin <- embed $ createSimpleWindow d rootWin
       0 0 400 200 0
       (blackPixel d defScr)
       (blackPixel d defScr)
+    embed $ mapWindow d xwin
     embed $ reparentWindow d w xwin 0 0
     return xwin
 
-  RebindKeys activeMode -> do
-    Conf kb _ <- ask @Conf
-    d         <- ask @Display
-    win       <- ask @Window
-    embed $ forM_ kb $ toggleModel activeMode d win
+  MoveToRoot w -> do
+    d         <- input @Display
+    rootWin       <- input @RootWindow
+    let defScr = defaultScreen d
+    embed $ reparentWindow d w rootWin 0 0
 
-   where
-    toggleModel :: Mode -> Display -> Window -> KeyTrigger -> IO ()
-    toggleModel m d win (k, km, _) = if m == km
-      then grabKey d k anyModifier win True grabModeAsync grabModeAsync
-      else ungrabKey d k anyModifier win
   GetXEvent -> do
-    d <- ask
-    root <- ask
+    d <- input
+    root <- input
     embed @IO $
       untilM (isConfNot root) $ do
         allocaXEvent $ \p -> do
@@ -318,9 +441,10 @@ runGlobalX = interpret $ \case
       -- allocaXEvent \p -> nextEvent d p >> getEvent p
     where isConfNot root ConfigureEvent {ev_window=win} = win == root
           isConfNot _ _ = True
+
   CheckXEvent -> do
-    d <- ask 
-    root <- ask
+    d <- input 
+    root <- input
     embed @IO $ do
       -- If p > 0, getting the next event won't block
       -- and that would be true except we filter out Configure notifications.
@@ -347,14 +471,8 @@ runGlobalX = interpret $ \case
           (/= 0) <$> readIORef pRef
      where isConfNot root ConfigureEvent {ev_window=win} = win == root
            isConfNot _ _ = True
-  PrintMe s -> whenM (get @Bool) $ embed @IO $ appendFile "/tmp/xest.log" s
-  -- add back in the putStrLn to debug. TODO totally rethink effects
-  ToggleLogs -> do
-    unlessM (get @Bool) $
-      embed @IO $ Standard.writeFile "/tmp/xest.log" ""
 
-    modify not
-  Kill isSoft w -> ask >>= \d -> embed @IO $ do
+  Kill isSoft w -> input >>= \d -> embed @IO $ do
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
     protocols <- internAtom d "WM_PROTOCOLS" True
     supportedProtocols <- getWMProtocols d w
@@ -367,49 +485,65 @@ runGlobalX = interpret $ \case
               return Nothing
       else if isSoft then destroyWindow d w >> return (Just w)
       else killClient d w >> return (Just w)
-  GetScreens -> ask >>= \d -> embed @IO $ do
-    fmap (\(Rectangle x y w h) -> Rect {..}) <$> getScreenInfo d
-  GetPointer -> ask >>= \d -> do
-    root <- ask @Window
-    (_, _, _, x, y, _, _, _) <- embed $ queryPointer d root
-    return (fromIntegral x, fromIntegral y)
+
   Exit -> embed exitSuccess
 
-runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a
-runColorer = interpret $ \case
-  GetColor color -> do
-    display <- ask @Display
-    let colorMap = defaultColormap display (defaultScreen display)
-    embed @IO $ fmap fst $ allocNamedColor display colorMap color
-  ChangeColor w (h, s, v) -> do
-    winSurface <- embed $ SDL.getWindowSurface w
-    embed $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
-  DrawText w s -> do
-    display <- ask @Display
-    whenM (null <$> get @(Maybe Font.Font)) $ do
-      font <- embed @IO $ Font.load "/usr/share/fonts/adobe-source-code-pro/SourceCodePro-Medium.otf" 10
-      put $ Just font
-    mfont <- get @(Maybe Font.Font)
-    let Just font = mfont
-    surface <- embed $ Font.blended font (SDL.V4 0 0 0 0) $ pack s
-    winSurface <- embed $ SDL.getWindowSurface w
-    void . embed $ SDL.surfaceBlit surface Nothing winSurface Nothing
-  BufferSwap w -> embed $ SDL.updateWindowSurface w
+-- * Fake Inputs
 
+-- $Fake
+--
+-- The following provide an Input-like interface. Because of that,
+-- we're just going to pretend like they are inputs from the code's
+-- point of view.
+
+-- |Gets the current button presses from the Xserver
+runGetButtons :: Members (Inputs [RootWindow, Display]) r 
+              => Member (Embed IO) r
+              => Sem (Input MouseButtons ': r) a -> Sem r a
+runGetButtons = runInputSem $ do
+  d <- input @Display
+  w <- input @RootWindow
+  embed @IO $ do 
+    (_, _, _, _, _, _, _, b) <- queryPointer d w
+
+    allowEvents d (syncPointer) currentTime
+    return $ case b of
+            _ | b .&. button1Mask /= 0-> LeftButton (0, 0)
+              | b .&. button3Mask /= 0-> RightButton (0, 0)
+              | otherwise -> None
+
+
+-- |Get the screens from Xinerama
+runGetScreens :: Members (Inputs [RootWindow, Display]) r 
+              => Member (Embed IO) r
+              => Sem (Input [Rect] ': r) a -> Sem r a
+runGetScreens = runInputSem $ 
+  input >>= \d -> embed @IO $
+    fmap (\(Rectangle x y w h) -> Rect {..}) <$> getScreenInfo d
+
+-- |Gets the pointer location
+runGetPointer :: Members (Inputs [RootWindow, Display]) r 
+              => Member (Embed IO) r
+              => Sem (Input (Int32, Int32) ': r) a -> Sem r a
+runGetPointer = runInputSem $ input >>= \d -> do
+  root <- input @RootWindow
+  (_, _, _, x, y, _, _, _) <- embed $ queryPointer d root
+  return (fromIntegral x, fromIntegral y)
+
+-- There's a lot of effects here. This type has them all!
 type DoAll r
   = (Members (States
         [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler]
         , MouseButtons, Maybe Font.Font, Bool
         ]) r
-    , Members (Readers
-        [ Conf, Window, Borders ]) r
+    , Members (Inputs
+        [ Conf, Window, Borders, Display, [Rect], (Int32, Int32), MouseButtons ]) r
     , Members
-        [ WindowMover, PropertyReader, PropertyWriter, AttributeReader
-        , AttributeWriter , WindowMinimizer , Executor , GlobalX , Colorer
-        ] r
+        [ Mover, Property, Minimizer , Executor , GlobalX , Colorer, EventFlags, Embed IO ] r
     )
   => Sem r [Action]
 
+-- Want to do everything in IO? Use this!
 doAll
   :: Tiler (Fix Tiler)
   -> Conf
@@ -422,17 +556,18 @@ doAll
 doAll t c m d w borders =
   void
     . runM
-    . runStates (m ::: S.empty @Window ::: Default ::: t ::: [] ::: None ::: Nothing ::: False ::: HNil)
+    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] ::: None ::: Nothing ::: False ::: M.empty @String @Atom ::: HNil)
     . fixState
-    . runReaders (w ::: d ::: borders ::: c ::: HNil)
-    . runPropertyReader
-    . runPropertyWriter
-    . runAttributeReader
-    . runAttributeWriter
+    . runInputs (w ::: d ::: borders ::: c ::: HNil)
+    . runGetScreens
+    . runGetButtons
+    . runGetPointer
+    . runProperty
     . runGlobalX
-    . runWindowMinimizer
-    . runWindowMover
+    . runMinimizer
+    . runMover
     . runExecutor
+    . runEventFlags
     . runColorer
  where
   -- TODO Is this bad? It allows us to refer to the root tiler as either fix or unfixed.

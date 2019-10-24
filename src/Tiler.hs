@@ -102,10 +102,7 @@ placeWindow _ _ _ (Transformer i o p) (Floating ls) =
       where (Plane r@Rect{..} depth) = i p
 
 -- | Has no effect on the placement
-placeWindow True i _ trans (InputController i' t)
-  | i == i' = InputController i' $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect (x + 2) (y + 10) (w - 6) (h - 14)) depth) trans,) <$> t
-  | otherwise = InputController i' $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) <$> t
-placeWindow False _ _ trans (InputController i t) =
+placeWindow _ _ _ trans (InputController i t) =
   InputController i $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) <$> t
 
 placeWindow _ _ screens trans (Monitor i t) =

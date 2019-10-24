@@ -221,3 +221,6 @@ instance Show TreeCombo where
 -- instance Monoid TreeCombo where
 --   mempty = TreeCombo False False False
 
+type RootWindow = Window
+type Pointer = (Int32, Int32)
+type Screens = [Rect]

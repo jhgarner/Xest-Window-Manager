@@ -64,6 +64,10 @@ library:
   - -n2m
   - -RTS
   - -fplugin=Polysemy.Plugin
+  - -O2 
+  - -flate-specialise
+  - -fspecialise-aggressively
+
   default-extensions:
     - DataKinds
     - FlexibleContexts

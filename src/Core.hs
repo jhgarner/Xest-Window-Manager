@@ -11,7 +11,7 @@ import           Standard
 import           Base
 import           Polysemy
 import           Polysemy.State
-import           Polysemy.Reader
+import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Types
@@ -67,8 +67,8 @@ handler (XorgEvent MapRequestEvent {..}) = do
   tree <- get @(Fix Tiler)
   -- TODO You're about to see these 3 lines of code a whole lot. Maybe they should
   -- be a function or something.
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
 
   unless (cata (findWindow ev_window) tree) $ do
@@ -104,10 +104,11 @@ handler (XorgEvent UnmapEvent {..}) = do
   -- idea. A minimized window should remain in the tree when unmapped.
   -- Windows that weren't minimized but were unmapped are probably dying.
   mins <- get @(Set Window)
-  oldRoot <- get
   -- Remove the destroyed window from our tree if we aren't the
   -- reason it was unmapped.
   unless (member ev_window mins) $ do
+    oldRoot <- get
+    moveToRoot ev_window
     traverse_ (kill True) $ findParent ev_window oldRoot
     modify @(Fix Tiler) $ 
       fromMaybe (error "No roooot!") . 
@@ -123,7 +124,7 @@ handler (XorgEvent cre@ConfigureRequestEvent{}) = do
 -- The root window has changed itself. Usually that tells us there's been a change to
 -- the number of monitors connected.
 handler (XorgEvent ConfigureEvent{}) = do
-  screens <- getScreens
+  screens <- input @Screens
   let len = length screens
 
   -- If the user unplugged the monitor, remove it from the tree
@@ -151,7 +152,7 @@ handler (XorgEvent ConfigureEvent{}) = do
 -- Called when a watched key is pressed or released
 handler (XorgEvent KeyEvent {..}) = do
   -- Watched keys are stored in bindings
-  Conf bindings _ <- ask @Conf
+  Conf bindings _ <- input @Conf
   mode <- get @Mode
   -- Is ev_keycode (the key that was pressed) equal to k (the bound k)
   return $ case find (\(k, m, _) -> ev_keycode == k && m == mode) bindings of
@@ -162,7 +163,7 @@ handler (XorgEvent KeyEvent {..}) = do
 -- TODO this is the exact same code as the button event
 handler (XorgEvent CrossingEvent {..}) = do
   rootT <- get @(Fix Tiler)
-  screens <- getScreens
+  screens <- input @Screens
   -- Change our tree so the focused window is the one we're hovering over
   let mNewRoot = 
         focusWindow (maybe 0 fst $ whichScreen (fromIntegral ev_x_root, fromIntegral ev_y_root) $ zip [0..] screens) ev_window rootT
@@ -178,7 +179,7 @@ handler (XorgEvent CrossingEvent {..}) = do
 -- Called when a mouse button is pressed
 handler (XorgEvent ButtonEvent {..}) = do
   rootT <- get @(Fix Tiler)
-  screens <- getScreens
+  screens <- input @Screens
   -- Make certain that the focused window is the one we're hovering over
   let mNewRoot = 
         focusWindow (maybe 0 fst $ whichScreen (fromIntegral ev_x_root, fromIntegral ev_y_root) $ zip [0..] screens) ev_window rootT
@@ -194,14 +195,13 @@ handler (XorgEvent ButtonEvent {..}) = do
 -- TODO this code is a little scary
 handler (XorgEvent MotionEvent {..}) = do
   -- First, let's figure out what the width and height are for the active screen
-  screens <- getScreens
-  pointer <- getPointer
+  screens <- input @Screens
+  pointer <- input @Pointer
   let Identity (Rect _ _ width height) = fromMaybe (Identity $ Rect 0 0 10000 10000) $ whichScreen pointer $ fmap Identity screens
   let i' = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
 
   -- Now lets get some other stuff we'll need later
   mb <- get @MouseButtons
-  root <- ask @Window
   mode <- gets @Mode hasBorders
 
   -- Get the locations of every window
@@ -209,7 +209,7 @@ handler (XorgEvent MotionEvent {..}) = do
 
   -- Find the one that comes right after the input controller
   case journey $ ana @(Path _ _) (getInput i') sized of
-    (rotations, Just (Transformer i o (Plane {rect = size}))) -> do
+    (rotations, Just (Transformer _ _ Plane {rect = size})) -> do
       let rotation :: Bool = foldr ($) False rotations
 
       -- Move the tiler based on the mouse movement
@@ -220,8 +220,8 @@ handler (XorgEvent MotionEvent {..}) = do
     _ -> return ()
 
   -- In theory, this is part of the event, but X11 doesn't provide it so let's ask the server directly
-  newB <- getButton root
-  put newB
+  newB <- input @MouseButtons
+  put @MouseButtons newB
 
   -- We know what button is pressed, now we need to update the location
   updateMouseLoc (fromIntegral ev_x, fromIntegral ev_y)
@@ -272,8 +272,8 @@ handler (HideWindow wName) = do
 -- Zoom the inputController towards the focused window
 handler ZoomInInput = do
   root <- get @(Fix Tiler)
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   put $ cata (reorder i) root
   return []
@@ -293,8 +293,8 @@ handler ZoomInInput = do
 -- The monitor needs to stay behind the Input Controller
 -- which makes zooming in harder
 handler ZoomInMonitor = do
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
 
   modify @(Fix Tiler) $ cata (reorder i)
@@ -314,8 +314,8 @@ handler ZoomInMonitor = do
 -- This is complicated if the monitor is right behind it
 -- TODO How can reorder be made better?
 handler ZoomOutInput = do
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   root <- get @(Fix Tiler)
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
 
@@ -351,8 +351,8 @@ handler ZoomOutInput = do
 
 handler ZoomOutMonitor = do
   root <- get @(Fix Tiler)
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   unless (isMonitor i root) $ put $ fromMaybe (error "e") $ para (reorder i) root
   return []
@@ -374,15 +374,15 @@ handler ZoomOutMonitor = do
 handler (ChangeModeTo newM) = do
   eActions <- gets @Mode exitActions
   rebindKeys newM
-  captureButton newM
+  selectButtons newM
   put newM
   --Combine the two lists of actions to be executed. Execute exit actions first.
   return $ eActions ++ introActions newM
 
 -- Change the focus to some named action
 handler (ChangeNamed s) = do
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   modify $ cata (applyInput i $ fmap changer)
   return []
@@ -397,8 +397,8 @@ handler (ChangeNamed s) = do
 
 -- Change focus in a given direction
 handler (Move newD) = do
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   modify $ cata (applyInput i . fmap $ changer newD)
   return []
@@ -409,8 +409,8 @@ handler (Move newD) = do
 -- Move a tiler from the tree into a stack
 handler PopTiler = do
   root <- get
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   sequence_ $ onInput i (fmap (modify @[Fix Tiler] . (:))) root
   modify $ cata (applyInput i $ const Nothing)
@@ -419,8 +419,8 @@ handler PopTiler = do
 -- Move a tiler from the stack into the tree
 handler PushTiler = do
   popped <- get @[Fix Tiler]
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   case popped of
     (t:ts) -> do
@@ -431,8 +431,8 @@ handler PushTiler = do
 
 -- Insert a tiler after the Input Controller
 handler (Insert t) = do
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   modify @(Fix Tiler) . cata $ applyInput i (fmap toTiler)
   return []
@@ -445,8 +445,8 @@ handler (Insert t) = do
 
 -- Perform some special action based on the focused tiler
 handler MakeSpecial = do
-  pointer <- getPointer
-  screens <- getScreens
+  pointer <- input @Pointer
+  screens <- input @Screens
   let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   modify @(Fix Tiler) . cata $ applyInput i (fmap makeSpecial)
   return []
@@ -488,7 +488,7 @@ handler ToggleLogging = toggleLogs >> return []
 -- Random stuff --
 
 -- Used for reparenting
-manage :: Members [AttributeWriter, GlobalX] r => Window -> Sem r (Fix Tiler)
+manage :: Members [EventFlags, GlobalX] r => Window -> Sem r (Fix Tiler)
 manage w = do
   newWin <- newWindow w
   selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask )-- .|. buttonPressMask .|. buttonReleaseMask)
@@ -496,7 +496,7 @@ manage w = do
 
 -- Find a window with a class name
 getWindowByClass
-  :: Members [GlobalX, AttributeReader] r
+  :: Members [Property, GlobalX] r
   => String
   -> Sem r [Window]
 getWindowByClass wName = do
@@ -506,18 +506,18 @@ getWindowByClass wName = do
 
 -- Moves windows around
 type RenderEffect r =
-     ( Member (Reader Borders) r
+     ( Members (Inputs [Borders, Screens, Pointer]) r
      , Members (States [Fix Tiler, Mode]) r
-     , Members [WindowMover, WindowMinimizer, Colorer, GlobalX] r
+     , Members [Mover, Minimizer, Colorer, GlobalX] r
      )
 render
   :: (RenderEffect r, Member (State [Fix Tiler]) r)
   => Fix Tiler
   -> Sem r [Window]
 render t = do
-  screens <- getScreens
+  screens <- input @Screens
   mode <- gets @Mode hasBorders
-  pointer <- getPointer
+  pointer <- input @Pointer
   let i' = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   let locations = topDown (placeWindow mode i' screens) (Transformer id id $ Plane (Rect 0 0 0 0) 0) t
   -- Draw the tiler we've been given
@@ -539,7 +539,7 @@ render t = do
            (maybe [] fst t, do
               mapM_ snd t
               -- Extract the border windows
-              (l, u, r, d) <- ask @Borders
+              (l, u, r, d) <- input @Borders
               let winList = [l, u, r, d]
 
               -- Calculate the color for our depth
@@ -595,22 +595,23 @@ render t = do
 
           
           
-writePath :: Members '[State (Fix Tiler), Reader Borders, Colorer, PropertyReader] r 
+writePath :: Members '[State (Fix Tiler), Input Borders, Colorer, Property] r 
           => Sem r ()
 writePath = do
-  (_, u, _, _) <- ask @Borders
+  (_, u, _, _) <- input @Borders
   root <- get @(Fix Tiler)
   drawText u $ cata getFocusList root
 
 -- |Focus the X window
 xFocus
-  :: Members [State (Fix Tiler), WindowMinimizer, AttributeWriter, Reader Window] r
+  :: Members [State (Fix Tiler), Minimizer, Input Window] r
   => Sem r ()
 xFocus = do
   root <- get @(Fix Tiler)
-  rWin <- ask @Window
+  rWin <- input @Window
   let w = fromMaybe (rWin, rWin) $ extract $ ana @(Beam _) makeList root
   restore $ fst w
+  restore $ snd w
   setFocus $ snd w
  where
   makeList (Fix (Wrap (ChildParent w w')))              = EndF $ Just (w, w')
@@ -674,7 +675,6 @@ pushOrAdd :: Fix Tiler -> Maybe (Tiler (Fix Tiler)) -> Tiler (Fix Tiler)
 pushOrAdd tWin = maybe (unfix tWin) (\case
   t@(Horiz _) -> add Back Focused tWin t
   t@(Floating _) -> add Back Focused tWin t
-  t@(FocusFull _) -> add Back Focused tWin t
   t -> mkHoriz t
                                     )
     where mkHoriz t = Horiz $ makeFL (NE (Sized 0 $ Fix t) [Sized 0 tWin]) 0

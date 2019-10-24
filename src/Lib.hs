@@ -8,9 +8,9 @@ where
 
 import           Standard
 import           Config
-import           Polysemy                hiding ( raise )
+import           Polysemy                hiding ( )
 import           Polysemy.State
-import           Polysemy.Reader
+import           Polysemy.Input
 import           Core
 import           Data.Bits
 import           Foreign.C.String
@@ -19,7 +19,6 @@ import           Graphics.X11.Xlib.Display
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
-import           Graphics.X11.Xlib.Atom
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
 import           SDL hiding (get, Window, Display, trace)
@@ -31,6 +30,8 @@ import           Base
 import           Tiler
 import           Data.Char                      ( ord, chr )
 import qualified System.Environment as Env
+import Control.Concurrent
+import qualified Data.Map                      as M
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
@@ -74,7 +75,11 @@ startWM = do
 
   -- Find and register ourselves with the root window
   -- These two masks allow us to intercept various Xorg events useful for a WM
-  initEwmh display root ewmhWin
+  runM 
+    $ runInputConst display
+    $ evalState (M.empty @String @Atom)
+    $ runProperty 
+    $ initEwmh root ewmhWin
   selectInput display root
     $   substructureNotifyMask
     .|. substructureRedirectMask
@@ -92,14 +97,15 @@ startWM = do
   -- Grabs the initial keybindings
   (screens :: [Rect]) <-
     runM
-    $ runReader c
-    $ runReader display
-    $ runReader root
+    $ runInputConst c
+    $ runInputConst display
+    $ runInputConst root
+    $ evalState (M.empty @String @Atom)
+    $ runGetScreens
     $ evalState False
-    $ runGlobalX
-    $ runAttributeReader
-    $ runAttributeWriter
-    $ rebindKeys initialMode >> getScreens
+    $ runEventFlags
+    $ runProperty
+    $ rebindKeys initialMode >> (input @Screens)
   let Just (Fix rootTiler)   = foldl' (\acc (i, _) -> Just . Fix . Monitor i . Just . Fix . InputController i $ acc) Nothing $ zip [0..] screens
 
   setDefaultErrorHandler
@@ -116,11 +122,8 @@ startWM = do
 mainLoop :: Actions -> DoAll r
 -- When there are no actions to perform, render the windows and find new actions to do
 mainLoop [] = do
-  pointer <- getPointer
-  screens <- getScreens
-  let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
   get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
-  screens <- getScreens
+  -- get @(Tiler (Fix Tiler)) >>= \t -> trace (show t ++ "\n\n") return ()
   whenM (not <$> checkXEvent) $ do
     -- tell X to focus whatever we're focusing
     xFocus
@@ -137,12 +140,17 @@ mainLoop [] = do
     -- Do some EWMH stuff
     setClientList
     writeActiveWindow
+    pointer <- input @Pointer
+    screens <- input @Screens
+    let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput i (fmap (getDesktopState . unfix))
-  -- waiting <- checkXEvent
   l <- pure . XorgEvent <$> getXEvent
   tree <- getTree
-  props <- traverse (\w -> (,w) . fmap (fmap (chr . fromIntegral)) <$> (getProperty @_ @Word8) 8 "WM_NAME" w) tree
+  wmname <- getAtom False "WM_NAME"
+  props <- traverse (\w -> (,w) . fmap (chr . fromIntegral) <$> (getProperty @_ @Word8) 8 wmname w) tree
+  trace (show props) return ()
   printMe ((\[XorgEvent t] -> "\n==================\n\n" ++ show props ++ "\n\n" ++ show t) l)
+  -- printMe ((\[XorgEvent t] -> "\n==================\n\n" ++ show t) l)
   return l
 
 -- When there are actions to perform, do them and add the results to the list of actions
@@ -160,44 +168,46 @@ mainLoop (a : as) = do
       <$> get
   return $ newActions ++ as ++ postResult
 
--- TODO move to Polysemy
-getAtom :: Display -> String -> IO Atom
-getAtom display t = internAtom display t False
-
-initEwmh :: Display -> Window -> Window -> IO ()
-initEwmh display root upper = do
-  a    <- getAtom display "_NET_SUPPORTED"
-  nswc <- getAtom display "_NET_SUPPORTING_WM_CHECK"
-  xestName <- getAtom display "xest"
-  c    <- getAtom display "ATOM"
+initEwmh :: Member Property r
+         => RootWindow -> Window -> Sem r ()
+initEwmh root upper = do
+  a    <- getAtom False "_NET_SUPPORTED"
+  nswc <- getAtom False "_NET_SUPPORTING_WM_CHECK"
+  xestName <- getAtom False "xest"
+  c    <- getAtom False "ATOM"
   supp <- mapM
-    (getAtom display)
+    (getAtom False)
     [ "_NET_NUMBER_OF_DESKTOPS"
     , "_NET_CURRENT_DESKTOP"
     , "_NET_CLIENT_LIST"
     , "_NET_ACTIVE_WINDOW"
     , "_NET_SUPPORTING_WM_CHECK"
     ]
-  changeProperty32 display root a c propModeReplace (fmap fromIntegral supp)
-  changeProperty32 display root a c propModeReplace [fromIntegral upper]
-  changeProperty32 display upper a c propModeReplace [fromIntegral xestName]
+  putProperty 32 a root c (fmap fromIntegral supp)
+  putProperty 32 nswc root c [fromIntegral upper]
+  putProperty 32 a upper c [fromIntegral xestName]
 
 
 writeWorkspaces
-  :: (Members '[PropertyWriter, Reader Window] r)
+  :: (Members '[Property, Input Window] r)
   => ([Text], Int)
   -> Sem r ()
 writeWorkspaces (names, i) = do
-  root <- ask
-  setProperty8 "_NET_DESKTOP_NAMES" "UTF8_STRING" root
-    $ concatMap ((++ [0]) . fmap ord . unpack) names
-  setProperty32 "_NET_NUMBER_OF_DESKTOPS" "CARDINAL" root [length names, 0]
-  setProperty32 "_NET_CURRENT_DESKTOP"    "CARDINAL" root [i, 0]
+  root <- input
+  ndn <- getAtom False "_NET_DESKTOP_NAMES" 
+  utf8 <- getAtom False "UTF8_STRING"
+  cardinal <- getAtom False "CARDINAL"
+  nnod <- getAtom False "_NET_NUMBER_OF_DESKTOPS"
+  ncd <- getAtom False "_NET_CURRENT_DESKTOP"
+  putProperty 8 ndn root utf8
+    $ concatMap (fmap ord . unpack) names
+  putProperty 32 nnod root cardinal [length names]
+  putProperty 32 ncd root cardinal [i]
 
 -- Some windows (like Polybar) want to be on top of everything else
 -- This function finds those windows and returns them in a list.
 makeTopWindows
-  :: (Members '[PropertyReader, GlobalX, WindowMover] r)
+  :: (Members '[Property, GlobalX, Mover] r)
   => Sem r [Window]
 makeTopWindows = do
   -- Get a list of all windows
@@ -205,17 +215,19 @@ makeTopWindows = do
   higherWins <- for wins $ \win -> do
     -- EWMH defines how to do this.
     -- Check out their spec if you're curious.
-    prop <- getProperty 32 "_NET_WM_STATE" win
+    nws <- getAtom False "_NET_WM_STATE"
+    prop <- (getProperty @_ @Atom) 32 nws win
+    nwsa <- getAtom False "_NET_WM_STATE_ABOVE"
     case prop of
-      Nothing -> return []
-      Just states ->
-        ifM (or <$> traverse (isSameAtom "_NET_WM_STATE_ABOVE") states)
-            (return [win])
-            (return [])
+      [] -> return []
+      states ->
+        if (any (== nwsa) states) 
+           then (return [win])
+           else (return [])
   return $ join higherWins
 
 getBottomWindows
-  :: (Members '[PropertyReader, GlobalX, WindowMover] r)
+  :: (Members '[Property, GlobalX, Mover] r)
   => Sem r [Window]
 getBottomWindows = do
   -- Get a list of all windows
@@ -223,30 +235,35 @@ getBottomWindows = do
   lowerWindows <- for wins $ \win -> do
     -- EWMH defines how to do this.
     -- Check out their spec if you're curious.
-    prop <- (getProperty @_ @Word8) 8 "WM_NAME" win
+    wn <- getAtom False "WM_NAME"
+    prop <- (getProperty @_ @Word8) 8 wn win
     case prop of
-      Nothing -> return []
-      Just states ->
+      [] -> return []
+      states ->
         return if (== "fakeWindowDontManage") $ fmap (chr . fromIntegral) states
           then [win]
           else []
   return $ join lowerWindows
 
-setClientList :: (Members '[State (Fix Tiler), Reader Window, PropertyWriter] r)
+setClientList :: (Members '[State (Fix Tiler), Input Window, Property] r)
               => Sem r ()
 setClientList = do
-  root <- ask
-  tilers <- get
-  setProperty32 "_NET_CLIENT_LIST" "WINDOW[]" root $ cata winList tilers
+  root <- input
+  tilers <- get @(Fix Tiler)
+  ncl <- getAtom False "_NET_CLIENT_LIST"
+  warray <- getAtom False "WINDOW[]"
+  putProperty 32 ncl root warray $ cata winList tilers
     where winList (Wrap (ChildParent _ w)) = [fromIntegral w]
           winList t = concat t
 
-writeActiveWindow :: (Members '[State (Fix Tiler), Reader Window, PropertyWriter] r)
+writeActiveWindow :: (Members '[State (Fix Tiler), Input Window, Property] r)
               => Sem r ()
 writeActiveWindow = do
-  root <- ask
+  root <- input
   tilers <- get
-  setProperty32 "_NET_ACTIVE_WINDOW" "WINDOW" root [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
+  window <- getAtom False "WINDOW"
+  naw <- getAtom False "_NET_ACTIVE_WINDOW"
+  putProperty 32 naw root window [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
     where makeList (Fix (Wrap (ChildParent _ w))) = EndF . Just $ fromIntegral w
           makeList (Fix (InputController _ (Just t))) = ContinueF t
           makeList (Fix (InputController _ Nothing)) = EndF Nothing
