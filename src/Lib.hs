@@ -49,7 +49,9 @@ startWM = do
 
   -- Read the config file
   homeDir <- Env.getEnv "HOME"
-  c <- readConfig display . pack $ homeDir ++ "/.config/xest/config.conf"
+  c <- if displayNumber == "0" || displayNumber == "1"
+          then readConfig display . pack $ homeDir ++ "/.config/xest/config.conf"
+          else readConfig display . pack $ homeDir ++ "/.config/xest/config.conf." ++ unpack displayNumber
 
   -- X orders windows like a tree
   let root = defaultRootWindow display
@@ -77,7 +79,10 @@ startWM = do
   -- These two masks allow us to intercept various Xorg events useful for a WM
   runM 
     $ runInputConst display
+    $ runInputConst root
     $ evalState (M.empty @String @Atom)
+    $ evalState (M.empty @Atom @[Int])
+    $ evalState (M.empty @Window @Rect)
     $ runProperty 
     $ initEwmh root ewmhWin
   selectInput display root
@@ -101,6 +106,8 @@ startWM = do
     $ runInputConst display
     $ runInputConst root
     $ evalState (M.empty @String @Atom)
+    $ evalState (M.empty @Atom @[Int])
+    $ evalState (M.empty @Window @Rect)
     $ runGetScreens
     $ evalState False
     $ runEventFlags
@@ -144,11 +151,11 @@ mainLoop [] = do
     screens <- input @Screens
     let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput i (fmap (getDesktopState . unfix))
+  -- Get the next event from the X server. This will block the main thread.
   l <- pure . XorgEvent <$> getXEvent
   tree <- getTree
   wmname <- getAtom False "WM_NAME"
   props <- traverse (\w -> (,w) . fmap (chr . fromIntegral) <$> (getProperty @_ @Word8) 8 wmname w) tree
-  trace (show props) return ()
   printMe ((\[XorgEvent t] -> "\n==================\n\n" ++ show props ++ "\n\n" ++ show t) l)
   -- printMe ((\[XorgEvent t] -> "\n==================\n\n" ++ show t) l)
   return l

@@ -5,6 +5,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE Strict #-}
 
 {-|
    Base contains all of the IO facing code in project (except for the main
@@ -46,6 +47,7 @@ import           System.Process
 import           Types
 import qualified SDL
 import qualified SDL.Font as Font
+import Tiler
 
 
 -- * Helper Polysemy functions
@@ -133,19 +135,31 @@ data Property m a where
           -> Property m Atom -- ^ The atom created/retrieved from X11
 makeSem ''Property
 
+type AtomCache = Map String Atom
+type RootPropCache = Map Atom [Int]
+
 -- |Runs a propertiy using IO
-runProperty :: Member (State (Map String Atom)) r => Interpret Property r a
+runProperty :: Members (States [AtomCache, RootPropCache]) r
+            => Member (Input RootWindow) r
+            => Interpret Property r a
 runProperty = interpret $ \case
   GetProperty i atom win -> input >>= \d -> embed @IO $ do
     fromMaybe [] <$> rawGetWindowProperty i d atom win
 
-  PutProperty i atomContent w atomType msg -> input >>= \d -> embed @IO $ do
-    let charMsg = fmap fromIntegral msg
-    let longMsg = fmap fromIntegral msg
-    case i of
-      8 -> changeProperty8 d w atomContent atomType propModeReplace $ charMsg ++ [0]
-      32 -> changeProperty32 d w atomContent atomType propModeReplace $ longMsg ++ [0]
-      _ -> error "Can only write 32 and 8 bit values to properties right now"
+  PutProperty i atomContent w atomType msg -> do
+    d <- input
+    rootWin <- input
+    rootPropCache <- get @RootPropCache
+    unless (rootWin == w && maybe False (== msg) (rootPropCache M.!? atomContent)) $ do
+      let longMsg = fmap fromIntegral msg
+          charMsg = fmap fromIntegral msg
+      embed @IO $ case i of
+        8 -> changeProperty8 d w atomContent atomType propModeReplace $ charMsg ++ [0]
+        32 -> changeProperty32 d w atomContent atomType propModeReplace $ longMsg ++ [0]
+        _ -> error "Can only write 32 and 8 bit values to properties right now"
+    when (rootWin == w) $
+      modify @RootPropCache (M.insert atomContent msg)
+      
 
   GetClassName win ->
     input >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return n
@@ -203,11 +217,11 @@ runEventFlags
 runEventFlags = interpret $ \case
   SelectFlags w flags -> input >>= \d -> embed @IO $ do
     selectInput d w flags
-    -- This is a nasty function which just grabs button presses on a window
+    -- This is just grabs button presses on a window
     -- TODO why am I doing this here?
-    grabButton d anyButton anyModifier w False 
-               (buttonPressMask .|. buttonReleaseMask) 
-               grabModeSync grabModeAsync none none
+    -- grabButton d anyButton anyModifier w False 
+    --            (buttonPressMask .|. buttonReleaseMask) 
+    --            grabModeAsync grabModeAsync none none
 
   SelectButtons NewMode {modeName = name}  -> do
       d <- input @Display
@@ -249,24 +263,32 @@ data Mover m a where
   ConfigureWin :: Event -> Mover m ()
 makeSem ''Mover
 
+type LocCache = Map Window Rect
+type SDLLocCache = Map SDL.Window Rect
+type WindowStack = [Window]
 -- Move windows using IO
-runMover :: Interpret Mover r a
+runMover :: Members (States [LocCache, SDLLocCache, WindowStack]) r
+         => Interpret Mover r a
 runMover = interpret $ \case
-  ChangeLocation win (Rect x y h w) -> do
-    d <- input
-    void . embed $ moveWindow d win x y >> resizeWindow d win h w
+  ChangeLocation win r@(Rect x y h w) -> do
+    unlessM (maybe False (== r) <$> (M.!? win) <$> get) $ do
+      d <- input
+      void . embed $ moveWindow d win x y >> resizeWindow d win h w
+    modify $ M.insert win r
 
-  ChangeLocationS win (Rect x y h w) -> do
+  ChangeLocationS win r@(Rect x y h w) -> do
     -- Avoid moving the SDL windows more than we need to
-    SDL.V2 oldX oldY <- embed @IO $ SDL.getWindowAbsolutePosition win
-    SDL.V2 oldH oldW <- embed @IO $ SDL.get $ SDL.windowSize win
-    when (x /= fromIntegral oldX || y /= fromIntegral oldY || w /= fromIntegral oldW || h /= fromIntegral oldH) $ do
+    unlessM (maybe False (== r) <$> (M.!? win) <$> get) $ do
       embed @IO $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
       SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
+    modify $ M.insert win r
 
   Restack wins -> do
-    d <- input
-    void . embed $ restackWindows d wins
+    unlessM ((== wins) <$> get) $ do
+      d <- input
+      void . embed $ restackWindows d wins
+    put wins
+
 
   ConfigureWin ConfigureRequestEvent {..} ->
     let wc = WindowChanges ev_x
@@ -288,9 +310,11 @@ data Minimizer m a where
   SetFocus :: Window -> Minimizer m ()
 makeSem ''Minimizer
 
+newtype FocusedCache = FocusedCache Window
+  deriving Eq
 -- |Do the actions in IO
 runMinimizer
-  :: Member (State (Set Window)) r => Interpret Minimizer r a
+  :: Members (States [Set Window, FocusedCache]) r => Interpret Minimizer r a
 runMinimizer = interpret $ \case
   Minimize win -> do
     d <- input
@@ -310,9 +334,11 @@ runMinimizer = interpret $ \case
       modify $ S.delete win
       embed @IO $ mapWindow d win
 
-  SetFocus w -> input @Display >>= \d -> embed @IO $ do
+  SetFocus w -> input @Display >>= \d -> do
+    unlessM ((== FocusedCache w) <$> get @FocusedCache) $ embed @IO $ do
       setInputFocus d w revertToNone currentTime
       allowEvents d (replayPointer) currentTime
+    put $ FocusedCache w
 
 -- * Executor
 
@@ -388,9 +414,17 @@ data GlobalX m a where
    Exit :: GlobalX m Void
 makeSem ''GlobalX
 
+-- |Filter out events we don't care about
+eventFilter :: RootWindow -> Event -> Bool
+eventFilter root ConfigureEvent {ev_window=win} = win == root
+-- TODO why does capturing either of these break everything?
+eventFilter _ ButtonEvent {ev_button=button} = all (/= button) [button5, button4]
+eventFilter _ CrossingEvent {ev_detail=detail} = detail /= 2
+eventFilter _ _ = True
+
 -- |IO
 runGlobalX
-  :: (Members [Input RootWindow, Input Conf, State Bool] r)
+  :: (Members [Input RootWindow, Input Conf, State Bool, State (Fix Tiler)] r)
   => Interpret GlobalX r a
 runGlobalX = interpret $ \case
   GetTree -> do
@@ -432,16 +466,15 @@ runGlobalX = interpret $ \case
   GetXEvent -> do
     d <- input
     root <- input
-    embed @IO $
-      untilM (isConfNot root) $ do
+    embed @IO $ do
+      m <- untilM (eventFilter root) $ do
         allocaXEvent $ \p -> do
+          
+          -- eventsQueued d queuedAfterReading >>= System.IO.print
           nextEvent d p
           ep <- getEvent p 
           return ep
-      -- allocaXEvent \p -> nextEvent d p >> getEvent p
-    where isConfNot root ConfigureEvent {ev_window=win} = win == root
-          isConfNot _ _ = True
-
+      return m
   CheckXEvent -> do
     d <- input 
     root <- input
@@ -461,7 +494,7 @@ runGlobalX = interpret $ \case
           -- Otherwise, we loop for a while
           untilM (<1) $ allocaXEvent \p -> do
             event <- peekEvent d p >> getEvent p
-            if isConfNot root event 
+            if eventFilter root event 
                -- We got something that won't be filtered so stop looping.
               then writeIORef pRef (-1)
               -- We got something that will be filtered so drop it.
@@ -469,8 +502,6 @@ runGlobalX = interpret $ \case
             readIORef pRef
           -- If P ended at -1, return True because the queue wasn't empty
           (/= 0) <$> readIORef pRef
-     where isConfNot root ConfigureEvent {ev_window=win} = win == root
-           isConfNot _ _ = True
 
   Kill isSoft w -> input >>= \d -> embed @IO $ do
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
@@ -506,7 +537,7 @@ runGetButtons = runInputSem $ do
   embed @IO $ do 
     (_, _, _, _, _, _, _, b) <- queryPointer d w
 
-    allowEvents d (syncPointer) currentTime
+    allowEvents d (asyncPointer) currentTime
     return $ case b of
             _ | b .&. button1Mask /= 0-> LeftButton (0, 0)
               | b .&. button3Mask /= 0-> RightButton (0, 0)
@@ -534,7 +565,7 @@ runGetPointer = runInputSem $ input >>= \d -> do
 type DoAll r
   = (Members (States
         [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler]
-        , MouseButtons, Maybe Font.Font, Bool
+        , MouseButtons, Maybe Font.Font, Bool, Map Window Rect
         ]) r
     , Members (Inputs
         [ Conf, Window, Borders, Display, [Rect], (Int32, Int32), MouseButtons ]) r
@@ -556,18 +587,18 @@ doAll
 doAll t c m d w borders =
   void
     . runM
-    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] ::: None ::: Nothing ::: False ::: M.empty @String @Atom ::: HNil)
+    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @(Fix Tiler) ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: HNil)
     . fixState
     . runInputs (w ::: d ::: borders ::: c ::: HNil)
     . runGetScreens
     . runGetButtons
     . runGetPointer
     . runProperty
+    . runEventFlags
     . runGlobalX
     . runMinimizer
     . runMover
     . runExecutor
-    . runEventFlags
     . runColorer
  where
   -- TODO Is this bad? It allows us to refer to the root tiler as either fix or unfixed.

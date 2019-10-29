@@ -20,6 +20,7 @@ import           Data.Either                    ( )
 import           Tiler
 import           FocusList
 import           Data.Bits
+import qualified Data.Map.Strict as M
 
 -- Event Handlers --
 
@@ -95,6 +96,7 @@ handler (XorgEvent DestroyWindowEvent {..}) = do
   -- after ripping something out? These errors are kind of annoying.
   modify @(Fix Tiler) $ fromMaybe (error "No roooot!") . 
     cata (fmap Fix . (>>= ripOut (Fix $ Wrap $ ChildParent ev_window ev_window)) . reduce)
+  modify $ M.delete ev_window
   return []
 
 -- Called when a window should no longer be drawn
@@ -113,6 +115,7 @@ handler (XorgEvent UnmapEvent {..}) = do
     modify @(Fix Tiler) $ 
       fromMaybe (error "No roooot!") . 
         cata (fmap Fix . (>>= ripOut (Fix $ Wrap $ ChildParent ev_window ev_window)) . reduce)
+    modify $ M.delete ev_window
   return []
 
 -- Tell the window it can configure itself however it wants.
