@@ -51,6 +51,8 @@ tempModePostprocessor om bk (KeyboardEvent _ True) = [ChangePostprocessor $ Temp
 tempModePostprocessor _ _ _ = []
 
 
+
+
 -- | The bulk of the program
 -- TODO Make individual handler functions
 -- Why make individual functions? First, it would allow better use of the effect system.
@@ -489,13 +491,6 @@ handler ExitNow = absurd <$> exit
 handler ToggleLogging = toggleLogs >> return []
 
 -- Random stuff --
-
--- Used for reparenting
-manage :: Members [EventFlags, GlobalX] r => Window -> Sem r (Fix Tiler)
-manage w = do
-  newWin <- newWindow w
-  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask )-- .|. buttonPressMask .|. buttonReleaseMask)
-  return . Fix $ Wrap $ ChildParent newWin w
 
 -- Find a window with a class name
 getWindowByClass
