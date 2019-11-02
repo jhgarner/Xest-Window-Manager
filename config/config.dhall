@@ -1,5 +1,5 @@
 let Action = https://raw.githubusercontent.com/jhgarner/Xest-Window-Manager/master/config/actions
-in let Tiler = https://raw.githubusercontent.com/jhgarner/Xest-Window-Manager/master/config/tilers
+let Tiler = https://raw.githubusercontent.com/jhgarner/Xest-Window-Manager/master/config/tilers
 in {
   keyBindings = [
     {key = "t", mode = "Normal", actions = [Action.RunCommand "termite"]},
@@ -38,8 +38,8 @@ in {
     {key = "q", mode = "Normal", actions = [Action.ZoomOutMonitor]}
   ],
   definedModes = [
-    { modeName = "Insert", introActions = [] : List ./actions, exitActions = [] : List ./actions, hasButtons = False, hasBorders = False },
-    { modeName = "Resize", introActions = [] : List ./actions, exitActions = [] : List ./actions, hasButtons = True, hasBorders = True },
+    { modeName = "Insert", introActions = [] : List Action, exitActions = [] : List Action, hasButtons = False, hasBorders = False },
+    { modeName = "Resize", introActions = [] : List Action, exitActions = [] : List Action, hasButtons = True, hasBorders = True },
     { modeName = "Normal", introActions = [Action.ShowWindow "Polybar"], exitActions = [Action.HideWindow "Polybar"], hasButtons = False, hasBorders = True}
   ]
 }

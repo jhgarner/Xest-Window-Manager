@@ -24,9 +24,15 @@ add _ _ _ _ = error "Attempted to add to something that isn't addable"
 
 
 -- | Remove a Tiler if it exists
-ripOut :: Fix Tiler -> Tiler (Fix Tiler) -> Maybe (Tiler (Fix Tiler))
-ripOut toDelete t = reduce $ fmap isEqual t
-  where isEqual t = if t == toDelete then Nothing else Just t
+ripOut :: Window -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
+ripOut toDelete = maybe (error "No root!") unfix 
+  . cata isEqual . Fix
+  where isEqual :: Tiler (Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
+        isEqual (Wrap (ChildParent parent window))
+          | window == toDelete = Nothing
+          | otherwise = Just . Fix . Wrap $ ChildParent parent window
+        isEqual t = fmap Fix . reduce $ t
+
 
 
 -- | Removes empty Tilers
@@ -69,23 +75,23 @@ getFocused = fst . popWindow (Right Focused)
 
 -- | Places a tiler somewhere on the screen without actually placing it
 placeWindow
-  :: Bool -> Int -> [Rect] -> Transformer Plane
+  :: [Rect] -> Transformer Plane
   -> Tiler (Fix Tiler)
   -> Tiler (Transformer Plane, Fix Tiler)
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
-placeWindow _ _ _ _ (Wrap win) = Wrap win
-placeWindow _ _ _ p (Reflect t) = Reflect (newTransformer, t)
+placeWindow _ _ (Wrap win) = Wrap win
+placeWindow _ p (Reflect t) = Reflect (newTransformer, t)
   where trans (Plane (Rect rx ry rw rh) keepD) = Plane (Rect ry rx rh rw) keepD
         newTransformer = overReal (\(Plane r d) -> Plane r $ d+1) $ addTrans trans trans p
-placeWindow _ _ _ (Transformer i o (Plane r depth)) (FocusFull (Fix t)) = 
+placeWindow _ (Transformer i o (Plane r depth)) (FocusFull (Fix t)) = 
   case t of
     InputController i' realt -> FocusFull (Transformer i o (Plane r $ depth + 1), Fix $ InputController i' realt)
     Monitor i' realt -> FocusFull (Transformer i o (Plane r $ depth + 1), Fix $ Monitor i' realt)
     _ -> modFocused (first $ const (Transformer i o . Plane r $ depth + 2)) $ fmap (Transformer i o . Plane (Rect 0 0 0 0) $ depth + 1,) t
 
 -- | Place tilers along an axis
-placeWindow _ _ _ (Transformer input o p) (Horiz fl) =
+placeWindow _ (Transformer input o p) (Horiz fl) =
     let numWins = fromIntegral $ flLength fl -- Find the number of windows
         location i lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round(size * fromIntegral w)) h
         newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
@@ -95,17 +101,17 @@ placeWindow _ _ _ (Transformer input o p) (Horiz fl) =
   where realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
         (Plane Rect {..} depth) = input p
 
-placeWindow _ _ _ (Transformer i o p) (Floating ls) =
+placeWindow _ (Transformer i o p) (Floating ls) =
   Floating $ map (\case
     Top (rr@RRect {..}, t) -> Top (rr, (Transformer i o . o $ Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
     Bottom t -> Bottom (Transformer i o . o $ Plane r $ depth + 1, t)) ls
       where (Plane r@Rect{..} depth) = i p
 
 -- | Has no effect on the placement
-placeWindow _ _ _ trans (InputController i t) =
+placeWindow _ trans (InputController i t) =
   InputController i $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) <$> t
 
-placeWindow _ _ screens trans (Monitor i t) =
+placeWindow screens trans (Monitor i t) =
    Monitor i $ (overReal (\(Plane _ depth) -> Plane (Rect x y w h) depth) trans,) <$> t
      where Rect x y w h = fromMaybe (error $ "Not enough screens " ++ show i) $ index screens i
 
@@ -192,9 +198,9 @@ moveToClosestParent predicateUnmove predicateMove t
           elementToFoc :: Fix Tiler <- find (\(_, tc) -> isUnmovable tc || isBoth tc) t >>= fst
           reduced <- unfix <$> reduceAndFixed
           Just $ Just $ Fix $ focus elementToFoc reduced 
-        hasBothIndividually t = 
-          if any (isUnmovable . snd) t 
-             then asum $ fmap (getMovable . snd) t
+        hasBothIndividually tiler = 
+          if any (isUnmovable . snd) tiler
+             then asum $ fmap (getMovable . snd) tiler
              else Nothing
 
 -- |Specialization of the above for moving an InputController towards a window

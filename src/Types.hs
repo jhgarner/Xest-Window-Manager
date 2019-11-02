@@ -74,7 +74,7 @@ data ChildParent = ChildParent Window Window
   deriving Show
 
 inChildParent :: Window -> ChildParent -> Bool
-inChildParent w (ChildParent ww ww') = w == ww || w == ww'
+inChildParent win (ChildParent ww ww') = win == ww || win == ww'
 
 instance Eq ChildParent where
   (ChildParent a b) == (ChildParent a' b') = a == a' || b == b'
@@ -118,7 +118,6 @@ data Action
   = Insert Insertable
   -- | ChangeLayoutTo Insertable
   | ChangeNamed String
-  | ChangePostprocessor KeyStatus
   | Move Direction
   | RunCommand String
   | ChangeModeTo Mode
@@ -134,8 +133,6 @@ data Action
   | KillActive
   | ExitNow
   | ToggleLogging
-  | KeyboardEvent KeyTrigger Bool -- TODO use something other than Bool for keyPressed
-  | XorgEvent Event
   deriving Show
 
 -- | A series of commands to be executed
@@ -148,18 +145,17 @@ data Mode = NewMode { modeName     :: Text
                     , hasButtons :: Bool
                     , hasBorders :: Bool
                     }
+  deriving Show
 instance Eq Mode where
   n1 == n2 = modeName n1 == modeName n2
-
-instance Show Mode where
-  show (NewMode t _ _ _ _) = show t
 
 -- | The user provided configuration.
 data Conf = Conf { keyBindings  :: [KeyTrigger]
                  , definedModes :: [Mode]
                  }
+  deriving Show
 
-data KeyStatus = New Mode KeyTrigger | Temp Mode KeyTrigger | Default
+data KeyStatus = New Mode KeyCode | Temp Mode KeyCode | Default
 
 instance Show KeyStatus where
   show _ = "Key status"
@@ -170,6 +166,10 @@ type Borders = (SDL.Window, SDL.Window, SDL.Window, SDL.Window)
 
 data MouseButtons = LeftButton (Int, Int) | RightButton (Int, Int) | None
   deriving Show
+getButtonLoc :: MouseButtons -> (Int, Int)
+getButtonLoc (LeftButton l) = l
+getButtonLoc (RightButton l) = l
+getButtonLoc _ = error "Tried to get a button when none exist"
 
 -- TODO should this all be here
 type Reparenter = Maybe (Tiler (Fix Tiler)) -> Maybe (Fix Tiler)

@@ -19,7 +19,6 @@ import           Standard
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
-import           Polysemy.Output
 import           Polysemy.Several
 import           Data.Bits
 import           Data.Kind
@@ -34,9 +33,6 @@ import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
 import           Graphics.X11.Xlib.Atom
 import           Graphics.X11.Xlib.Color
-import           Graphics.X11.Xlib.Context
-import           Graphics.X11.Xlib.Font
-import           Data.Proxy
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
 import           Foreign.Storable
@@ -47,7 +43,6 @@ import           System.Process
 import           Types
 import qualified SDL
 import qualified SDL.Font as Font
-import Tiler
 
 
 -- * Helper Polysemy functions
@@ -143,14 +138,14 @@ runProperty :: Members (States [AtomCache, RootPropCache]) r
             => Member (Input RootWindow) r
             => Interpret Property r a
 runProperty = interpret $ \case
-  GetProperty i atom win -> input >>= \d -> embed @IO $ do
+  GetProperty i atom win -> input >>= \d -> embed @IO $
     fromMaybe [] <$> rawGetWindowProperty i d atom win
 
   PutProperty i atomContent w atomType msg -> do
     d <- input
     rootWin <- input
     rootPropCache <- get @RootPropCache
-    unless (rootWin == w && maybe False (== msg) (rootPropCache M.!? atomContent)) $ do
+    unless (rootWin == w && (== Just msg) (rootPropCache M.!? atomContent)) $ do
       let longMsg = fmap fromIntegral msg
           charMsg = fmap fromIntegral msg
       embed @IO $ case i of
@@ -215,7 +210,7 @@ runEventFlags
   :: Members (Inputs [RootWindow, Conf]) r
   => Interpret EventFlags r a
 runEventFlags = interpret $ \case
-  SelectFlags w flags -> input >>= \d -> embed @IO $ do
+  SelectFlags w flags -> input >>= \d -> embed @IO $
     selectInput d w flags
     -- This is just grabs button presses on a window
     -- TODO why am I doing this here?
@@ -223,7 +218,7 @@ runEventFlags = interpret $ \case
     --            (buttonPressMask .|. buttonReleaseMask) 
     --            grabModeAsync grabModeAsync none none
 
-  SelectButtons NewMode {modeName = name}  -> do
+  SelectButtons m@NewMode {modeName = name, hasButtons = hb}  -> do
       d <- input @Display
       ms <- inputs definedModes
       root <- input @RootWindow
@@ -231,9 +226,7 @@ runEventFlags = interpret $ \case
       -- Otherwise, don't because capturing the mouse prevents everyone
       -- else from using it.
       void . embed @IO $
-        if null $ filter (\(NewMode m _ _ hasButtons _) -> 
-                            m == name && hasButtons
-                         ) ms
+        if not hb
            then ungrabPointer d currentTime
            else void $ grabPointer d root False pointerMotionMask grabModeAsync
                                    grabModeAsync root none currentTime
@@ -271,14 +264,14 @@ runMover :: Members (States [LocCache, SDLLocCache, WindowStack]) r
          => Interpret Mover r a
 runMover = interpret $ \case
   ChangeLocation win r@(Rect x y h w) -> do
-    unlessM (maybe False (== r) <$> (M.!? win) <$> get) $ do
+    unlessM ((== Just r) . (M.!? win) <$> get) $ do
       d <- input
       void . embed $ moveWindow d win x y >> resizeWindow d win h w
     modify $ M.insert win r
 
   ChangeLocationS win r@(Rect x y h w) -> do
     -- Avoid moving the SDL windows more than we need to
-    unlessM (maybe False (== r) <$> (M.!? win) <$> get) $ do
+    unlessM ((== Just r) . (M.!? win) <$> get) $ do
       embed @IO $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
       SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
     modify $ M.insert win r
@@ -337,7 +330,7 @@ runMinimizer = interpret $ \case
   SetFocus w -> input @Display >>= \d -> do
     unlessM ((== FocusedCache w) <$> get @FocusedCache) $ embed @IO $ do
       setInputFocus d w revertToNone currentTime
-      allowEvents d (replayPointer) currentTime
+      allowEvents d replayPointer currentTime
     put $ FocusedCache w
 
 -- * Executor
@@ -382,12 +375,11 @@ runColorer = interpret $ \case
   GetColor color -> do
     display <- input @Display
     let colorMap = defaultColormap display (defaultScreen display)
-    embed @IO $ fmap fst $ allocNamedColor display colorMap color
+    embed @IO $ fst <$> allocNamedColor display colorMap color
   ChangeColor w (h, s, v) -> do
     winSurface <- embed @IO $ SDL.getWindowSurface w
     embed @IO $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
   DrawText w s -> do
-    display <- input @Display
     whenM (null <$> get @(Maybe Font.Font)) $ do
       font <- embed @IO $ Font.load "/usr/share/fonts/adobe-source-code-pro/SourceCodePro-Medium.otf" 10
       put $ Just font
@@ -418,7 +410,7 @@ makeSem ''GlobalX
 eventFilter :: RootWindow -> Event -> Bool
 eventFilter root ConfigureEvent {ev_window=win} = win == root
 -- TODO why does capturing either of these break everything?
-eventFilter _ ButtonEvent {ev_button=button} = all (/= button) [button5, button4]
+eventFilter _ ButtonEvent {ev_button=button} = button `notElem` [button5, button4]
 eventFilter _ CrossingEvent {ev_detail=detail} = detail /= 2
 eventFilter _ _ = True
 
@@ -460,21 +452,18 @@ runGlobalX = interpret $ \case
   MoveToRoot w -> do
     d         <- input @Display
     rootWin       <- input @RootWindow
-    let defScr = defaultScreen d
     embed $ reparentWindow d w rootWin 0 0
 
   GetXEvent -> do
     d <- input
     root <- input
-    embed @IO $ do
-      m <- untilM (eventFilter root) $ do
+    embed @IO $
+      untilM (eventFilter root) $
         allocaXEvent $ \p -> do
           
           -- eventsQueued d queuedAfterReading >>= System.IO.print
           nextEvent d p
-          ep <- getEvent p 
-          return ep
-      return m
+          getEvent p 
   CheckXEvent -> do
     d <- input 
     root <- input
@@ -483,7 +472,7 @@ runGlobalX = interpret $ \case
       -- and that would be true except we filter out Configure notifications.
       -- So if the queue were full of configure notifications, we would still
       -- end up blocking.
-      p <- eventsQueued d queuedAlready
+      p <- eventsQueued d queuedAfterReading
       -- I decided to write this super imperitively.
       -- Basically, we want to remove the top p events if they would be filtered
       pRef <- newIORef $ fromIntegral p :: IO (IORef Int)
@@ -492,7 +481,7 @@ runGlobalX = interpret $ \case
          then return False
          else do
           -- Otherwise, we loop for a while
-          untilM (<1) $ allocaXEvent \p -> do
+          untilM (<1) $ allocaXEvent $ \p -> do
             event <- peekEvent d p >> getEvent p
             if eventFilter root event 
                -- We got something that won't be filtered so stop looping.
@@ -537,7 +526,7 @@ runGetButtons = runInputSem $ do
   embed @IO $ do 
     (_, _, _, _, _, _, _, b) <- queryPointer d w
 
-    allowEvents d (asyncPointer) currentTime
+    allowEvents d asyncPointer currentTime
     return $ case b of
             _ | b .&. button1Mask /= 0-> LeftButton (0, 0)
               | b .&. button3Mask /= 0-> RightButton (0, 0)
@@ -572,7 +561,7 @@ type DoAll r
     , Members
         [ Mover, Property, Minimizer , Executor , GlobalX , Colorer, EventFlags, Embed IO ] r
     )
-  => Sem r [Action]
+  => Sem r ()
 
 -- Want to do everything in IO? Use this!
 doAll
@@ -609,3 +598,9 @@ doAll t c m d w borders =
   fixState = interpret $ \case
     Get         -> Fix <$> get
     Put (Fix s) -> put s
+
+
+instance Semigroup a => Semigroup (Sem r a) where
+  (<>) = liftA2 (<>)
+instance Monoid a => Monoid (Sem r a) where
+  mempty = pure mempty
