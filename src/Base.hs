@@ -487,8 +487,10 @@ runGlobalX = interpret $ \case
                -- We got something that won't be filtered so stop looping.
               then writeIORef pRef (-1)
               -- We got something that will be filtered so drop it.
-              else modifyIORef pRef (subtract 1) >> nextEvent d p
+              else nextEvent d p >> eventsQueued d queuedAfterReading
+                      >>= writeIORef pRef . fromIntegral
             readIORef pRef
+
           -- If P ended at -1, return True because the queue wasn't empty
           (/= 0) <$> readIORef pRef
 

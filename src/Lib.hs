@@ -124,6 +124,8 @@ startWM = do
 -- | Performs the main logic. Does it all!
 mainLoop :: DoAll r
 mainLoop = do
+  printMe "========================"
+  printMe "Tiler state at beginning of loop:\n"
   get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
   whenM (not <$> checkXEvent) $ do
     -- get @(Tiler (Fix Tiler)) >>= \t -> traceM (show t ++ "\n\n")
@@ -147,7 +149,7 @@ mainLoop = do
 
   -- Get the next event from the X server. This will block the main thread.
   -- getXEvent >>= (\x -> traceShowM x >> return x) >>= \case
-  getXEvent >>= \case
+  getXEvent >>= (\x -> printMe ("evaluating event: " ++ show x) >> return x) >>= \case
     MapRequestEvent {..} -> mapWin ev_window
     DestroyWindowEvent {..} -> killed ev_window
     UnmapEvent {..} -> unmapWin ev_window
@@ -163,10 +165,10 @@ mainLoop = do
 
   where
     executeActions :: Action -> DoAll r
-    executeActions = \case
+    executeActions action = printMe ("Action: " ++ show action) >> case action of
       RunCommand command -> execute command
-      ShowWindow wName -> getWindowByClass wName >>= mapM_ minimize
-      HideWindow wName -> getWindowByClass wName >>= mapM_ restore
+      ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
+      HideWindow wName -> getWindowByClass wName >>= mapM_ minimize
       ZoomInInput -> zoomInInput
       ZoomOutInput -> zoomOutInput
       ZoomInMonitor -> zoomInMonitor
