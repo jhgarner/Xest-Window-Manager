@@ -468,11 +468,15 @@ runGlobalX = interpret $ \case
     d <- input 
     root <- input
     embed @IO $ do
+      -- Sync ourselves with the server
+      sync d False
+
       -- If p > 0, getting the next event won't block
       -- and that would be true except we filter out Configure notifications.
       -- So if the queue were full of configure notifications, we would still
       -- end up blocking.
-      p <- eventsQueued d queuedAfterReading
+      p <- eventsQueued d queuedAfterFlush
+
       -- I decided to write this super imperitively.
       -- Basically, we want to remove the top p events if they would be filtered
       pRef <- newIORef $ fromIntegral p :: IO (IORef Int)
@@ -487,8 +491,8 @@ runGlobalX = interpret $ \case
                -- We got something that won't be filtered so stop looping.
               then writeIORef pRef (-1)
               -- We got something that will be filtered so drop it.
-              else nextEvent d p >> eventsQueued d queuedAfterReading
-                      >>= writeIORef pRef . fromIntegral
+              else nextEvent d p >> (eventsQueued d queuedAfterReading
+                      >>= (writeIORef pRef . fromIntegral))
             readIORef pRef
 
           -- If P ended at -1, return True because the queue wasn't empty
