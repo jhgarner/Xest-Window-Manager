@@ -201,7 +201,8 @@ data EventFlags m a where
                 -> EventFlags m ()
 
   -- |Grab all of the key evetns on the root window
-  RebindKeys :: Mode -- ^ The mode we want to bind keys for
+  RebindKeys :: Mode -- ^ The mode we want to unbind keys for
+             -> Mode -- ^ The mode we want to bind keys for
              -> EventFlags m ()
 makeSem ''EventFlags
 
@@ -231,18 +232,21 @@ runEventFlags = interpret $ \case
            else void $ grabPointer d root False pointerMotionMask grabModeAsync
                                    grabModeAsync root none currentTime
 
-  RebindKeys activeMode -> do
+  RebindKeys oldMode activeMode -> do
     Conf kb _ <- input @Conf
     d         <- input @Display
     win       <- input @RootWindow
-    embed $ forM_ kb $ toggleModel activeMode d win
 
-   where
-    -- Toggles which keys are grabbed based on the mode
-    toggleModel :: Mode -> Display -> Window -> KeyTrigger -> IO ()
-    toggleModel m d win (k, km, _) = if m == km
-      then grabKey d k anyModifier win True grabModeAsync grabModeAsync
-      else ungrabKey d k anyModifier win
+    -- Unbind the old keys
+    embed $ forM_ kb $
+      \(k, km, _) -> when (oldMode == km)
+        (ungrabKey d k anyModifier win)
+
+    -- bind the new ones
+    embed $ forM_ kb $
+      \(k, km, _) -> when (activeMode == km)
+        (grabKey d k anyModifier win True grabModeAsync grabModeAsync)
+
 
 -- * Mover
 

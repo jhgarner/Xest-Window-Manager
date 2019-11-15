@@ -170,6 +170,7 @@ keyDown keycode eventType
     case find (\(k, m, _) -> keycode == k && m == mode) bindings of
               Nothing -> return []
               Just (_, _, actions) -> do
+                trace ("key: " ++ show actions ++ " " ++ show mode ++ " " ++ show keycode) return ()
                 -- KeyStatus is a state machine which decides if we
                 -- need to act like vim or notepad.
                 -- If the user holds down a key then clicks another,

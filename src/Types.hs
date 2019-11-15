@@ -124,9 +124,11 @@ data Action
   | ShowWindow String
   | HideWindow String
   | ZoomInInput
+  | ZoomInInputSkip
   | ZoomOutInput
   | ZoomInMonitor
   | ZoomOutMonitor
+  | ZoomMonitorToInput
   | PopTiler
   | PushTiler
   | MakeSpecial

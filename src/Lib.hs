@@ -110,7 +110,7 @@ startWM = do
     $ evalState False
     $ runEventFlags
     $ runProperty
-    $ rebindKeys initialMode >> input @Screens
+    $ rebindKeys initialMode initialMode >> input @Screens
   let Just (Fix rootTiler) = foldl' (\acc (i, _) -> Just . Fix . Monitor i . Just . Fix . InputController i $ acc) Nothing $ zip [0..] screens
 
   setDefaultErrorHandler
@@ -170,9 +170,11 @@ mainLoop = do
       ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
       HideWindow wName -> getWindowByClass wName >>= mapM_ minimize
       ZoomInInput -> zoomInInput
+      ZoomInInputSkip -> zoomInInputSkip
       ZoomOutInput -> zoomOutInput
       ZoomInMonitor -> zoomInMonitor
       ZoomOutMonitor -> zoomOutMonitor
+      ZoomMonitorToInput -> zoomMonitorToInput
       -- TODO recursion alert!
       ChangeModeTo mode -> changeModeTo mode >>= foldMap executeActions
       Move dir -> moveDir dir

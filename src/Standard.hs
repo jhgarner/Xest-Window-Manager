@@ -25,6 +25,9 @@ module Standard
     , anyInList
     , Void
     , absurd
+    , DeferedList(..)
+    , DeferedListF(..)
+    , undefer
     ) where
 
 import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
@@ -111,3 +114,15 @@ newtype Void = Void Void
 absurd :: Void -> a
 absurd a = a `seq` spin a where
    spin (Void b) = spin b
+
+
+data DeferedList a = DNil | DCons a (DeferedList a) | DActive (DeferedList a)
+makeBaseFunctor ''DeferedList
+
+undefer :: DeferedList a -> [a]
+undefer = either (const []) id . cata undefer'
+  where undefer' DNilF = Left []
+        undefer' (DConsF a (Left as)) = Left $ a : as
+        undefer' (DConsF _ (Right as)) = Right as
+        undefer' (DActiveF (Left as)) = Right as
+        undefer' (DActiveF (Right _)) = error "Double deferred!"

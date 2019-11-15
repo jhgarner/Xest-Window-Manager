@@ -17,6 +17,29 @@ import Core
 import           FocusList
 
 
+-- |Zoom in to the next decision
+zoomInInputSkip :: Members (Inputs [Pointer, Screens]) r
+            => Members (States [Fix Tiler, Tiler (Fix Tiler)]) r
+            => Sem r ()
+zoomInInputSkip = do
+  root <- get @(Tiler (Fix Tiler))
+  i <- maybe 0 fst <$> getCurrentScreen
+  replicateM_ (cata numToSkip . undefer $ ana (getPath i) root) zoomInInput
+
+  where
+    getPath :: Int -> Tiler (Fix Tiler) -> DeferedListF (Tiler (Fix Tiler)) (Tiler (Fix Tiler))
+    getPath i it@(InputController i' t)
+      | i == i' = maybe DNilF (DActiveF . unfix) t
+      | otherwise = maybe DNilF (DConsF it . unfix) t
+    getPath _ mt@(Monitor _ t) = maybe DNilF (DConsF mt . unfix) t
+    getPath _ (Wrap _) = DNilF
+    getPath _ t = DConsF t $ unfix (getFocused t)
+
+    numToSkip Nil = 0
+    numToSkip (Cons (Horiz _) _) = 1
+    numToSkip (Cons (Floating _) _) = 1
+    numToSkip (Cons _ i) = i + 1
+
 -- |Moves the input controller for a given screen away from the root.
 zoomInInput :: Member (State (Fix Tiler)) r
             => Members (Inputs [Pointer, Screens]) r
@@ -66,12 +89,18 @@ zoomOutInput :: Member (State (Fix Tiler)) r
 zoomOutInput = do
   i <- maybe 0 fst <$> getCurrentScreen
 
-  -- This isJust makes sure we don't zoom ourselves out of existence.
   unlessM (isJust . isController i <$> get @(Fix Tiler)) 
     $ modify $ fromMaybe (error "e") . para (reorder i)
 
  where
   reorder :: Int -> Tiler (Fix Tiler, Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
+  -- The controller should always be in front of the Monitor
+  reorder i m@(Monitor i' (Just (Fix (InputController i'' _), t)))
+    -- | i'' == i' && i' == i = Just . Fix $ InputController i'' t
+    | i'' == i' && i' == i = t
+    | i == i'' = Just . Fix . InputController i'' . Just . Fix $ Monitor i' t
+    | otherwise = fmap Fix . reduce $ fmap snd m
+
   -- The input disappears and will hopefully be added back later
   reorder i (InputController i' t)
     | i == i' = t >>= snd
@@ -79,12 +108,6 @@ zoomOutInput = do
       case t >>= isController i . fst of
         Just controller -> Just . Fix . controller . Just . Fix . InputController i' $ t >>= snd
         Nothing -> Just . Fix . InputController i' $ t >>= snd
-
-  -- The controller should always be in front of the Monitor
-  reorder i m@(Monitor i' (Just (Fix (InputController i'' _), t)))
-    | i'' == i' && i' == i = Just . Fix $ InputController i'' t
-    | i == i'' = Just . Fix . InputController i'' . Just . Fix $ Monitor i' t
-    | otherwise = fmap Fix . reduce $ fmap snd m
 
   -- If the tiler held the controller, add back the controller around it
   reorder i t = fmap Fix $ 
@@ -94,9 +117,26 @@ zoomOutInput = do
 
   isController i (Fix (InputController i' _)) = if i == i' then Just $ InputController i' else Nothing
   isController i (Fix (Monitor i' (Just (Fix (InputController i'' _)))))
-    | i == i' && i' == i'' = Just $ Monitor i'
+    | i == i' && i' == i'' = Just $ Monitor i' . Just . Fix . InputController i''
     | otherwise = Nothing
   isController _ _                         = Nothing
+
+zoomMonitorToInput :: Member (State (Fix Tiler)) r
+               => Members (Inputs [Pointer, Screens]) r
+               => Sem r ()
+zoomMonitorToInput = do
+  i <- maybe 0 fst <$> getCurrentScreen
+  modify $ \root -> fromMaybe root (cata (insertIt i) root)
+
+  where 
+    insertIt :: Int -> Tiler (Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
+    insertIt i (InputController i' t)
+      | i == i' = Just . Fix . Monitor i . Just . Fix . InputController i' $ join t
+      | otherwise = Just . Fix . InputController i' $ join t
+    insertIt i (Monitor i' childT)
+      | i == i' = join childT
+      | otherwise = Just . Fix . Monitor i' $ join childT
+    insertIt _ t = Fix <$> reduce t
 
 zoomOutMonitor :: Member (State (Fix Tiler)) r
                => Members (Inputs [Pointer, Screens]) r
@@ -126,7 +166,8 @@ changeModeTo :: Members [State Mode, EventFlags] r
              -> Sem r Actions
 changeModeTo newM = do
   eActions <- gets @Mode exitActions
-  rebindKeys newM
+  oldMode <- get
+  rebindKeys oldMode newM
   selectButtons newM
   put newM
   --Combine the two lists of actions to be executed. Execute exit actions first.
