@@ -63,6 +63,7 @@ data Action
   | ZoomInMonitor
   | ZoomMonitorToInput
   | ZoomOutInput
+  | ZoomOutInputSkip
   | ZoomOutMonitor
   | PopTiler
   | PushTiler
@@ -83,6 +84,7 @@ actionToType _ ZoomInInputSkip        = T.ZoomInInputSkip
 actionToType _ ZoomOutInput       = T.ZoomOutInput
 actionToType _ ZoomInMonitor        = T.ZoomInMonitor
 actionToType _ ZoomOutMonitor       = T.ZoomOutMonitor
+actionToType _ ZoomOutInputSkip       = T.ZoomOutInputSkip
 actionToType _ ZoomMonitorToInput       = T.ZoomMonitorToInput
 actionToType _ PopTiler           = T.PopTiler
 actionToType _ PushTiler          = T.PushTiler

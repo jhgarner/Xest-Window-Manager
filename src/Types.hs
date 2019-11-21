@@ -126,6 +126,7 @@ data Action
   | ZoomInInput
   | ZoomInInputSkip
   | ZoomOutInput
+  | ZoomOutInputSkip
   | ZoomInMonitor
   | ZoomOutMonitor
   | ZoomMonitorToInput

@@ -2,6 +2,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 
 {-|
@@ -21,6 +22,31 @@ import           Data.Either                    ( )
 import           Data.Char
 import           Tiler
 import           FocusList
+
+refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX] r
+        => Members (Inputs [Window, Borders, (Int32, Int32), [Rect]]) r
+        => Members (States [Fix Tiler, Mode, [Fix Tiler], Maybe ()]) r
+        => Sem r ()
+refresh = do
+    put @(Maybe ()) Nothing
+    -- get @(Tiler (Fix Tiler)) >>= \t -> traceM (show t ++ "\n\n")
+    -- tell X to focus whatever we're focusing
+    xFocus
+
+    -- Write the path to the upper border
+    writePath
+
+    -- restack all of the windows
+    topWindows <- makeTopWindows
+    bottomWindows <- getBottomWindows
+    get >>= render >>= restack . \wins -> topWindows ++ bottomWindows ++ wins
+
+
+    -- Do some EWMH stuff
+    setClientList
+    writeActiveWindow
+    i <- maybe 0 fst <$> getCurrentScreen
+    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput i (fmap (getDesktopState . unfix))
 
 -- |Find a window with a class name. This is used when
 -- showing or hiding a window.

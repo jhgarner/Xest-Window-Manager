@@ -127,25 +127,27 @@ mainLoop = do
   printMe "========================"
   printMe "Tiler state at beginning of loop:\n"
   get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
-  whenM (not <$> checkXEvent) $ do
-    -- get @(Tiler (Fix Tiler)) >>= \t -> traceM (show t ++ "\n\n")
-    -- tell X to focus whatever we're focusing
-    xFocus
+  whenM (isJust <$> get @(Maybe ()))
+    refresh
+  -- whenM (not <$> checkXEvent) $ do
+  --   -- get @(Tiler (Fix Tiler)) >>= \t -> traceM (show t ++ "\n\n")
+  --   -- tell X to focus whatever we're focusing
+  --   xFocus
 
-    -- Write the path to the upper border
-    writePath
+  --   -- Write the path to the upper border
+  --   writePath
 
-    -- restack all of the windows
-    topWindows <- makeTopWindows
-    bottomWindows <- getBottomWindows
-    get >>= render >>= restack . \wins -> topWindows ++ bottomWindows ++ wins
+  --   -- restack all of the windows
+  --   topWindows <- makeTopWindows
+  --   bottomWindows <- getBottomWindows
+  --   get >>= render >>= restack . \wins -> topWindows ++ bottomWindows ++ wins
 
 
-    -- Do some EWMH stuff
-    setClientList
-    writeActiveWindow
-    i <- maybe 0 fst <$> getCurrentScreen
-    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput i (fmap (getDesktopState . unfix))
+  --   -- Do some EWMH stuff
+  --   setClientList
+  --   writeActiveWindow
+  --   i <- maybe 0 fst <$> getCurrentScreen
+  --   get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput i (fmap (getDesktopState . unfix))
 
   -- Get the next event from the X server. This will block the main thread.
   -- getXEvent >>= (\x -> traceShowM x >> return x) >>= \case
@@ -170,8 +172,9 @@ mainLoop = do
       ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
       HideWindow wName -> getWindowByClass wName >>= mapM_ minimize
       ZoomInInput -> zoomInInput
-      ZoomInInputSkip -> zoomInInputSkip
+      ZoomInInputSkip -> zoomDirInputSkip undefer zoomInInput
       ZoomOutInput -> zoomOutInput
+      ZoomOutInputSkip -> zoomDirInputSkip (fromMaybe [] . tailMay . deferred) zoomOutInput
       ZoomInMonitor -> zoomInMonitor
       ZoomOutMonitor -> zoomOutMonitor
       ZoomMonitorToInput -> zoomMonitorToInput

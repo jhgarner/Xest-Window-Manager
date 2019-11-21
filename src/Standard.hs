@@ -28,6 +28,7 @@ module Standard
     , DeferedList(..)
     , DeferedListF(..)
     , undefer
+    , deferred
     ) where
 
 import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
@@ -126,3 +127,12 @@ undefer = either (const []) id . cata undefer'
         undefer' (DConsF _ (Right as)) = Right as
         undefer' (DActiveF (Left as)) = Right as
         undefer' (DActiveF (Right _)) = error "Double deferred!"
+
+deferred :: DeferedList a -> [a]
+deferred = either (const []) reverse . cata undefer'
+  where undefer' DNilF = Left []
+        undefer' (DConsF _ (Left _)) = Left $ error "Derferred broke"
+        undefer' (DConsF a (Right as)) = Right $ a : as
+        undefer' (DActiveF (Left _)) = Right []
+        undefer' (DActiveF (Right _)) = error "Double deferred!"
+

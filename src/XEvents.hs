@@ -23,7 +23,7 @@ import qualified Data.Map.Strict as M
 -- |Called when a new top level window wants to exist
 mapWin :: Member (State (Fix Tiler)) r
          => Members (Inputs [Pointer, Screens]) r
-         => Members [EventFlags, GlobalX] r
+         => Members [EventFlags, GlobalX, State (Maybe ())] r
          => Window
          -> Sem r ()
 mapWin window = do
@@ -54,6 +54,7 @@ mapWin window = do
     -- This adds the new window to whatever tiler comes after inputController
     -- If you've zoomed the inputController in, you get nesting as a result
     modify . cata . applyInput i $ Just . pushOrAdd tWin
+    put $ Just ()
 
   where 
     findWindow :: Window -> Fix Tiler -> Bool
@@ -63,20 +64,20 @@ mapWin window = do
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
-killed :: Members (States [Fix Tiler, Tiler (Fix Tiler), LocCache]) r
+killed :: Members (States [Fix Tiler, Tiler (Fix Tiler), LocCache, Maybe ()]) r
        => Member GlobalX r
        => Window 
        -> Sem r ()
 killed window = do
   -- Find the parent in the tree and kill it.
-  (findParent window <$> get) >>= traverse_ (kill True)
+  (findParent window <$> get) >>= traverse_ (kill True >=> const (put $ Just ()))
   -- Remove the window from the tree.
   modify @(Tiler (Fix Tiler)) $ ripOut window
   -- Remove the window from our cache
   modify @LocCache $ M.delete window
 
 -- |A window is either dying slowly or has been minimized.
-unmapWin :: Members (States [Fix Tiler, Tiler (Fix Tiler), Set Window, LocCache]) r
+unmapWin :: Members (States [Fix Tiler, Tiler (Fix Tiler), Set Window, LocCache, Maybe ()]) r
          => Member GlobalX r
          => Window 
          -> Sem r ()
@@ -94,7 +95,7 @@ unmapWin window =
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
 rootChange :: Members '[Input Screens] r
-           => Members (States [Tiler (Fix Tiler), Fix Tiler]) r
+           => Members (States [Tiler (Fix Tiler), Fix Tiler, Maybe ()]) r
            => Sem r ()
 rootChange = do
   -- Use Xinerama to figure out how many monitors there are.
@@ -111,6 +112,7 @@ rootChange = do
     -- TODO I don't think I like having to write Just . Fix . ... All the time. Maybe there's
     -- a better way to do it?
      modify @(Tiler (Fix Tiler)) $ Monitor (len - 1) . Just . Fix . InputController (len - 1) . Just . Fix
+  put Nothing
 
   where removeMonitor i = cata $ \case
           Monitor i' t
@@ -131,7 +133,7 @@ rootChange = do
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
 newFocus :: Members '[Input Screens, Property, Minimizer] r
-         => Member (State (Fix Tiler)) r
+         => Members (States [Fix Tiler, Maybe ()]) r
          => Window
          -> (Int32, Int32)
          -> Sem r ()
@@ -151,6 +153,7 @@ newFocus window mousePos = do
       realWin <- getChild window
       traverse_ setFocus realWin
       put @(Fix Tiler) newRoot
+      put $ Just ()
     -- TODO is this pointless right here?
     Nothing -> setFocus window
 
@@ -158,19 +161,19 @@ newFocus window mousePos = do
 -- |On key press, execute some actions
 keyDown :: Members '[Property, Minimizer] r
        => Members (Inputs [Conf, Pointer, MouseButtons]) r
-       => Members (States [Fix Tiler, Mode, KeyStatus]) r
+       => Members (States [Fix Tiler, Mode, KeyStatus, Maybe ()]) r
        => KeyCode
        -> EventType
        -> Sem r Actions
 keyDown keycode eventType
   | eventType == keyPress = do
+    put $ Just ()
     Conf bindings _ <- input @Conf
     mode <- get @Mode
     -- Is keycode (the key that was pressed) equal to k (the bound key)
     case find (\(k, m, _) -> keycode == k && m == mode) bindings of
               Nothing -> return []
               Just (_, _, actions) -> do
-                trace ("key: " ++ show actions ++ " " ++ show mode ++ " " ++ show keycode) return ()
                 -- KeyStatus is a state machine which decides if we
                 -- need to act like vim or notepad.
                 -- If the user holds down a key then clicks another,
@@ -186,6 +189,7 @@ keyDown keycode eventType
                 return actions
 
   | otherwise = do
+    put $ Just ()
     (newKS, actions) <- get @KeyStatus <&> \case
       New oldMode watchedKey ->
         if watchedKey == keycode
@@ -202,7 +206,7 @@ keyDown keycode eventType
 -- |When the user moves the mouse in resize mode, this events are triggered.
 motion :: Members '[Property, Minimizer] r
        => Members (Inputs [Screens, Pointer, MouseButtons]) r
-       => Members (States [Fix Tiler, MouseButtons]) r
+       => Members (States [Fix Tiler, MouseButtons, Maybe ()]) r
        => Sem r ()
 motion = do
   -- First, let's find the current screen and its dimensions.
@@ -235,6 +239,7 @@ motion = do
 
   -- We know what button is pressed, now we need to update the location
   updateMouseLoc pointer
+  put $ Just ()
 
        -- Gets the thing right after the input controller but also counts the number of rotations
  where getInput :: Int -> Cofree Tiler (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree Tiler (Transformer Plane))

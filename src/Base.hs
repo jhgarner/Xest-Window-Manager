@@ -506,15 +506,25 @@ runGlobalX = interpret $ \case
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
     protocols <- internAtom d "WM_PROTOCOLS" True
     supportedProtocols <- getWMProtocols d w
+    System.IO.print $ show supportedProtocols
+    System.IO.print $ show protocols
+    System.IO.print $ show deleteName
+    System.IO.print $ "\nTesting\n===========\n"
+    trace ( show supportedProtocols) return ()
+    trace ( show protocols) return ()
+    trace ( show deleteName) return ()
+    trace ( "\nTesting\n===========\n") return ()
     -- Thanks Xmonad for the kill window code
-    if protocols `elem` supportedProtocols
+    if deleteName `elem` supportedProtocols
       then allocaXEvent $ \ev -> do
+              Standard.putStrLn "Deleting using protocol"
               setEventType ev clientMessage
               setClientMessageEvent ev w protocols 32 deleteName currentTime
               sendEvent d w False noEventMask ev
+              flush d
               return Nothing
-      else if isSoft then destroyWindow d w >> return (Just w)
-      else killClient d w >> return (Just w)
+      else if isSoft then destroyWindow d w >> Standard.putStrLn "Deleting using destroy window" >> return (Just w)
+      else killClient d w >> Standard.putStrLn "Deleting using killClient" >> return (Just w)
 
   Exit -> embed exitSuccess
 
@@ -564,7 +574,7 @@ runGetPointer = runInputSem $ input >>= \d -> do
 type DoAll r
   = (Members (States
         [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler]
-        , MouseButtons, Maybe Font.Font, Bool, Map Window Rect
+        , MouseButtons, Maybe Font.Font, Bool, Map Window Rect, Maybe ()
         ]) r
     , Members (Inputs
         [ Conf, Window, Borders, Display, [Rect], (Int32, Int32), MouseButtons ]) r
@@ -586,7 +596,7 @@ doAll
 doAll t c m d w borders =
   void
     . runM
-    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @(Fix Tiler) ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: HNil)
+    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @(Fix Tiler) ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: Just () ::: HNil)
     . fixState
     . runInputs (w ::: d ::: borders ::: c ::: HNil)
     . runGetScreens
