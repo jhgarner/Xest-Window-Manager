@@ -1,6 +1,7 @@
 let Action = ./actions.dhall
 in let Tiler = ./tilers.dhall
 in {
+  startupScript = "~/.config/xest/startup.sh",
   keyBindings = [
     {key = "t", mode = "Normal", actions = [Action.RunCommand "termite"]},
     {key = "d", mode = "Normal", actions = [Action.RunCommand "rofi -show drun"]},
@@ -45,11 +46,12 @@ in {
     -- {key = "u", mode = "Normal", actions = [Action.ChangeLayoutTo Tiler.Floating]},
     {key = "p", mode = "Normal", actions = [Action.PushTiler]},
     {key = "r", mode = "Normal", actions = [Action.ChangeModeTo "Resize"]},
-    {key = "s", mode = "Normal", actions = [Action.MakeSpecial]},
+    {key = "s", mode = "Normal", actions = [Action.ZoomOutInput, Action.MakeSpecial, Action.ZoomInInput, Action.ZoomMonitorToInput]},
+    {key = "s", mode = "NormalS", actions = [Action.MakeSpecial]},
     {key = "m", mode = "Normal", actions = [Action.KillActive]},
     {key = "z", mode = "Normal", actions = [Action.ZoomMonitorToInput]},
     {key = "z", mode = "NormalS", actions = [Action.ZoomInMonitor]},
-    {key = "b", mode = "Normal", actions = [Action.Exit]},
+    {key = "b", mode = "NormalS", actions = [Action.Exit]},
     {key = "w", mode = "Normal", actions = [Action.ToggleLogging]},
     {key = "q", mode = "Normal", actions = [Action.ZoomOutMonitor]}
   ],
