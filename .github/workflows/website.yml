@@ -15,8 +15,10 @@ jobs:
           ghc-version: ${{env.GHC_VERSION}}
           cabal-version: ${{env.CABAL_VERSION}}
       - run: cd xest-site
-      - run: cabal update
-      - run: '[ -e cabal.project.freeze ] || cabal freeze'
+      - working-directory: xest-site
+        run: cabal update
+      - working-directory: xest-site
+        run: '[ -e cabal.project.freeze ] || cabal freeze'
       - name: 'Run actions/cache@v1: cache cabal store'
         uses: actions/cache@v1
         with:
@@ -25,10 +27,14 @@ jobs:
           restore-keys: |
             cabal-store-${{ runner.OS }}-${{ env.GHC_VERSION }}-
             cabal-store-${{ runner.OS }}-
-      - run: cabal build --only-dependencies
-      - run: cabal build
-      - run: cabal exec site build
-      - name: Dump contexts
+      - working-directory: xest-site
+        run: cabal build --only-dependencies
+      - working-directory: xest-site
+        run: cabal build
+      - working-directory: xest-site
+        run: cabal exec site build
+      - working-directory: xest-site
+        name: Dump contexts
         env:
           CTX_GITHUB: ${{ toJson(github) }}
           CTX_STEPS: ${{ toJson(steps) }}
