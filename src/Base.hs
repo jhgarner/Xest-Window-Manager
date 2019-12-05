@@ -506,14 +506,6 @@ runGlobalX = interpret $ \case
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
     protocols <- internAtom d "WM_PROTOCOLS" True
     supportedProtocols <- getWMProtocols d w
-    System.IO.print $ show supportedProtocols
-    System.IO.print $ show protocols
-    System.IO.print $ show deleteName
-    System.IO.print $ "\nTesting\n===========\n"
-    trace ( show supportedProtocols) return ()
-    trace ( show protocols) return ()
-    trace ( show deleteName) return ()
-    trace ( "\nTesting\n===========\n") return ()
     -- Thanks Xmonad for the kill window code
     if deleteName `elem` supportedProtocols
       then allocaXEvent $ \ev -> do
@@ -574,7 +566,7 @@ runGetPointer = runInputSem $ input >>= \d -> do
 type DoAll r
   = (Members (States
         [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler]
-        , MouseButtons, Maybe Font.Font, Bool, Map Window Rect, Maybe ()
+        , MouseButtons, Maybe Font.Font, Bool, Map Window Rect, Maybe (), Conf
         ]) r
     , Members (Inputs
         [ Conf, Window, Borders, Display, [Rect], (Int32, Int32), MouseButtons ]) r
@@ -596,9 +588,10 @@ doAll
 doAll t c m d w borders =
   void
     . runM
-    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @(Fix Tiler) ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: Just () ::: HNil)
+    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @(Fix Tiler) ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: Just () ::: c ::: HNil)
     . fixState
-    . runInputs (w ::: d ::: borders ::: c ::: HNil)
+    . runInputs (w ::: d ::: borders ::: HNil)
+    . stateToInput @Conf
     . runGetScreens
     . runGetButtons
     . runGetPointer
@@ -618,6 +611,12 @@ doAll t c m d w borders =
   fixState = interpret $ \case
     Get         -> Fix <$> get
     Put (Fix s) -> put s
+  stateToInput
+    :: Member (State a) r
+    => Sem (Input a ': r) b
+    -> Sem r b
+  stateToInput = interpret $ \case
+    Input         -> get
 
 
 instance Semigroup a => Semigroup (Sem r a) where

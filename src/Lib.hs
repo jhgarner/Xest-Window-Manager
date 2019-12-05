@@ -127,30 +127,9 @@ mainLoop = do
   printMe "========================"
   printMe "Tiler state at beginning of loop:\n"
   get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
-  whenM (isJust <$> get @(Maybe ()))
-    refresh
-  -- whenM (not <$> checkXEvent) $ do
-  --   -- get @(Tiler (Fix Tiler)) >>= \t -> traceM (show t ++ "\n\n")
-  --   -- tell X to focus whatever we're focusing
-  --   xFocus
 
-  --   -- Write the path to the upper border
-  --   writePath
+  whenM (isJust <$> get @(Maybe ())) refresh
 
-  --   -- restack all of the windows
-  --   topWindows <- makeTopWindows
-  --   bottomWindows <- getBottomWindows
-  --   get >>= render >>= restack . \wins -> topWindows ++ bottomWindows ++ wins
-
-
-  --   -- Do some EWMH stuff
-  --   setClientList
-  --   writeActiveWindow
-  --   i <- maybe 0 fst <$> getCurrentScreen
-  --   get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput i (fmap (getDesktopState . unfix))
-
-  -- Get the next event from the X server. This will block the main thread.
-  -- getXEvent >>= (\x -> traceShowM x >> return x) >>= \case
   getXEvent >>= (\x -> printMe ("evaluating event: " ++ show x) >> return x) >>= \case
     MapRequestEvent {..} -> mapWin ev_window
     DestroyWindowEvent {..} -> killed ev_window

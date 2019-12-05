@@ -1,0 +1,28 @@
+How should Tilers act?
+
+Tilers are containers
+
+Tilers have a focused element
+getFocused :: Tiler -> Maybe Tiler
+setFocus :: Tiler ->
+
+-- data HList xs where
+--     HNil :: HList '[]
+--     (:::) :: a -> HList as -> HList (a ': as)
+
+-- infixr 6 :::
+
+-- type family TypeMap (a :: Type -> b) (xs :: [Type]) = (z :: [b]) | z -> xs where
+--   TypeMap t '[] = '[]
+--   TypeMap t (x ': xs) = t x ': TypeMap t xs
+-- type family Members es r = (k :: Constraint) where
+--   Members '[]       r = ()
+--   Members (e ': es) r = (Member e r, Members es r)
+-- type family TypeAppend (as :: [b]) (xs :: [b]) = (cs :: [b]) | cs as -> xs where
+--   TypeAppend t '[] = t
+--   TypeAppend '[] t = t
+--   TypeAppend (t ': ts) xs = TypeAppend ts (t ': xs)
+
+-- runReaders :: (Members (TypeMap Reader ts) r) => HList (t ': ts) -> Semantic (Reader t ': r) () -> Semantic r ()
+-- runReaders (a ::: HNil) = runReader a
+-- runReaders (a ::: (as@(b ::: c))) = unsafeCoerce (unsafeCoerce (runReaders as) . runReader a)

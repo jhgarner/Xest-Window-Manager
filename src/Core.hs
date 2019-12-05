@@ -29,7 +29,6 @@ refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX] r
         => Sem r ()
 refresh = do
     put @(Maybe ()) Nothing
-    -- get @(Tiler (Fix Tiler)) >>= \t -> traceM (show t ++ "\n\n")
     -- tell X to focus whatever we're focusing
     xFocus
 

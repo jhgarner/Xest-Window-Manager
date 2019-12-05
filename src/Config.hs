@@ -13,26 +13,31 @@ where
 
 import           Standard
 import           Dhall
-import qualified Dhall.Core
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types
 import qualified Types                         as T
 import           FocusList
+import           System.Process
+import           System.Exit
 
 -- Mirror many of the datatypes from Types but with easy to parse versions
 -- | Same as Type
 data Conf = Conf { keyBindings  :: [KeyTrigger]
                  , definedModes :: [Mode]
+                 , startupScript :: String
                  }
   deriving (Generic, Show, Interpret)
 
 -- | Convert a parsed conf to a useful conf
 confToType :: Display -> Conf -> IO T.Conf
-confToType display (Conf kb dm) = do
+confToType display (Conf kb dm start) = do
   -- Convert the defined modes to a map of modeNames to modes
   let mapModes     = foldl' (\mm m -> insertMap (modeName m) m mm) mempty dm
       definedModes = map (modeToType mapModes) dm
   keyBindings <- traverse (keyTriggerToType display mapModes) kb
+  p <- runCommand start
+  unlessM ((== ExitSuccess) <$> waitForProcess p)
+    $ die "Error while running startup script" 
   return T.Conf { .. }
 
 -- | Switch key from KeyCode to Text and make mode a Text as well
