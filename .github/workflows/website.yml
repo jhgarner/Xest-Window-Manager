@@ -44,6 +44,6 @@ jobs:
         uses: peaceiris/actions-gh-pages@v2.5.0
         env:
           ACTIONS_DEPLOY_KEY: ${{ secrets.ACTIONS_DEPLOY_KEY }}
-          PUBLISH_BRANCH: master
           PUBLISH_DIR: xest-site/_site
+          PUBLISH_BRANCH: gh-pages
         if: github.ref == 'refs/heads/master'
