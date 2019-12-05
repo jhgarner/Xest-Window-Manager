@@ -16,6 +16,7 @@
 module Base where
 
 import           Standard
+import qualified System.Environment as Env
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
@@ -23,6 +24,7 @@ import           Polysemy.Several
 import           Data.Bits
 import           Data.Kind
 import           System.IO
+import           Config
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xinerama
@@ -247,7 +249,6 @@ runEventFlags = interpret $ \case
       \(k, km, _) -> when (activeMode == km)
         (grabKey d k anyModifier win True grabModeAsync grabModeAsync)
 
-
 -- * Mover
 
 -- |Anything that changes where a window sits goes in here.
@@ -347,10 +348,12 @@ data Executor m a where
   ToggleLogs :: Executor m ()
   -- |Prints in a controlled way
   PrintMe :: String -> Executor m ()
+  -- |Prints in a controlled way
+  ReloadConf :: Executor m ()
 makeSem ''Executor
 
 -- |Do it in IO
-runExecutor :: Members [Embed IO, State Bool] r => Sem (Executor ': r) a -> Sem r a
+runExecutor :: Members [Embed IO, State Bool, State Conf, Input Display] r => Sem (Executor ': r) a -> Sem r a
 runExecutor = interpret $ \case
   Execute s -> void . embed @IO $ spawnCommand s
 
@@ -362,6 +365,20 @@ runExecutor = interpret $ \case
 
   -- PrintMe s -> say $ pack s
   PrintMe s -> whenM (get @Bool) $ embed @IO $ appendFile "/tmp/xest.log" s
+  ReloadConf -> do
+    display <- input @Display
+    (homeDir, displayNumber) <- embed @IO $ do
+      args <- getArgs
+      let displayNumber = fromMaybe "0" $ headMay args
+
+      -- Read the config file
+      homeDir <- Env.getEnv "HOME"
+      return (homeDir, displayNumber)
+    newConf <- embed @IO $
+      if displayNumber == "0" || displayNumber == "1"
+        then reloadConfig display . pack $ homeDir ++ "/.config/xest/config.dhall"
+        else reloadConfig display . pack $ homeDir ++ "/.config/xest/config.dhall." ++ unpack displayNumber
+    put newConf
 
 -- * Colorer
 

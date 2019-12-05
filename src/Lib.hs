@@ -142,6 +142,7 @@ mainLoop = do
       newFocus ev_window (fromIntegral ev_x_root, fromIntegral ev_y_root)
     MotionEvent {..} -> motion
     KeyEvent {..} -> keyDown ev_keycode ev_event_type >>= foldMap executeActions
+    MappingNotifyEvent {} -> reloadConf
     _ -> return ()
 
   where

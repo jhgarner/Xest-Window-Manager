@@ -203,13 +203,6 @@ keyDown keycode eventType
     put @KeyStatus newKS
     return actions
 
-keyboardChange :: Member ReloadConf r => Sem r ()
-keyboardChange = do
-    io $ refreshKeyboardMapping e
-    when (ev_request e `elem` [mappingKeyboard, mappingModifier]) $ do
-        setNumlockMask
-        grabKeys
-
 -- |When the user moves the mouse in resize mode, this events are triggered.
 motion :: Members '[Property, Minimizer] r
        => Members (Inputs [Screens, Pointer, MouseButtons]) r

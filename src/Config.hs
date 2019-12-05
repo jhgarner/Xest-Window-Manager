@@ -8,6 +8,7 @@
 
 module Config
   ( readConfig
+  , reloadConfig
   )
 where
 
@@ -29,15 +30,15 @@ data Conf = Conf { keyBindings  :: [KeyTrigger]
   deriving (Generic, Show, Interpret)
 
 -- | Convert a parsed conf to a useful conf
-confToType :: Display -> Conf -> IO T.Conf
-confToType display (Conf kb dm start) = do
+confToType :: Display -> Conf -> Bool -> IO T.Conf
+confToType display (Conf kb dm start) isReload = do
   -- Convert the defined modes to a map of modeNames to modes
   let mapModes     = foldl' (\mm m -> insertMap (modeName m) m mm) mempty dm
       definedModes = map (modeToType mapModes) dm
   keyBindings <- traverse (keyTriggerToType display mapModes) kb
-  p <- runCommand start
-  unlessM ((== ExitSuccess) <$> waitForProcess p)
-    $ die "Error while running startup script" 
+  unless isReload $
+    unlessM ((== ExitSuccess) <$> (waitForProcess <=< runCommand $ start))
+      $ die "Error while running startup script" 
   return T.Conf { .. }
 
 -- | Switch key from KeyCode to Text and make mode a Text as well
@@ -135,4 +136,10 @@ getMode s modeList =
 readConfig :: Display -> Text -> IO T.Conf
 readConfig display fileName = do
   x <- detailed $ input (autoWith $ defaultInterpretOptions {singletonConstructors = Bare}) fileName
-  confToType display x
+  confToType display x False
+
+-- | Reloads an existing config
+reloadConfig :: Display -> Text -> IO T.Conf
+reloadConfig display fileName = do
+  x <- detailed $ input (autoWith $ defaultInterpretOptions {singletonConstructors = Bare}) fileName
+  confToType display x True
