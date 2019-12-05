@@ -23,7 +23,7 @@ jobs:
         uses: actions/cache@v1
         with:
           path: ~/.cabal/store
-          key: cabal-store-${{ runner.OS }}-${{ env.GHC_VERSION }}-${{ hashFiles('cabal.project.freeze') }}
+          key: cabal-store-${{ runner.OS }}-${{ env.GHC_VERSION }}-${{ hashFiles('xest-site/cabal.project.freeze') }}
           restore-keys: |
             cabal-store-${{ runner.OS }}-${{ env.GHC_VERSION }}-
             cabal-store-${{ runner.OS }}-
