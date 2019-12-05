@@ -1,0 +1,43 @@
+name: Build and deploy to github pages
+on: push
+
+jobs:
+  build-deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    env:
+      GHC_VERSION: '8.6.5'
+      CABAL_VERSION: '3.0'
+    steps:
+      - uses: actions/checkout@master
+      - uses: actions/setup-haskell@v1
+        with:
+          ghc-version: ${{env.GHC_VERSION}}
+          cabal-version: ${{env.CABAL_VERSION}}
+      - run: cd xest-site
+      - run: cabal update
+      - run: '[ -e cabal.project.freeze ] || cabal freeze'
+      - name: 'Run actions/cache@v1: cache cabal store'
+        uses: actions/cache@v1
+        with:
+          path: ~/.cabal/store
+          key: cabal-store-${{ runner.OS }}-${{ env.GHC_VERSION }}-${{ hashFiles('cabal.project.freeze') }}
+          restore-keys: |
+            cabal-store-${{ runner.OS }}-${{ env.GHC_VERSION }}-
+            cabal-store-${{ runner.OS }}-
+      - run: cabal build --only-dependencies
+      - run: cabal build
+      - run: cabal exec site build
+      - name: Dump contexts
+        env:
+          CTX_GITHUB: ${{ toJson(github) }}
+          CTX_STEPS: ${{ toJson(steps) }}
+          CTX_ENV: ${{ toJson(env) }}
+        run: true
+      - name: 'Run peaceiris/actions-gh-pages@v2.5.0: deploy to github pages'
+        uses: peaceiris/actions-gh-pages@v2.5.0
+        env:
+          ACTIONS_DEPLOY_KEY: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+          PUBLISH_BRANCH: master
+          PUBLISH_DIR: xest-site/_site
+        if: github.ref == 'refs/heads/master'
