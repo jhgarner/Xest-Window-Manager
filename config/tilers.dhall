@@ -1,0 +1,1 @@
+< Horizontal | Hovering | Rotate | FullScreen > 
