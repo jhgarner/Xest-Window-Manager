@@ -1,8 +1,10 @@
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE TupleSections   #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 
 
 {-|
@@ -22,9 +24,11 @@ import           Data.Either                    ( )
 import           Data.Char
 import           Tiler
 import           FocusList
+import Control.Comonad.Trans.Cofree as C hiding (Cofree)
+import qualified SDL (Window)
 
 refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX] r
-        => Members (Inputs [Window, Borders, (Int32, Int32), [Rect]]) r
+        => Members (Inputs [Window, Screens, Borders, (Int32, Int32), [Rect]]) r
         => Members (States [Fix Tiler, Mode, [Fix Tiler], Maybe ()]) r
         => Sem r ()
 refresh = do
@@ -38,15 +42,61 @@ refresh = do
     -- restack all of the windows
     topWindows <- makeTopWindows
     bottomWindows <- getBottomWindows
-    get >>= render >>= restack . \wins -> topWindows ++ bottomWindows ++ wins
+    get >>= render >>= traverse_ (restack . \wins -> topWindows ++ bottomWindows ++ wins)
 
 
     -- Do some EWMH stuff
     setClientList
     writeActiveWindow
-    i <- maybe 0 fst <$> getCurrentScreen
-    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput i (fmap (getDesktopState . unfix))
+    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
 
+
+-- | Places a tiler somewhere on the screen without actually placing it
+placeWindow
+  :: Rect
+  -> Tiler (Fix Tiler)
+  -> Cofree Tiler (Transformer Plane)
+-- | Wraps place their wrapped window filling all available space
+-- | If the window has no size, it gets unmapped
+placeWindow screenSize root =
+  ana buildUp ((Transformer id id $ Plane (Rect 0 0 0 0) 0), Fix root)
+    where
+      placeWindow' trans@(Transformer i o p@(Plane r depth)) = \case
+        Wrap win -> Wrap win
+        Reflect t ->
+          let newTrans (Plane (Rect rx ry rw rh) keepD) =
+                Plane (Rect ry rx rh rw) keepD
+              newTransformer =
+                overReal (\(Plane r d) -> Plane r $ d+1) $ addTrans newTrans newTrans trans
+           in Reflect (newTransformer, t)
+        FocusFull (Fix t) ->
+          case t of
+            t'@(InputControllerOrMonitor _ _) -> FocusFull (Transformer i o (Plane r $ depth + 1), Fix t')
+            _ -> modFocused (first $ const (Transformer i o . Plane r $ depth + 2)) $ fmap (Transformer i o . Plane (Rect 0 0 0 0) $ depth + 1,) t
+        Horiz fl ->
+          let numWins = fromIntegral $ flLength fl -- Find the number of windows
+              location i lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round(size * fromIntegral w)) h
+              newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
+              realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
+              (Plane Rect {..} depth) = i p
+
+           in Horiz $ fromVis realfl $ map (\(index, (lSize, size, t)) -> Sized size (Transformer i o . o . Plane (location index lSize size) $ depth + 1, t))
+                    $ zip [0 ..]
+                    $ vOrder realfl
+        Floating ls ->
+          let (Plane r@Rect{..} depth) = i p
+           in Floating $ map (\case
+                Top (rr@RRect {..}, t) -> Top (rr, (Transformer i o . o $ Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
+                Bottom t -> Bottom (Transformer i o . o $ Plane r $ depth + 1, t)) ls
+                  where 
+        InputController t ->
+          InputController $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) <$> t
+
+        Monitor t ->
+          Monitor $ (overReal (\(Plane _ depth) -> Plane screenSize depth) trans,) <$> t
+      buildUp :: (Transformer Plane, Fix Tiler) -> CofreeF Tiler (Transformer Plane) (Transformer Plane, Fix Tiler)
+      buildUp initial = fst initial C.:< (uncurry placeWindow' $ second unfix initial)
+  
 -- |Find a window with a class name. This is used when
 -- showing or hiding a window.
 getWindowByClass
@@ -59,7 +109,7 @@ getWindowByClass wName = do
   where findWindow win = (== wName) <$> getClassName win
 
 type RenderEffect r =
-     ( Members (Inputs [Borders, Screens, Pointer]) r
+     ( Members (Inputs [Borders, Pointer, Screens]) r
      , Members (States [Fix Tiler, Mode]) r
      , Members [Mover, Minimizer, Colorer, GlobalX] r
      )
@@ -67,40 +117,37 @@ type RenderEffect r =
 render
   :: (RenderEffect r, Member (State [Fix Tiler]) r)
   => Fix Tiler
-  -> Sem r [Window]
+  -> Sem r [[Window]]
 render t = do
   screens <- input @Screens
-  pointer <- input @Pointer
-  let i' = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
 
-  let locations = topDown (placeWindow screens) (Transformer id id $ Plane (Rect 0 0 0 0) 0) t
+  let locations = fmap (uncurry placeWindow) screens
 
   -- Draw the tiler we've been given. winOrder will be used by restackWindows
   -- while io coantains the io action which moves the windows.
-  let (winOrder, io) = cata (draw i') $ fmap unTransform locations
-  io
+  let (winOrder, io) = unzip . toList $ fmap (cata draw . fmap unTransform) locations
+  sequence_ io
 
   -- Hide all of the popped tilers
   get @[Fix Tiler]
-    >>= traverse_ (snd . cata (draw i') . fmap unTransform . topDown (placeWindow $ repeat $ Rect 0 0 0 0) (Transformer id id $ Plane (Rect 0 0 0 0) 0))
+    >>= traverse_ (snd . cata draw . fmap unTransform . (placeWindow (Rect 0 0 0 0)) . unfix)
 
   return winOrder
 
        -- The main part of this function.
- where draw :: RenderEffect r => Int -> Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
-       draw _ (Plane (Rect _ _ 0 0) _ :<~ Wrap (ChildParent win _)) = ([], minimize win)
-       draw _ (Plane Rect {..} _ :<~ Wrap (ChildParent win win')) = ([win], do
+ where draw :: RenderEffect r => Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
+       draw (Plane (Rect _ _ 0 0) _ :<~ Wrap (ChildParent win _)) = ([], minimize win)
+       draw (Plane Rect {..} _ :<~ Wrap (ChildParent win win')) = ([win], do
            restore win
            restore win'
            changeLocation win $ Rect x y (abs w) (abs h)
            changeLocation win' $ Rect 0 0 (abs w) (abs h))
-       draw i' (Plane Rect{..} depth :<~ InputController i t)
-         | i == i' = 
+       draw (Plane Rect{..} depth :<~ InputController t) =
            (maybe [] fst t, do
               mapM_ snd t
               -- Extract the border windows
               (l, u, r, d) <- input @Borders
-              let winList = [l, u, r, d]
+              let winList :: [SDL.Window] = [l, u, r, d]
 
               -- Calculate the color for our depth
               let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
@@ -126,9 +173,8 @@ render t = do
                     
               traverse_ bufferSwap winList
            )
-         | otherwise = (maybe [] fst t, mapM_ snd t)
 
-       draw _ (_ :<~ Floating ls) = 
+       draw (_ :<~ Floating ls) = 
           (tops ++ bottoms, mapM_ (snd . getEither) ls)
               where tops = foldl' onlyTops [] ls
                     onlyTops acc (Top (_, (ws, _))) = ws ++ acc
@@ -136,7 +182,7 @@ render t = do
                     bottoms = foldl' onlyBottoms [] ls
                     onlyBottoms acc (Bottom (ws, _)) = acc ++ ws
                     onlyBottoms acc _ = acc
-       draw _ (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)
+       draw (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)
        hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)
        hsvToRgb h s v = let c = v * s
                             x = c * (1 - abs ((h / 60) `mod'` 2 - 1))
@@ -173,10 +219,8 @@ xFocus = do
  where
   makeList (Fix (Wrap (ChildParent w w')))              = EndF $ Just (w, w')
   -- TODO there's a lot of code duplication here between InputController and Monitor
-  makeList (Fix (InputController _ (Just t))) = ContinueF t
-  makeList (Fix (InputController _ Nothing)) = EndF Nothing
-  makeList (Fix (Monitor _ (Just t))) = ContinueF t
-  makeList (Fix (Monitor _ Nothing)) = EndF Nothing
+  makeList (Fix (InputControllerOrMonitor _ (Just t))) = ContinueF t
+  makeList (Fix (InputControllerOrMonitor _ Nothing)) = EndF Nothing
   makeList (Fix t) = ContinueF (getFocused t)
 
 -- |Push something if it can be pushed. Add it manually otherwise.
@@ -188,13 +232,13 @@ pushOrAdd tWin = maybe (unfix tWin) (\case
                                     )
     where mkHoriz t = Horiz $ makeFL (NE (Sized 0 $ Fix t) [Sized 0 tWin]) 0
 
--- |Get the current screen number based on pointer position.
-getCurrentScreen :: Members (Inputs [Pointer, Screens]) r
-                 => Sem r (Maybe (Int, Rect))
-getCurrentScreen = do
+-- |Set the current screen number based on pointer position.
+setScreenFromMouse :: Members [Input Pointer, State ActiveScreen, State Screens] r
+                 => Sem r ()
+setScreenFromMouse = do
   pointer <- input @Pointer
-  screens <- input @Screens
-  return $ whichScreen pointer $ zip [0..] screens
+  screens <- get @Screens
+  put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ zip [0..] $ toList $ fmap fst screens
 
 -- |Add a bunch of properties to our root window to comply with EWMH
 initEwmh :: Member Property r
@@ -294,8 +338,6 @@ writeActiveWindow = do
   naw <- getAtom False "_NET_ACTIVE_WINDOW"
   putProperty 32 naw root window [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
     where makeList (Fix (Wrap (ChildParent _ w))) = EndF . Just $ fromIntegral w
-          makeList (Fix (InputController _ (Just t))) = ContinueF t
-          makeList (Fix (InputController _ Nothing)) = EndF Nothing
-          makeList (Fix (Monitor _ (Just t))) = ContinueF t
-          makeList (Fix (Monitor _ Nothing)) = EndF Nothing
+          makeList (Fix (InputControllerOrMonitor _ (Just t))) = ContinueF t
+          makeList (Fix (InputControllerOrMonitor _ Nothing)) = EndF Nothing
           makeList (Fix t) = ContinueF (getFocused t)

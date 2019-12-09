@@ -51,7 +51,6 @@ startWM = do
   c <- if displayNumber == "0" || displayNumber == "1"
           then readConfig display . pack $ homeDir ++ "/.config/xest/config.dhall"
           else readConfig display . pack $ homeDir ++ "/.config/xest/config.dhall." ++ unpack displayNumber
-  print c
 
   -- X orders windows like a tree.
   -- This gets the root.
@@ -98,7 +97,7 @@ startWM = do
     .|. keyReleaseMask
 
   -- Grabs the initial keybindings and screen list
-  (screens :: [Rect]) <-
+  (screens :: Screens) <-
     runM
     $ runInputConst c
     $ runInputConst display
@@ -106,18 +105,23 @@ startWM = do
     $ evalState (M.empty @String @Atom)
     $ evalState (M.empty @Atom @[Int])
     $ evalState (M.empty @Window @Rect)
+    $ evalState (M.empty @Int @(Rect, Tiler (Fix Tiler)))
+    $ evalState ([] @(Fix Tiler))
+    $ evalState (InputController Nothing)
+    $ evalState Nothing
+    $ evalState (0 :: Int)
     $ runGetScreens
     $ evalState False
     $ runEventFlags
     $ runProperty
-    $ rebindKeys initialMode initialMode >> input @Screens
-  let Just (Fix rootTiler) = foldl' (\acc (i, _) -> Just . Fix . Monitor i . Just . Fix . InputController i $ acc) Nothing $ zip [0..] screens
+    $ rebindKeys initialMode initialMode >> rootChange >> get @Screens
+  print ("Got Screens" ++ show screens)
 
   setDefaultErrorHandler
 
   setInputFocus display root revertToNone currentTime
   -- Execute the main loop. Will never return unless Xest exits
-  doAll rootTiler c initialMode display root (lWin, dWin, uWin, rWin) (forever mainLoop)
+  doAll screens c initialMode display root (lWin, dWin, uWin, rWin) (forever mainLoop)
     >> say "Exiting"
 
 
@@ -129,17 +133,19 @@ mainLoop = do
   get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
 
   whenM (isJust <$> get @(Maybe ())) refresh
+  
+  currentScreen <- get @ActiveScreen
 
-  getXEvent >>= (\x -> printMe ("evaluating event: " ++ show x) >> return x) >>= \case
+  runInputConst currentScreen $ getXEvent >>= (\x -> printMe ("evaluating event: " ++ show x) >> return x) >>= \case
     MapRequestEvent {..} -> mapWin ev_window
     DestroyWindowEvent {..} -> killed ev_window
     UnmapEvent {..} -> unmapWin ev_window
     cre@ConfigureRequestEvent {} -> configureWin cre
     ConfigureEvent {} -> rootChange
     CrossingEvent {..} -> 
-      newFocus ev_window (fromIntegral ev_x_root, fromIntegral ev_y_root)
+      newFocus ev_window
     ButtonEvent {..} -> 
-      newFocus ev_window (fromIntegral ev_x_root, fromIntegral ev_y_root)
+      newFocus ev_window
     MotionEvent {..} -> motion
     KeyEvent {..} -> keyDown ev_keycode ev_event_type >>= foldMap executeActions
     MappingNotifyEvent {} -> reloadConf

@@ -221,9 +221,8 @@ runEventFlags = interpret $ \case
     --            (buttonPressMask .|. buttonReleaseMask) 
     --            grabModeAsync grabModeAsync none none
 
-  SelectButtons m@NewMode {modeName = name, hasButtons = hb}  -> do
+  SelectButtons NewMode {hasButtons = hb}  -> do
       d <- input @Display
-      ms <- inputs definedModes
       root <- input @RootWindow
       -- If the current mode wants to listen to the mouse, let it.
       -- Otherwise, don't because capturing the mouse prevents everyone
@@ -537,6 +536,13 @@ runGlobalX = interpret $ \case
 
   Exit -> embed exitSuccess
 
+-- * Xinerama
+-- $Xinerama
+-- These effects allow functions to query information about the physical
+-- displays being used. It updates the Screes state which is what most
+-- things should use instead.
+
+
 -- * Fake Inputs
 
 -- $Fake
@@ -561,14 +567,13 @@ runGetButtons = runInputSem $ do
               | b .&. button3Mask /= 0-> RightButton (0, 0)
               | otherwise -> None
 
+runGetScreens :: Members [Input Display, Embed IO] r
+              => Sem (Input [XineramaScreenInfo] ': r) a -> Sem r a
+runGetScreens = interpret $ \case
+  Input -> do
+    d <- input @Display
+    embed $ join . toList <$> xineramaQueryScreens d
 
--- |Get the screens from Xinerama
-runGetScreens :: Members (Inputs [RootWindow, Display]) r 
-              => Member (Embed IO) r
-              => Sem (Input [Rect] ': r) a -> Sem r a
-runGetScreens = runInputSem $ 
-  input >>= \d -> embed @IO $
-    fmap (\(Rectangle x y w h) -> Rect {..}) <$> getScreenInfo d
 
 -- |Gets the pointer location
 runGetPointer :: Members (Inputs [RootWindow, Display]) r 
@@ -579,14 +584,30 @@ runGetPointer = runInputSem $ input >>= \d -> do
   (_, _, _, x, y, _, _, _) <- embed $ queryPointer d root
   return (fromIntegral x, fromIntegral y)
 
+screenError :: a
+screenError = error "Tried to switch to a screen that doesn't exist"
+
+indexedState
+  :: Members [State ActiveScreen, State Screens] r
+  => Sem (State (Tiler (Fix Tiler)) : r) a
+  -> Sem r a
+indexedState = interpret $ \case
+  Get -> do
+    activeScreen <- get @ActiveScreen
+    snd . fromMaybe screenError . lookup activeScreen <$> get @Screens
+  Put p -> do
+    activeScreen <- get @ActiveScreen
+    modify @Screens $ adjustMap (second $ const p) activeScreen
+      
+
 -- There's a lot of effects here. This type has them all!
 type DoAll r
   = (Members (States
         [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler]
-        , MouseButtons, Maybe Font.Font, Bool, Map Window Rect, Maybe (), Conf
+        , MouseButtons, Maybe Font.Font, Bool, Map Window Rect, Maybe (), Conf, ActiveScreen, Screens
         ]) r
     , Members (Inputs
-        [ Conf, Window, Borders, Display, [Rect], (Int32, Int32), MouseButtons ]) r
+        [ Conf, Window, Borders, Display, Rect, (Int32, Int32), MouseButtons, [XineramaScreenInfo], Screens, [Rect] ]) r
     , Members
         [ Mover, Property, Minimizer , Executor , GlobalX , Colorer, EventFlags, Embed IO ] r
     )
@@ -594,7 +615,7 @@ type DoAll r
 
 -- Want to do everything in IO? Use this!
 doAll
-  :: Tiler (Fix Tiler)
+  :: Screens
   -> Conf
   -> Mode
   -> Display
@@ -605,11 +626,15 @@ doAll
 doAll t c m d w borders =
   void
     . runM
-    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @(Fix Tiler) ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: Just () ::: c ::: HNil)
-    . fixState
+    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @(Fix Tiler) ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: Just () ::: c ::: (0 :: ActiveScreen) ::: HNil)
     . runInputs (w ::: d ::: borders ::: HNil)
-    . stateToInput @Conf
+    . stateToInput @Screens
     . runGetScreens
+    . listOfScreens
+    . indexedState
+    . fixState
+    . runInputScreen
+    . stateToInput @Conf
     . runGetButtons
     . runGetPointer
     . runProperty
@@ -620,6 +645,15 @@ doAll t c m d w borders =
     . runExecutor
     . runColorer
  where
+  
+
+  -- Get the screens from Xinerama
+  runInputScreen :: Members (States [ActiveScreen, Screens]) r
+                => Sem (Input Rect ': r) a -> Sem r a
+  runInputScreen = runInputSem $ do
+    activeScreen <- get @ActiveScreen
+    gets @Screens $ fst . fromMaybe screenError . lookup activeScreen
+
   -- TODO Is this bad? It allows us to refer to the root tiler as either fix or unfixed.
   fixState
     :: Member (State (Tiler (Fix Tiler))) r
@@ -628,6 +662,12 @@ doAll t c m d w borders =
   fixState = interpret $ \case
     Get         -> Fix <$> get
     Put (Fix s) -> put s
+  listOfScreens
+    :: Member (Input Screens) r
+    => Sem (Input [Rect] ': r) a
+    -> Sem r a
+  listOfScreens = interpret $ \case
+    Input         -> toList . fmap fst <$> input @Screens
   stateToInput
     :: Member (State a) r
     => Sem (Input a ': r) b

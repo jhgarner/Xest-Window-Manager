@@ -12,6 +12,7 @@ import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
 import           Graphics.X11.Types
+import           Graphics.X11.Xinerama
 import           Types
 import           Data.Either                    ( )
 import           Tiler
@@ -22,17 +23,11 @@ import qualified Data.Map.Strict as M
 
 -- |Called when a new top level window wants to exist
 mapWin :: Member (State (Fix Tiler)) r
-         => Members (Inputs [Pointer, Screens]) r
+         => Members (Inputs '[Pointer]) r
          => Members [EventFlags, GlobalX, State (Maybe ())] r
          => Window
          -> Sem r ()
-mapWin window = do
-  -- TODO You're about to see these 3 lines of code a whole lot. Maybe they should
-  -- be a function or something.
-  pointer <- input @Pointer
-  screens <- input @Screens
-  let i = maybe 0 fst $ whichScreen pointer $ zip [0..] screens
-
+mapWin window =
   -- Before we do anything else, let's see if we already manage this window.
   -- I don't know why, but things like Inkscape map windows multiple times.
   unlessM (findWindow window <$> get) $ do
@@ -53,7 +48,7 @@ mapWin window = do
 
     -- This adds the new window to whatever tiler comes after inputController
     -- If you've zoomed the inputController in, you get nesting as a result
-    modify . cata . applyInput i $ Just . pushOrAdd tWin
+    modify . cata . applyInput $ Just . pushOrAdd tWin
     put $ Just ()
 
   where 
@@ -94,58 +89,39 @@ unmapWin window =
 
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
-rootChange :: Members '[Input Screens] r
-           => Members (States [Tiler (Fix Tiler), Fix Tiler, Maybe ()]) r
+rootChange :: Members '[Input [XineramaScreenInfo]] r
+           => Members (States [Tiler (Fix Tiler), Maybe (), Screens, ActiveScreen, [Fix Tiler]]) r
            => Sem r ()
 rootChange = do
-  -- Use Xinerama to figure out how many monitors there are.
-  screens <- input @Screens
-  let len = length screens
-
-  -- If the user unplugged the monitor, remove it from the tree.
-  -- Every monitor has a Monitor and a IC associated with it. They both have to go.
-  modify @(Fix Tiler) $ fromMaybe (error "No root!")
-                          . (removeIC len >=> removeMonitor len)
-
-  -- Unless we've already added the monitor, add it now.
-  unlessM (findMonitor (len - 1) <$> get @(Fix Tiler)) $
-    -- TODO I don't think I like having to write Just . Fix . ... All the time. Maybe there's
-    -- a better way to do it?
-     modify @(Tiler (Fix Tiler)) $ Monitor (len - 1) . Just . Fix . InputController (len - 1) . Just . Fix
-  put Nothing
-
-  where removeMonitor i = cata $ \case
-          Monitor i' t
-            | i == i' -> join t
-            | otherwise -> Just . Fix . Monitor i' $ join t
-          t -> Fix <$> reduce t
-        removeIC i = cata $ \case 
-          InputController i' t
-            | i == i' -> join t
-            | otherwise -> Just . Fix . InputController i' $ join t
-          t -> Fix <$> reduce t
-
-        findMonitor i = cata $ \case
-          Monitor i' rest -> i == i' || fromMaybe False rest
-          t -> or t
-
+  screenInfo <- input @[XineramaScreenInfo]
+  oldScreens <- get @Screens
+  let defaultTiler = Monitor $ Just $ Fix $ InputController Nothing
+  let newScreens =
+        mapFromList $
+          map (\(XineramaScreenInfo name x y w h) ->
+                ( fromIntegral name
+                , ( Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
+                  , findWithDefault defaultTiler (fromIntegral name) $ fmap snd oldScreens
+                  )
+                )
+              ) screenInfo
+  modify @ActiveScreen $ \activeScreen ->
+    if member activeScreen newScreens then activeScreen else 0
+  put newScreens
+  traverse_ (fold . onInput (fmap (modify @[Fix Tiler] . (:))) . Fix . snd) $ difference oldScreens newScreens
+  put $ Just ()
+  
 
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
 newFocus :: Members '[Input Screens, Property, Minimizer] r
          => Members (States [Fix Tiler, Maybe ()]) r
          => Window
-         -> (Int32, Int32)
          -> Sem r ()
-newFocus window mousePos = do
-  -- Find the active screen. Sometimes, the mouse won't be on any screen.
-  -- In that case, pretend like we're on the first screen.
-  screen <- 
-    maybe 0 fst . whichScreen mousePos . zip [0..] <$> input @Screens
-
+newFocus window = do
   -- Change our tree so the focused window is the one we're hovering over
   mNewRoot <- 
-    focusWindow screen window <$> get @(Fix Tiler)
+    focusWindow window <$> get @(Fix Tiler)
 
   -- The root might be none if the newly focused window doesn't exist
   case mNewRoot of
@@ -205,33 +181,26 @@ keyDown keycode eventType
 
 -- |When the user moves the mouse in resize mode, this events are triggered.
 motion :: Members '[Property, Minimizer] r
-       => Members (Inputs [Screens, Pointer, MouseButtons]) r
+       => Members (Inputs [Screens, Pointer, MouseButtons, Rect]) r
        => Members (States [Fix Tiler, MouseButtons, Maybe ()]) r
        => Sem r ()
 motion = do
   -- First, let's find the current screen and its dimensions.
-  screens <- input @Screens
+  Rect _ _ width height <- input @Rect
   pointer <- input @Pointer
-  let (i', Rect _ _ width height) =
-        fromMaybe (0, Rect 0 0 100000 100000) 
-          $ whichScreen pointer $ zip [0..] screens
 
   -- Get the real locations of every window
-  sized <- 
-    topDown 
-      (placeWindow screens) 
-      (Transformer id id $ Plane (Rect 0 0 width height) 0)
-      <$> get
+  sized <- placeWindow (Rect 0 0 width height) . unfix <$> get
 
   -- Find the tiler that comes right after the input controller.
-  case journey $ ana @(Path _ _) (getInput i') sized of
+  case journey $ ana @(Path _ _) getInput sized of
     (rotations, Just (Transformer _ _ Plane {rect = size})) -> do
       -- Determines whether we're currently rotated or not.
       let rotation :: Bool = foldr ($) False rotations
 
       -- Move the tiler based on the mouse movement
       modify
-        =<< cata . applyInput i' . fmap . changeSize rotation size 
+        =<< cata . applyInput . fmap . changeSize rotation size 
               <$> get @MouseButtons
     _ -> return ()
 
@@ -242,14 +211,12 @@ motion = do
   put $ Just ()
 
        -- Gets the thing right after the input controller but also counts the number of rotations
- where getInput :: Int -> Cofree Tiler (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree Tiler (Transformer Plane))
-       getInput i (_ :< InputController i' a)
-         | i == i' = FinishF $ fmap extract a
-         | otherwise = maybe (FinishF Nothing) RoadF a
-       getInput _ (_ :< Monitor _ (Just a)) = RoadF a
-       getInput _ (_ :< Monitor _ Nothing) = FinishF Nothing
-       getInput _ (_ :< Reflect a) = BreakF not a
-       getInput _ (_ :< b) = RoadF $ getFocused b
+ where getInput :: Cofree Tiler (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree Tiler (Transformer Plane))
+       getInput (_ :< InputController a) = FinishF $ fmap extract a
+       getInput (_ :< Monitor (Just a)) = RoadF a
+       getInput (_ :< Monitor Nothing) = FinishF Nothing
+       getInput (_ :< Reflect a) = BreakF not a
+       getInput (_ :< b) = RoadF $ getFocused b
 
        updateMouseLoc :: Member (State MouseButtons) r => (Int32, Int32) -> Sem r ()
        updateMouseLoc (newX, newY) = modify @MouseButtons $ \case

@@ -5,6 +5,8 @@
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveAnyClass   #-}
+{-# LANGUAGE PatternSynonyms   #-}
+{-# LANGUAGE ViewPatterns   #-}
 
 module Types where
 
@@ -85,8 +87,8 @@ data Tiler a
   | Reflect a
   | FocusFull a
   | Wrap ChildParent
-  | InputController Int (Maybe a)
-  | Monitor Int (Maybe a)
+  | InputController (Maybe a)
+  | Monitor (Maybe a)
   deriving (Eq, Show, Functor, Foldable, Traversable)
 instance MonoFoldable (Tiler a)
 deriveShow1 ''Tiler
@@ -95,6 +97,16 @@ deriveEq1 ''Tiler
 type instance Element (Tiler a) = a
 
 makeBaseFunctor ''Tiler
+
+inputControllerOrMonitor :: Tiler a -> Maybe (Maybe b -> Tiler b, Maybe a)
+inputControllerOrMonitor (InputController a) = Just (InputController, a)
+inputControllerOrMonitor (Monitor a) = Just (Monitor, a)
+inputControllerOrMonitor _ = Nothing
+
+{-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, InputControllerOrMonitor #-}
+-- I'm not sure why, but the explicit forall is required...
+pattern InputControllerOrMonitor :: forall a b. (Maybe b -> Tiler b) -> Maybe a -> Tiler a
+pattern InputControllerOrMonitor c a <- (inputControllerOrMonitor -> Just (c, a))
 
 newtype MaybeTiler a = Maybe (Tiler a)
 
@@ -226,4 +238,6 @@ instance Show TreeCombo where
 
 type RootWindow = Window
 type Pointer = (Int32, Int32)
-type Screens = [Rect]
+type Screens = Map Int (Rect, Tiler (Fix Tiler))
+
+type ActiveScreen = Int

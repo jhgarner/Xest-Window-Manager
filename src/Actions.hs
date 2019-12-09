@@ -49,12 +49,11 @@ zoomDirInputSkip
   -> Sem r ()
 zoomDirInputSkip trans action = do
   root <- get @(Tiler (Fix Tiler))
-  i    <- maybe 0 fst <$> getCurrentScreen
 
   replicateM_
-    ( cata (numToSkip i) -- Turns a list of Tilers into a number of things to skip
+    ( cata numToSkip -- Turns a list of Tilers into a number of things to skip
     . trans -- transforms our deffered list into a real one
-    $ apo (getPath i) root) -- Creates a deffered list based on the current focussed path
+    $ apo getPath root) -- Creates a deffered list based on the current focussed path
 
     action -- The second parameter to replicateM_
 
@@ -62,27 +61,21 @@ zoomDirInputSkip trans action = do
     -- Turns a tree into a path of focused elements.
     -- The InputController marks where the path might want to be split
   getPath
-    :: Int
-    -> Tiler (Fix Tiler)
+    :: Tiler (Fix Tiler)
     -> DeferedListF (Tiler (Fix Tiler)) (Either (DeferedList (Tiler (Fix Tiler))) (Tiler (Fix Tiler)))
-  getPath i it@(InputController i' t)
-    | i == i'   = DActiveF $ maybe (Left DNil) (Right . unfix) t
-    -- TODO I really don't like having to duplicate code like this all of the time
-    -- If i != i' then this should be treated just like any other Tiler
-    | otherwise = maybe DNilF (DConsF it . Right . unfix) t
-  getPath _ mt@(Monitor _ t) = maybe DNilF (DConsF mt . Right . unfix) t
-  getPath _ (   Wrap _     ) = DNilF
-  getPath _ t                = DConsF t . Right $ unfix (getFocused t)
+  getPath it@(InputController t) =
+    DActiveF $ maybe (Left DNil) (Right . unfix) t
+  getPath mt@(Monitor t) = maybe DNilF (DConsF mt . Right . unfix) t
+  getPath (   Wrap _     ) = DNilF
+  getPath t                = DConsF t . Right $ unfix (getFocused t)
 
   -- The number of jumps to make.
-  numToSkip _ Nil                    = 0
-  numToSkip _ (Cons (Horiz     _) _) = 1
-  numToSkip _ (Cons (Floating  _) _) = 1
-  numToSkip _ (Cons (FocusFull _) _) = 1
-  numToSkip i (Cons (Monitor  i' _) j)
-    | i == i' = j
-    | otherwise = j + 1
-  numToSkip _ (Cons _             i) = i + 1
+  numToSkip Nil                    = 0
+  numToSkip (Cons (Horiz     _) _) = 1
+  numToSkip (Cons (Floating  _) _) = 1
+  numToSkip (Cons (FocusFull _) _) = 1
+  numToSkip (Cons (Monitor   _) j) = j
+  numToSkip (Cons _             i) = i + 1
 
 -- | Zooms inwards, AKA away from the root. This function operates on
 -- the Input Controller, not the Monitor. This means that although the layout
@@ -91,138 +84,108 @@ zoomDirInputSkip trans action = do
 zoomInInput
   :: Member (State (Fix Tiler)) r
   => Members (Inputs '[Pointer, Screens]) r => Sem r ()
-zoomInInput = do
-  i <- maybe 0 fst <$> getCurrentScreen
-  modify $ cata (reorder i)
+zoomInInput =
+  modify $ cata reorder
 
  where
   -- Since a Wrap doesn't hold anything, we'll lose the InputController
   -- if we zoom in.
-  reorder _ t@(InputController _ (Just (Fix (Wrap _)))) = Fix t
+  reorder t@(InputController (Just (Fix (Wrap _)))) = Fix t
   -- Same for Nothing
-  reorder _ t@(InputController _ Nothing              ) = Fix t
+  reorder t@(InputController Nothing              ) = Fix t
   -- Now we can safely zoom in assuming it's the right monitor
-  reorder i ic@(InputController i' (Just (Fix t)))
-    | i == i'   = Fix $ modFocused (Fix . InputController i' . Just) t
-    | otherwise = Fix ic
+  reorder ic@(InputController (Just (Fix t))) =
+    Fix $ modFocused (Fix . InputController . Just) t
   -- Everything else remains the same
-  reorder _ t = Fix t
+  reorder t = Fix t
 
 -- |Nearly identical to zooming in the input controller. The only
 -- differene is the Monitor needs to stay behind the input controller.
 zoomInMonitor
   :: Member (State (Fix Tiler)) r
   => Members (Inputs '[Pointer, Screens]) r => Sem r ()
-zoomInMonitor = do
-  i <- maybe 0 fst <$> getCurrentScreen
-  modify $ cata (reorder i)
+zoomInMonitor =
+  modify $ cata reorder
 
  where
-  reorder i m@(Monitor i' (Just (Fix (InputController i'' t))))
-    -- In this case, the monitor is already zoomed in as far as it can go.
-    | i'' == i = Fix m
-    -- Somewhat annoyingly, this is identical to finding a monitor and any
-    -- other tiler. Yet another example of the TODO from above.
-    | i == i'  = Fix . InputController i'' . Just . Fix $ Monitor i' t
-  -- Don't zoom in if there's nothing beyond the monitor.
-  reorder _ t@(Monitor _ Nothing) = Fix t
-  -- If this is the monitor we're looking for, zoom in.
-  reorder i m@(Monitor i' (Just (Fix t)))
-    | i == i'   = Fix $ modFocused (Fix . Monitor i' . Just) t
-    | otherwise = Fix m
+  -- In this case, the monitor is already zoomed in as far as it can go.
+  reorder m@(Monitor (Just (Fix (InputController t)))) =  Fix m
 
-  reorder _ t = Fix t
+  -- Don't zoom in if there's nothing beyond the monitor.
+  reorder t@(Monitor Nothing) = Fix t
+  -- If this is the monitor we're looking for, zoom in.
+  reorder m@(Monitor (Just (Fix t))) =
+    Fix $ modFocused (Fix . Monitor . Just) t
+
+  reorder t = Fix t
 
 -- |Move the input controller towards the root
 -- This is complicated if the monitor is right behind it
 zoomOutInput
   :: Member (State (Fix Tiler)) r
   => Members (Inputs '[Pointer, Screens]) r => Sem r ()
-zoomOutInput = do
-  i <- maybe 0 fst <$> getCurrentScreen
-
+zoomOutInput =
   -- The unless guards against zooming the controller out of existence
-  unlessM (isJust . isController i <$> get @(Fix Tiler))
+  unlessM (isJust . isController <$> get @(Fix Tiler))
     $ modify
     $ fromMaybe (error "e")
-    . para (reorder i)
+    . para reorder
 
  where
   -- This function makes me think I should figure out better semantices for
   -- zooming.
-  reorder :: Int -> Tiler (Fix Tiler, Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
+  reorder :: Tiler (Fix Tiler, Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
   -- The controller should always be in front of the Monitor
-  reorder i m@(Monitor i' (Just (Fix (InputController i'' _), t)))
-    |
-    -- | i'' == i' && i' == i = Just . Fix $ InputController i'' t
-      i'' == i' && i' == i = t
-    | i == i'' = Just . Fix . InputController i'' . Just . Fix $ Monitor i' t
-    | otherwise = fmap Fix . reduce $ fmap snd m
+  reorder m@(Monitor (Just (Fix (InputController _), t))) = t
 
   -- The input disappears and will hopefully be added back later
-  reorder i (InputController i' t)
-    | i == i' = t >>= snd
-    | otherwise = case t >>= isController i . fst of
-      Just controller ->
-        Just . Fix . controller . Just . Fix . InputController i' $ t >>= snd
-      Nothing -> Just . Fix . InputController i' $ t >>= snd
+  reorder (InputController t) = t >>= snd
 
   -- If the tiler held the controller, add back the controller around it
-  reorder i t = fmap Fix $ case asum $ isController i . fst <$> t of
+  reorder t = fmap Fix $ case asum $ isController . fst <$> t of
     Just controller -> Just . controller . fmap Fix . reduce $ fmap snd t
     Nothing         -> reduce $ fmap snd t
 
   -- Is something the controller? Instead of returning a boolean, we return
   -- a function used to construct a controller.
-  isController i (Fix (InputController i' _)) =
-    if i == i' then Just $ InputController i' else Nothing
-  isController i (Fix (Monitor i' (Just (Fix (InputController i'' _)))))
-    | i == i' && i' == i''
-    = Just $ Monitor i' . Just . Fix . InputController i''
-    | otherwise = Nothing
-  isController _ _ = Nothing
+  isController (Fix (InputController _)) = Just InputController
+  isController (Fix (Monitor (Just (Fix (InputController _))))) =
+    Just $ Monitor . Just . Fix . InputController
+  isController _ = Nothing
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomMonitorToInput
   :: Member (State (Fix Tiler)) r
   => Members (Inputs '[Pointer, Screens]) r => Sem r ()
-zoomMonitorToInput = do
-  i <- maybe 0 fst <$> getCurrentScreen
-  modify $ \root -> fromMaybe root (cata (insertIt i) root)
+zoomMonitorToInput =
+  modify $ \root -> fromMaybe root (cata insertIt root)
 
  where
-  insertIt :: Int -> Tiler (Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
-  insertIt i (InputController i' t)
-    | i == i' = Just . Fix . Monitor i . Just . Fix . InputController i' $ join
-      t
-    | otherwise = Just . Fix . InputController i' $ join t
-  insertIt i (Monitor i' childT)
-    | i == i'   = join childT
-    | otherwise = Just . Fix . Monitor i' $ join childT
-  insertIt _ t = Fix <$> reduce t
+  insertIt :: Tiler (Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
+  insertIt (InputController t) =
+    Just . Fix . Monitor . Just . Fix . InputController  $ join t
+  insertIt (Monitor childT) = join childT
+  insertIt t = Fix <$> reduce t
 
 -- |Very similar to zoomOutInput but less confusing to implement.
 zoomOutMonitor
   :: Member (State (Fix Tiler)) r
   => Members (Inputs '[Pointer, Screens]) r => Sem r ()
-zoomOutMonitor = do
-  i <- maybe 0 fst <$> getCurrentScreen
-
+zoomOutMonitor =
   -- Don't want to zoom the monitor out of existence
-  unlessM (isMonitor i <$> get @(Fix Tiler))
+  unlessM (isMonitor <$> get @(Fix Tiler))
     $ modify
     $ fromMaybe (error "e")
-    . para (reorder i)
+    . para reorder
  where
-  reorder :: Int -> Tiler (Fix Tiler, Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
-  reorder i (Monitor i' t) =
-    if i == i' then t >>= snd else Just . Fix . Monitor i' $ t >>= snd
-  reorder i t = if any (isMonitor i . fst) t
-    then Just . Fix . Monitor i . fmap Fix . reduce $ fmap snd t
+  reorder :: Tiler (Fix Tiler, Maybe (Fix Tiler)) -> Maybe (Fix Tiler)
+  reorder (Monitor t) = t >>= snd
+  reorder t = if any (isMonitor . fst) t
+    then Just . Fix . Monitor . fmap Fix . reduce $ fmap snd t
     else fmap Fix . reduce $ fmap snd t
 
-  isMonitor i (Fix (Monitor i' _)) = i == i'
-  isMonitor _ _                    = False
+  isMonitor (Fix (Monitor _)) = True
+  isMonitor _                 = False
 
 -- |changes a mode. For example, I have the windows key configured to change
 -- from Insert mode to Normal mode.
@@ -247,9 +210,8 @@ changeModeTo newM = do
 changeIndex
   :: Member (State (Fix Tiler)) r
   => Members (Inputs '[Pointer, Screens]) r => Int -> Sem r ()
-changeIndex changeTo = do
-  i <- maybe 0 fst <$> getCurrentScreen
-  modify $ cata (applyInput i $ fmap changer)
+changeIndex changeTo =
+  modify $ cata (applyInput $ fmap changer)
 
  where
   changer (Horiz fl) = Horiz
@@ -260,9 +222,8 @@ changeIndex changeTo = do
 moveDir
   :: Member (State (Fix Tiler)) r
   => Members (Inputs '[Pointer, Screens]) r => Direction -> Sem r ()
-moveDir dir = do
-  i <- maybe 0 fst <$> getCurrentScreen
-  modify $ cata (applyInput i $ fmap changer)
+moveDir dir =
+  modify $ cata (applyInput $ fmap changer)
 
  where
   changer (Horiz fl) = Horiz $ focusDir dir fl
@@ -276,10 +237,9 @@ popTiler
   => Members (Inputs '[Pointer, Screens]) r => Sem r ()
 popTiler = do
   root <- get
-  i    <- maybe 0 fst <$> getCurrentScreen
 
-  sequence_ $ onInput i (fmap (modify @[Fix Tiler] . (:))) root
-  modify $ cata (applyInput i $ const Nothing)
+  sequence_ $ onInput (fmap (modify @[Fix Tiler] . (:))) root
+  modify $ cata (applyInput $ const Nothing)
 
 -- |Move a tiler from the stack into the tree. Should be the inverse
 -- of popTiler.
@@ -288,12 +248,11 @@ pushTiler
   => Members (Inputs '[Pointer, Screens]) r => Sem r ()
 pushTiler = do
   popped <- get @[Fix Tiler]
-  i      <- maybe 0 fst <$> getCurrentScreen
 
   case popped of
     (t : ts) -> do
       put ts
-      modify $ cata (applyInput i $ Just . pushOrAdd t)
+      modify $ cata (applyInput $ Just . pushOrAdd t)
     [] -> return ()
 
 -- |Insert a tiler after the Input Controller.
@@ -302,9 +261,8 @@ pushTiler = do
 insertTiler
   :: Member (State (Fix Tiler)) r
   => Members (Inputs '[Pointer, Screens]) r => Insertable -> Sem r ()
-insertTiler t = do
-  i <- maybe 0 fst <$> getCurrentScreen
-  modify @(Fix Tiler) . cata $ applyInput i (fmap toTiler)
+insertTiler t =
+  modify @(Fix Tiler) . cata $ applyInput (fmap toTiler)
 
  where
   toTiler focused = case t of
@@ -318,30 +276,27 @@ doSpecial
   :: Member (State (Fix Tiler)) r
   => Members (Inputs '[Pointer, Screens]) r => Sem r ()
 doSpecial = do
-  i <- maybe 0 fst <$> getCurrentScreen
-  modify @(Fix Tiler) $ (\root -> (onInput i (maybe root (makeSpecial i root))) root)
+  modify @(Fix Tiler) (\root -> (onInput (maybe root (makeSpecial root))) root)
   newT <- get
   traceShowM newT
  where
-  makeSpecial :: Int -> Fix Tiler -> Fix Tiler -> Fix Tiler
-  makeSpecial i (Fix root) (Fix t) = case t of
+  makeSpecial :: Fix Tiler -> Fix Tiler -> Fix Tiler
+  makeSpecial (Fix root) (Fix t) = case t of
     Floating (NE l ls) ->
-      applyInput i (\_ -> Just $ Floating $ NE (mkBottom l) $ fmap mkTop ls) root
+      applyInput (\_ -> Just $ Floating $ NE (mkBottom l) $ fmap mkTop ls) root
     Horiz _ ->
       -- TODO rewrite this in a less bad way.
       -- maybe (error "We know it's not just an IC") (fromMaybe (error "Yikes") . fst . moveToIC i) $ removeIC i
-      maybe (error "We know it's not just an IC") (id) $ removeIC i
-        $ (\l -> trace ("\n\nTT\n" ++ show l ++ "\n") l) $ cata (applyInput i (\(Just ((Horiz fl))) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController i Nothing) fl)) $ Fix root
+      maybe (error "We know it's not just an IC") (id) $ removeIC
+        $ (\l -> trace ("\n\nTT\n" ++ show l ++ "\n") l) $ cata (applyInput (\(Just ((Horiz fl))) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController Nothing) fl)) $ Fix root
     _                  -> Fix root
 
   mkTop t@(Top    _) = t
   mkTop (  Bottom t) = Top (RRect 0 0 0.2 0.2, t)
   mkBottom = Bottom . extract
 
-  removeIC i = cata $ \case 
-    ic@(InputController i' (Just t@(Just (Fix (Horiz _)))))
-      | i == i' -> t
-      | otherwise -> Fix <$> reduce ic
+  removeIC = cata $ \case 
+    InputController (Just t@(Just (Fix (Horiz _)))) -> t
     t -> Fix <$> reduce t
 
 -- |Kill the active window
@@ -374,8 +329,6 @@ killActive = do
       modify $ ripOut killed
  where
   makeList (Fix (Wrap (ChildParent window w'))) = EndF $ Just (window, w')
-  makeList (Fix (InputController _ (Just t)  )) = ContinueF t
-  makeList (Fix (InputController _ Nothing   )) = EndF Nothing
-  makeList (Fix (Monitor         _ (Just t)  )) = ContinueF t
-  makeList (Fix (Monitor         _ Nothing   )) = EndF Nothing
+  makeList (Fix (InputControllerOrMonitor _ (Just t)  )) = ContinueF t
+  makeList (Fix (InputControllerOrMonitor _ Nothing   )) = EndF Nothing
   makeList (Fix t                             ) = ContinueF (getFocused t)
