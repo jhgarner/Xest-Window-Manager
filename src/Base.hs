@@ -45,6 +45,9 @@ import           System.Process
 import           Types
 import qualified SDL
 import qualified SDL.Font as Font
+import qualified SDL.Internal.Types as SI (Window(..))
+import qualified SDL.Raw.Video as Raw
+import           Foreign.C.String
 
 
 -- * Helper Polysemy functions
@@ -258,6 +261,7 @@ data Mover m a where
   Restack :: [Window] -> Mover m ()
   -- |A super light wrapper around actually configuring stuff
   ConfigureWin :: Event -> Mover m ()
+  DestroySDLWindow :: SDL.Window -> Mover m ()
 makeSem ''Mover
 
 type LocCache = Map Window Rect
@@ -297,6 +301,18 @@ runMover = interpret $ \case
                            ev_detail
     in  input >>= \d -> embed @IO $ configureWindow d ev_window ev_value_mask wc
   ConfigureWin _ -> error "Don't call Configure Window with other events"
+  DestroySDLWindow window -> embed @IO $ SDL.destroyWindow window
+
+-- |Run a mover when you don't actually want to do anything
+runMoverFake :: Sem (Mover ': r) a -> Sem r a
+runMoverFake = interpret $ \case
+  ChangeLocation _ _ -> return ()
+
+  ChangeLocationS _ _ -> return ()
+
+  Restack _ -> return ()
+  ConfigureWin _ -> return ()
+  DestroySDLWindow _ -> return ()
 
 -- * Minimizer
 
@@ -429,7 +445,6 @@ makeSem ''GlobalX
 -- |Filter out events we don't care about
 eventFilter :: RootWindow -> Event -> Bool
 eventFilter root ConfigureEvent {ev_window=win} = win == root
--- TODO why does capturing either of these break everything?
 eventFilter _ ButtonEvent {ev_button=button} = button `notElem` [button5, button4]
 eventFilter _ CrossingEvent {ev_detail=detail} = detail /= 2
 eventFilter _ _ = True
@@ -536,12 +551,6 @@ runGlobalX = interpret $ \case
 
   Exit -> embed exitSuccess
 
--- * Xinerama
--- $Xinerama
--- These effects allow functions to query information about the physical
--- displays being used. It updates the Screes state which is what most
--- things should use instead.
-
 
 -- * Fake Inputs
 
@@ -574,6 +583,14 @@ runGetScreens = interpret $ \case
     d <- input @Display
     embed $ join . toList <$> xineramaQueryScreens d
 
+newtype NewBorders = NewBorders Borders
+runNewBorders :: Member (Embed IO) r
+              => Sem (Input NewBorders ': r) a -> Sem r a
+runNewBorders = runInputSem $ do
+  wins <- embed @IO (replicateM 4 $
+    SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288))
+  let [lWin, dWin, uWin, rWin] = wins
+  return $ NewBorders (lWin, dWin, uWin, rWin)
 
 -- |Gets the pointer location
 runGetPointer :: Members (Inputs [RootWindow, Display]) r 
@@ -594,10 +611,10 @@ indexedState
 indexedState = interpret $ \case
   Get -> do
     activeScreen <- get @ActiveScreen
-    snd . fromMaybe screenError . lookup activeScreen <$> get @Screens
+    screenTree . fromMaybe screenError . lookup activeScreen <$> get @Screens
   Put p -> do
     activeScreen <- get @ActiveScreen
-    modify @Screens $ adjustMap (second $ const p) activeScreen
+    modify @Screens $ adjustMap (\s -> s {screenTree = p}) activeScreen
       
 
 -- There's a lot of effects here. This type has them all!
@@ -607,7 +624,7 @@ type DoAll r
         , MouseButtons, Maybe Font.Font, Bool, Map Window Rect, Maybe (), Conf, ActiveScreen, Screens
         ]) r
     , Members (Inputs
-        [ Conf, Window, Borders, Display, Rect, (Int32, Int32), MouseButtons, [XineramaScreenInfo], Screens, [Rect] ]) r
+        [ Conf, Window, Borders, Display, Rect, (Int32, Int32), MouseButtons, [XineramaScreenInfo], Screens, [Rect], NewBorders ]) r
     , Members
         [ Mover, Property, Minimizer , Executor , GlobalX , Colorer, EventFlags, Embed IO ] r
     )
@@ -620,15 +637,16 @@ doAll
   -> Mode
   -> Display
   -> Window
-  -> Borders
   -> _ -- The super long Sem list which GHC can figure out on its own
   -> IO ()
-doAll t c m d w borders =
+doAll t c m d w =
   void
     . runM
     . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @(Fix Tiler) ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: Just () ::: c ::: (0 :: ActiveScreen) ::: HNil)
-    . runInputs (w ::: d ::: borders ::: HNil)
+    . runInputs (w ::: d ::: HNil)
     . stateToInput @Screens
+    . smartBorders
+    . runNewBorders
     . runGetScreens
     . listOfScreens
     . indexedState
@@ -652,7 +670,7 @@ doAll t c m d w borders =
                 => Sem (Input Rect ': r) a -> Sem r a
   runInputScreen = runInputSem $ do
     activeScreen <- get @ActiveScreen
-    gets @Screens $ fst . fromMaybe screenError . lookup activeScreen
+    gets @Screens $ screenSize . fromMaybe screenError . lookup activeScreen
 
   -- TODO Is this bad? It allows us to refer to the root tiler as either fix or unfixed.
   fixState
@@ -667,7 +685,13 @@ doAll t c m d w borders =
     => Sem (Input [Rect] ': r) a
     -> Sem r a
   listOfScreens = interpret $ \case
-    Input         -> toList . fmap fst <$> input @Screens
+    Input         -> toList . fmap screenSize <$> input @Screens
+  smartBorders
+    :: Members [Input Screens, State ActiveScreen] r
+    => Sem (Input Borders ': r) a
+    -> Sem r a
+  smartBorders = interpret $ \case
+    Input         -> get >>= (\activeScreen -> screenBorders . fromMaybe screenError . lookup activeScreen <$> input @Screens)
   stateToInput
     :: Member (State a) r
     => Sem (Input a ': r) b

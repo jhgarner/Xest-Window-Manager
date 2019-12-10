@@ -28,7 +28,7 @@ import Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import qualified SDL (Window)
 
 refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX] r
-        => Members (Inputs [Window, Screens, Borders, (Int32, Int32), [Rect]]) r
+        => Members (Inputs [Window, Screens, Borders, (Int32, Int32)]) r
         => Members (States [Fix Tiler, Mode, [Fix Tiler], Maybe ()]) r
         => Sem r ()
 refresh = do
@@ -109,7 +109,7 @@ getWindowByClass wName = do
   where findWindow win = (== wName) <$> getClassName win
 
 type RenderEffect r =
-     ( Members (Inputs [Borders, Pointer, Screens]) r
+     ( Members (Inputs [Pointer, Screens]) r
      , Members (States [Fix Tiler, Mode]) r
      , Members [Mover, Minimizer, Colorer, GlobalX] r
      )
@@ -121,60 +121,60 @@ render
 render t = do
   screens <- input @Screens
 
-  let locations = fmap (uncurry placeWindow) screens
+  let locations :: [(Cofree Tiler (Transformer Plane), Borders)] = toList $ fmap (\(Screen' rect t b) -> (placeWindow rect t, b)) screens
 
   -- Draw the tiler we've been given. winOrder will be used by restackWindows
   -- while io coantains the io action which moves the windows.
-  let (winOrder, io) = unzip . toList $ fmap (cata draw . fmap unTransform) locations
+  let (winOrder, io) = unzip . toList $ fmap (\(location, border) -> cata (draw $ Just border) $ fmap unTransform location) locations
   sequence_ io
 
   -- Hide all of the popped tilers
-  get @[Fix Tiler]
-    >>= traverse_ (snd . cata draw . fmap unTransform . (placeWindow (Rect 0 0 0 0)) . unfix)
+  minimized <- get @[Fix Tiler]
+  traverse_ (snd . cata (draw Nothing) . fmap unTransform . placeWindow (Rect 0 0 0 0) . unfix) minimized
 
   return winOrder
 
        -- The main part of this function.
- where draw :: RenderEffect r => Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
-       draw (Plane (Rect _ _ 0 0) _ :<~ Wrap (ChildParent win _)) = ([], minimize win)
-       draw (Plane Rect {..} _ :<~ Wrap (ChildParent win win')) = ([win], do
+ where draw :: RenderEffect r => Maybe Borders -> Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
+       draw _ (Plane (Rect _ _ 0 0) _ :<~ Wrap (ChildParent win _)) = ([], minimize win)
+       draw _ (Plane Rect {..} _ :<~ Wrap (ChildParent win win')) = ([win], do
            restore win
            restore win'
            changeLocation win $ Rect x y (abs w) (abs h)
            changeLocation win' $ Rect 0 0 (abs w) (abs h))
-       draw (Plane Rect{..} depth :<~ InputController t) =
+       draw maybeBorders (Plane Rect{..} depth :<~ InputController t) =
            (maybe [] fst t, do
               mapM_ snd t
               -- Extract the border windows
-              (l, u, r, d) <- input @Borders
-              let winList :: [SDL.Window] = [l, u, r, d]
+              flip (maybe $ return ()) maybeBorders $ \(l, u, r, d) -> do
+                let winList :: [SDL.Window] = [l, u, r, d]
 
-              -- Calculate the color for our depth
-              let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
+                -- Calculate the color for our depth
+                let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
 
-              currentMode <- get
-              if hasBorders currentMode
-                then do
-                    -- Draw them with the right color and position
-                    changeLocationS l $ Rect x y 2 h
-                    changeLocationS u $ Rect (x + 2) y (w-2) 10
-                    changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
-                    changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
+                currentMode <- get
+                if hasBorders currentMode
+                  then do
+                      -- Draw them with the right color and position
+                      changeLocationS l $ Rect x y 2 h
+                      changeLocationS u $ Rect (x + 2) y (w-2) 10
+                      changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
+                      changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
 
-                    traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
-                    get @(Fix Tiler) >>= drawText u . cata getFocusList
-                else do
-                    changeLocationS l $ Rect 10000 0 0 0
-                    changeLocationS u $ Rect 10000 0 0 0
-                    changeLocationS d $ Rect 10000 0 0 0
-                    changeLocationS r $ Rect 10000 0 0 0
-                    traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
-                    get @(Fix Tiler) >>= drawText u . cata getFocusList
-                    
-              traverse_ bufferSwap winList
+                      traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
+                      get @(Fix Tiler) >>= drawText u . cata getFocusList
+                  else do
+                      changeLocationS l $ Rect 10000 0 0 0
+                      changeLocationS u $ Rect 10000 0 0 0
+                      changeLocationS d $ Rect 10000 0 0 0
+                      changeLocationS r $ Rect 10000 0 0 0
+                      traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
+                      get @(Fix Tiler) >>= drawText u . cata getFocusList
+                      
+                traverse_ bufferSwap winList
            )
 
-       draw (_ :<~ Floating ls) = 
+       draw _ (_ :<~ Floating ls) = 
           (tops ++ bottoms, mapM_ (snd . getEither) ls)
               where tops = foldl' onlyTops [] ls
                     onlyTops acc (Top (_, (ws, _))) = ws ++ acc
@@ -182,7 +182,7 @@ render t = do
                     bottoms = foldl' onlyBottoms [] ls
                     onlyBottoms acc (Bottom (ws, _)) = acc ++ ws
                     onlyBottoms acc _ = acc
-       draw (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)
+       draw _ (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)
        hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)
        hsvToRgb h s v = let c = v * s
                             x = c * (1 - abs ((h / 60) `mod'` 2 - 1))
@@ -238,7 +238,7 @@ setScreenFromMouse :: Members [Input Pointer, State ActiveScreen, State Screens]
 setScreenFromMouse = do
   pointer <- input @Pointer
   screens <- get @Screens
-  put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ zip [0..] $ toList $ fmap fst screens
+  put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ zip [0..] $ toList $ fmap screenSize screens
 
 -- |Add a bunch of properties to our root window to comply with EWMH
 initEwmh :: Member Property r

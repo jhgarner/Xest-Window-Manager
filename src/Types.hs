@@ -236,8 +236,14 @@ instance Show TreeCombo where
 -- instance Monoid TreeCombo where
 --   mempty = TreeCombo False False False
 
+data Screen' = Screen' { screenSize :: Rect
+                       , screenTree :: Tiler (Fix Tiler)
+                       , screenBorders :: Borders
+                       }
+  deriving Show
+
 type RootWindow = Window
 type Pointer = (Int32, Int32)
-type Screens = Map Int (Rect, Tiler (Fix Tiler))
+type Screens = Map Int Screen'
 
 type ActiveScreen = Int

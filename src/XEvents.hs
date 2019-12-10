@@ -40,7 +40,7 @@ mapWin window =
     -- Think of the new parent as an extension of the root window.
     -- Just like on the root window, we need to register some events
     -- on the parent.
-    selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask )-- .|. buttonPressMask .|. buttonReleaseMask)
+    selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask)-- .|. buttonPressMask .|. buttonReleaseMask)
 
     -- TODO: I wonder if there's a better way to do all this wrapping...
     let tWin = Fix $ Wrap $ ChildParent newWin window
@@ -89,39 +89,48 @@ unmapWin window =
 
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
-rootChange :: Members '[Input [XineramaScreenInfo]] r
+rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders, Mover] r
            => Members (States [Tiler (Fix Tiler), Maybe (), Screens, ActiveScreen, [Fix Tiler]]) r
            => Sem r ()
 rootChange = do
+  -- Update the list of screens
   screenInfo <- input @[XineramaScreenInfo]
   oldScreens <- get @Screens
   let defaultTiler = Monitor $ Just $ Fix $ InputController Nothing
-  let newScreens =
-        mapFromList $
-          map (\(XineramaScreenInfo name x y w h) ->
-                ( fromIntegral name
-                , ( Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
-                  , findWithDefault defaultTiler (fromIntegral name) $ fmap snd oldScreens
+  newScreens <-
+        mapFromList <$>
+          traverse (\(XineramaScreenInfo name x y w h) -> do
+                NewBorders newBorders <- input @NewBorders
+                return ( fromIntegral name
+                  , Screen'
+                      (Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h))
+                      (findWithDefault defaultTiler (fromIntegral name) $ fmap screenTree oldScreens)
+                      newBorders
                   )
-                )
               ) screenInfo
-  modify @ActiveScreen $ \activeScreen ->
-    if member activeScreen newScreens then activeScreen else 0
   put newScreens
-  traverse_ (fold . onInput (fmap (modify @[Fix Tiler] . (:))) . Fix . snd) $ difference oldScreens newScreens
+  -- Update the active screen if that monitor got disconnected
+  modify @ActiveScreen $ \activeScreen ->
+    if member activeScreen newScreens then activeScreen else headEx (keys newScreens)
+
+  -- Put all of the dead monitors into the minimized window stack
+  traverse_ ((fold . fmap (modify @[Fix Tiler] . (:))) . screenTree) $ difference oldScreens newScreens
+  -- Delete all of the border windows
+  traverse_ ((\(a, b, c, d) -> traverse_ destroySDLWindow [a, b, c, d]) . screenBorders) $ difference oldScreens newScreens
   put $ Just ()
   
 
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
-newFocus :: Members '[Input Screens, Property, Minimizer] r
-         => Members (States [Fix Tiler, Maybe ()]) r
+newFocus :: Members '[Input Screens, Property, Minimizer, Input Pointer] r
+         => Members (States [Fix Tiler, Maybe (), ActiveScreen, Screens]) r
          => Window
          -> Sem r ()
 newFocus window = do
   -- Change our tree so the focused window is the one we're hovering over
   mNewRoot <- 
     focusWindow window <$> get @(Fix Tiler)
+  setScreenFromMouse
 
   -- The root might be none if the newly focused window doesn't exist
   case mNewRoot of
@@ -190,7 +199,7 @@ motion = do
   pointer <- input @Pointer
 
   -- Get the real locations of every window
-  sized <- placeWindow (Rect 0 0 width height) . unfix <$> get
+  sized <- placeWindow (Rect 0 0 width height) . unfix <$> get @(Fix Tiler)
 
   -- Find the tiler that comes right after the input controller.
   case journey $ ana @(Path _ _) getInput sized of

@@ -23,7 +23,7 @@ import           Graphics.X11.Xlib.Window
 import           SDL hiding (get, Window, Display, trace)
 import qualified SDL.Raw.Video as Raw
 import qualified SDL.Font as Font
-import qualified SDL.Internal.Types as SI (Window(..))
+-- import qualified SDL.Internal.Types as SI (Window(..))
 import           Types
 import           Base
 import           Tiler
@@ -61,8 +61,8 @@ startWM = do
   let initialMode = fromMaybe (error "No modes") . headMay $ definedModes c
 
   -- Create our border windows which will follow the InputController
-  [lWin, dWin, uWin, rWin] <- replicateM 4 $
-    SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
+  -- [lWin, dWin, uWin, rWin] <- replicateM 4 $
+  --   SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
 
   -- EWMH wants us to create an extra window to verify we really
   -- can handle some of the EWMH spec. This window does that.
@@ -105,15 +105,17 @@ startWM = do
     $ evalState (M.empty @String @Atom)
     $ evalState (M.empty @Atom @[Int])
     $ evalState (M.empty @Window @Rect)
-    $ evalState (M.empty @Int @(Rect, Tiler (Fix Tiler)))
+    $ evalState (M.empty @Int @Screen')
     $ evalState ([] @(Fix Tiler))
     $ evalState (InputController Nothing)
     $ evalState Nothing
     $ evalState (0 :: Int)
     $ runGetScreens
+    $ runNewBorders
     $ evalState False
     $ runEventFlags
     $ runProperty
+    $ runMoverFake
     $ rebindKeys initialMode initialMode >> rootChange >> get @Screens
   print ("Got Screens" ++ show screens)
 
@@ -121,7 +123,7 @@ startWM = do
 
   setInputFocus display root revertToNone currentTime
   -- Execute the main loop. Will never return unless Xest exits
-  doAll screens c initialMode display root (lWin, dWin, uWin, rWin) (forever mainLoop)
+  doAll screens c initialMode display root (forever mainLoop)
     >> say "Exiting"
 
 
@@ -130,7 +132,8 @@ mainLoop :: DoAll r
 mainLoop = do
   printMe "========================"
   printMe "Tiler state at beginning of loop:\n"
-  get @(Tiler (Fix Tiler)) >>= \t -> printMe (show t ++ "\n\n")
+  get @ActiveScreen >>= \as -> printMe $ show as ++ " is the active screen \n"
+  get @Screens >>= \as -> printMe $ show as ++ " \n\n"
 
   whenM (isJust <$> get @(Maybe ())) refresh
   
@@ -143,7 +146,9 @@ mainLoop = do
     cre@ConfigureRequestEvent {} -> configureWin cre
     ConfigureEvent {} -> rootChange
     CrossingEvent {..} -> 
-      newFocus ev_window
+      if ev_event_type == enterNotify
+         then newFocus ev_window
+         else input @RootWindow >>= newFocus
     ButtonEvent {..} -> 
       newFocus ev_window
     MotionEvent {..} -> motion
