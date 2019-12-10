@@ -7,7 +7,7 @@ What is Xest?
 =============
 
 Xest is an X11 Window Manager with both tiling and floating support. It is
-inspired by other projects like I3 and XMonad.
+inspired by other projects like i3 and XMonad.
 
 The defining characteristic of Xest is its tree-like nesting. Xest isn't unique
 because it represents layouts and windows like a tree; i3 does this already.
@@ -22,7 +22,7 @@ research paper and the other is some kind of coding project. Normally, these two
 projects will be hard to organize on your desktop. 
 
 For the research papaer, maybe you have a workspace designated to finding
-sources in your web browser and a workspace with Libreoffice open.
+sources in your web browser and a workspace with LibreOffice open.
 
 For the programming project, you might need a workspace with your browser open with documentation,
 a workspace with you text editor, and a workspace with a couple of terminals for
