@@ -48,9 +48,13 @@ startWM = do
 
   -- Read the config file
   homeDir <- Env.getEnv "HOME"
+  print displayNumber
   c <- if displayNumber == "0" || displayNumber == "1"
           then readConfig display . pack $ homeDir ++ "/.config/xest/config.dhall"
           else readConfig display . pack $ homeDir ++ "/.config/xest/config.dhall." ++ unpack displayNumber
+  print $ if displayNumber == "0" || displayNumber == "1"
+            then homeDir ++ "/.config/xest/config.dhall"
+            else pack $ homeDir ++ "/.config/xest/config.dhall." ++ unpack displayNumber
 
   -- X orders windows like a tree.
   -- This gets the root.
@@ -130,7 +134,7 @@ startWM = do
 -- | Performs the main logic. Does it all!
 mainLoop :: DoAll r
 mainLoop = do
-  printMe "========================"
+  printMe "\n\n========================"
   printMe "Tiler state at beginning of loop:\n"
   get @ActiveScreen >>= \as -> printMe $ show as ++ " is the active screen \n"
   get @Screens >>= \as -> printMe $ show as ++ " \n\n"
@@ -169,6 +173,7 @@ mainLoop = do
       ZoomInMonitor -> zoomInMonitor
       ZoomOutMonitor -> zoomOutMonitor
       ZoomMonitorToInput -> zoomMonitorToInput
+      ZoomInputToMonitor -> zoomInputToMonitor
       -- TODO recursion alert!
       ChangeModeTo mode -> changeModeTo mode >>= foldMap executeActions
       Move dir -> moveDir dir

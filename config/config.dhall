@@ -56,7 +56,7 @@ in {
     {key = "q", mode = "Normal", actions = [Action.ZoomOutMonitor]}
   ],
   definedModes = [
-    { modeName = "Insert", introActions = [Action.HideWindow "Polybar"], exitActions = [Action.ShowWindow "Polybar"], hasButtons = False, hasBorders = False },
+    { modeName = "Insert", introActions = [Action.HideWindow "Polybar", Action.ZoomInputToMonitor], exitActions = [Action.ShowWindow "Polybar"], hasButtons = False, hasBorders = False },
     { modeName = "Resize", introActions = [] : List ./actions.dhall, exitActions = [] : List ./actions.dhall, hasButtons = True, hasBorders = True },
     { modeName = "NormalS", introActions = [] : List ./actions.dhall, exitActions = [] : List ./actions.dhall, hasButtons = False, hasBorders = True },
     { modeName = "Normal", introActions = [] : List ./actions.dhall, exitActions = [] : List ./actions.dhall, hasButtons = False, hasBorders = True}

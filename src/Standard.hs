@@ -29,6 +29,9 @@ module Standard
     , DeferedListF(..)
     , undefer
     , deferred
+    , fixable
+    , maybeFixable
+    , makeRight
     ) where
 
 import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
@@ -43,11 +46,14 @@ import Control.Comonad as All
 import qualified Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import Data.Functor.Foldable as All hiding (fold, unfold, embed)
 import Data.Fixed as All (mod')
+import Data.Kind (Type)
 import Data.Functor.Foldable.TH as All
 import NonEmpty as All
 import Data.Monoid as All (Alt(..), getAlt, getFirst)
 import Data.Coerce as All
 
+{-# COMPLETE (:<~) #-}
+pattern (:<~) :: forall (f :: Type -> Type) a b. a -> f b -> C.CofreeF f a b
 pattern (:<~) a b = a C.:< b
 
 untilM :: Monad m => (a -> Bool) -> m a -> m a
@@ -136,3 +142,12 @@ deferred = either (const []) reverse . cata undefer'
         undefer' (DActiveF (Left _)) = Right []
         undefer' (DActiveF (Right _)) = error "Double deferred!"
 
+fixable :: (Fix f -> Fix f) -> (f (Fix f) -> f (Fix f))
+fixable f = unfix . f . Fix
+
+maybeFixable :: (Fix f -> Maybe (Fix f)) -> (f (Fix f) -> Maybe (f (Fix f)))
+maybeFixable f = fmap unfix . f . Fix
+
+makeRight :: Either a a -> Either a a
+makeRight r@(Right _) = r
+makeRight (Left l) = Right l

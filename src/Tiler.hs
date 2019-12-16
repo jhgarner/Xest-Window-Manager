@@ -228,4 +228,22 @@ whichScreen (mx, my) = getFirst . foldMap findOverlap
           mx < x + fromIntegral w && 
             my < y + fromIntegral h
 
--- |The monitor must always be on the 
+-- |The monitor must always be in the focus path.
+-- If it's already there, this function does nothing.
+fixMonitor :: Tiler (Fix Tiler) -> Tiler (Fix Tiler)
+fixMonitor root =
+  if isInPath $ Fix root
+     then root
+     else maybe (error "Uh oh") unfix $ insertMonitor $ Fix root
+    where isInPath = cata $ \case
+            Monitor _ -> True
+            Wrap _ -> False
+            InputController t -> fromMaybe False t
+            FocusFull t -> t
+            Reflect t -> t
+            t@(Horiz _) -> getFocused t
+            t@(Floating _) -> getFocused t
+          insertMonitor = cata $ \case
+            Monitor t -> join t
+            InputController t -> Just $ Fix $ Monitor $ Just $ Fix $ InputController $ join t
+            t -> Fix <$> reduce t

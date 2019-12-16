@@ -8,6 +8,13 @@
 {-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE ViewPatterns   #-}
 
+-- TODO Yikes to this entire module. None of these types
+-- are related. Tiler types should be in Tiler, Actions in
+-- Actions, etc. In addition, Config should not be duplicating
+-- everything it needs. That's just error prone.
+-- 
+-- The problem though is I don't know how to deal with circular
+-- dependencies. Can I avoid those somehow? 
 module Types where
 
 import           Standard
@@ -108,6 +115,7 @@ inputControllerOrMonitor _ = Nothing
 pattern InputControllerOrMonitor :: forall a b. (Maybe b -> Tiler b) -> Maybe a -> Tiler a
 pattern InputControllerOrMonitor c a <- (inputControllerOrMonitor -> Just (c, a))
 
+
 newtype MaybeTiler a = Maybe (Tiler a)
 
 -- | Convenience type for keyEvents
@@ -142,6 +150,7 @@ data Action
   | ZoomInMonitor
   | ZoomOutMonitor
   | ZoomMonitorToInput
+  | ZoomInputToMonitor
   | PopTiler
   | PushTiler
   | MakeSpecial
