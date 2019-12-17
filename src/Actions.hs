@@ -21,9 +21,11 @@ import           Polysemy
 import           Polysemy.State
 import           Types
 import           Data.Either                    ( )
-import           Tiler
+import           Tiler as T
+import           Tiler.Reduce as TR
 import           Core
 import           FocusList
+import GDP
 
 -- * Zooming
 -- $What is it?
@@ -112,19 +114,24 @@ zoomOutInput
 zoomOutInput =
   -- The unless guards against zooming the controller out of existence
   unlessM (isController <$> gets @(Tiler (Fix Tiler)) Fix)
-    $ modify
-    $ fromMaybe (error "e")
-    . maybeFixable (para $ \case
-        InputController t -> t >>= snd
-        t -> fmap Fix $ if any (isController . fst) t
-                           then Just . InputController . fmap Fix . reduce $ fmap snd t
-                           else reduce $ fmap snd t)
+    $ modify $ the . exorcise
+    . solveReduced
+    . \(t :: Tiler (Fix Tiler)) -> (maybeToReduced (defn . unfix <$> para reorder (Fix t)) ... axiom) :: ReducedTiler n (Tiler (Fix Tiler)) ::: HasIC n
 
  where
   -- Is something the controller? Instead of returning a boolean, we return
   -- a function used to construct a controller.
   isController (Fix (InputController _)) = True
   isController _ = False
+
+  -- reorder :: ( ReducedTiler n (Tiler Fix Tiler) ) -> 
+  reorder :: Tiler (Fix Tiler, Fix Tiler) -> AnyReduced (Fix Tiler)
+  reorder = \case
+    InputController (Just (_, AnyReduced (ReducedTiler (The t)))) -> AnyReduced $ ReducedTiler $ defn t
+    InputController _ -> AnyReduced EmptyTiler
+    t -> if any (isController . fst) t
+                then AnyReduced . ReducedTiler . defn . Fix . InputController . reducedToMaybe . mapFix . TR.reduce $ defn $ fmap snd t
+                else AnyReduced $ mapFix $ TR.reduce $ defn $ fmap snd t
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomMonitorToInput
@@ -135,7 +142,7 @@ zoomMonitorToInput =
     InputController t ->
       Just . Fix . Monitor . Just . Fix . InputController  $ join t
     Monitor childT -> join childT
-    t -> Fix <$> reduce t)
+    t -> Fix <$> T.reduce t)
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomInputToMonitor
@@ -147,7 +154,7 @@ zoomInputToMonitor =
     Monitor t ->
       Just . Fix . Monitor . Just . Fix . InputController  $ join t
     InputController childT -> join childT
-    t -> Fix <$> reduce t)
+    t -> Fix <$> T.reduce t)
 
 -- |Very similar to zoomOutInput but less confusing to implement.
 zoomOutMonitor
@@ -161,8 +168,8 @@ zoomOutMonitor =
     . maybeFixable (para $ \case
         Monitor t -> t >>= snd
         t -> fmap Fix $ if any (isMonitor . fst) t
-                           then Just . Monitor . fmap Fix . reduce $ fmap snd t
-                           else reduce $ fmap snd t)
+                           then Just . Monitor . fmap Fix . T.reduce $ fmap snd t
+                           else T.reduce $ fmap snd t)
 
   where isMonitor (Fix (Monitor _)) = True
         isMonitor _           = False
@@ -266,7 +273,7 @@ doSpecial =
       -- TODO rewrite this in a less bad way.
       -- maybe (error "We know it's not just an IC") (fromMaybe (error "Yikes") . fst . moveToIC i) $ removeIC i
       fromMaybe (error "We know it's not just an IC") $ removeIC
-        $ cata (applyInput (\(Just ((Horiz fl))) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController Nothing) fl)) $ Fix root
+        $ cata (applyInput (\(Just (Horiz fl)) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController Nothing) fl)) $ Fix root
     _                  -> Fix root
 
   mkTop t@(Top    _) = t
@@ -275,7 +282,7 @@ doSpecial =
 
   removeIC = cata $ \case 
     InputController (Just t@(Just (Fix (Horiz _)))) -> t
-    t -> Fix <$> reduce t
+    t -> Fix <$> T.reduce t
 
 -- |Kill the active window
 killActive

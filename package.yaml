@@ -42,6 +42,7 @@ dependencies:
 - polysemy
 - polysemy-plugin
 - polysemy-zoo
+- gdp
 
 library:
   source-dirs: src

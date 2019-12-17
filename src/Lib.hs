@@ -32,6 +32,7 @@ import qualified System.Environment as Env
 import qualified Data.Map                      as M
 import XEvents
 import Actions
+import Tiler.Reduce
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
