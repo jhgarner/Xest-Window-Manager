@@ -126,7 +126,7 @@ zoomOutInput =
   isController _ = False
 
   -- reorder :: ( ReducedTiler n (Tiler Fix Tiler) ) -> 
-  reorder :: Tiler (Fix Tiler, ReducedTiler (Fix Tiler) ? HasIC) ~~ n -> ReducedTiler (Fix Tiler) ~~ Cata n ::: HasIC (Cata n)
+  reorder :: Tiler (Fix Tiler, ReducedTiler (Fix Tiler) ? ImplyIt) ~~ n -> ReducedTiler (Fix Tiler) ~~ Cata n ::: ImplyIt (Cata n)
   reorder = \case
     -- The (InputController (Just (_, SomeName (The (ReducedTiler t))))) -> defn $ ReducedTiler t
     -- The (InputController _) -> defn EmptyTiler
@@ -134,12 +134,9 @@ zoomOutInput =
                 then ReducedTiler . Fix . InputController . reducedToMaybe . coerce . the . TR.reduce $ defn $ fmap (flippedRename (the . exorcise) . snd) t
                 else coerce $ the $ TR.reduce $ defn $ fmap (flippedRename (the . exorcise) . snd) t
     _ -> error "The needs type things"
-  flippedRename :: (forall n. ReducedTiler (Fix Tiler) ~~ n ::: HasIC n -> ReducedTiler (Fix Tiler)) -> ReducedTiler (Fix Tiler) ? HasIC -> ReducedTiler (Fix Tiler)
+  flippedRename :: (forall n. ReducedTiler (Fix Tiler) ~~ n ::: ImplyIt n -> ReducedTiler (Fix Tiler)) -> ReducedTiler (Fix Tiler) ? ImplyIt -> ReducedTiler (Fix Tiler)
   -- wat2 :: ReducedTiler (Fix Tiler)
   flippedRename f t = rename t f
-  wat :: ReducedTiler (Fix Tiler) ~~ n ::: HasIC n -> ReducedTiler (Fix Tiler)
-  -- wat :: ReducedTiler (Fix Tiler) ~~ n ::: HasIC n -> ReducedTiler (Fix Tiler)
-  wat = the . exorcise
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomMonitorToInput

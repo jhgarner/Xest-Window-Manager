@@ -27,7 +27,10 @@ type role IsTiler nominal
 newtype HasIC name = HasIC Defn
 type role HasIC nominal
 
-data Related a b = forall name. Related (a name) (b name)
+data ImplyIt name = forall oldName . Cata oldName ~ name => ImplyIt (HasIC oldName) (HasIC name)
+
+makeImplyIt :: Tiler (ReducedTiler (Fix Tiler) ? ImplyIt) -> ReducedTiler (Fix Tiler) ~~ name ::: ImplyIt name
+makeImplyIt = undefined
 
 newtype Child name = Child Defn
 type role Child nominal
@@ -76,7 +79,7 @@ mapunFix (ReducedTiler (t)) = ReducedTiler $ unfix t
 mapunFix EmptyTiler = EmptyTiler
 
 -- | Removes empty Tilers
-reduce :: (Tiler (ReducedTiler (Fix Tiler)) ~~ IsTiler n) -> ReducedTiler (Tiler (Fix Tiler)) ~~ IsTiler m
+reduce :: Coercible (f m) Defn => (Tiler (ReducedTiler (Fix Tiler) ? proof) ~~ n) -> ReducedTiler (Tiler (Fix Tiler ? proof)) ~~ f m
 -- Yo dog, I head you like fmaps
 reduce = defn . maybeToReduced . \case
   The (Horiz fl) -> fmap Horiz $ fmap (fmap fromNonempty) <$> flFilter (isNonEmptyTiler . getItem) fl
@@ -91,3 +94,6 @@ reduce = defn . maybeToReduced . \case
   _ -> error "t"
   where newTiler ls = Floating . fmap (fmap fromNonempty) <$> newFront ls
         newFront = filterNe (isNonEmptyTiler . getEither)
+
+
+-- IsControllerChild :: 
