@@ -2,6 +2,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
 
 
 {-|
@@ -114,9 +115,9 @@ zoomOutInput
 zoomOutInput =
   -- The unless guards against zooming the controller out of existence
   unlessM (isController <$> gets @(Tiler (Fix Tiler)) Fix)
-    $ modify $ the . exorcise
+    $ modify $ the
     . solveReduced
-    . \(t :: Tiler (Fix Tiler)) -> (maybeToReduced (defn . unfix <$> para reorder (Fix t)) ... axiom) :: ReducedTiler n (Tiler (Fix Tiler)) ::: HasIC n
+    . \(t :: Tiler (Fix Tiler)) -> (GDP.assert $ maybeToReduced (coerce $ reducedToMaybe $ the $ paraP @Defn reorder (Fix t))) :: ReducedTiler (Tiler (Fix Tiler)) ? HasIC
 
  where
   -- Is something the controller? Instead of returning a boolean, we return
@@ -125,13 +126,20 @@ zoomOutInput =
   isController _ = False
 
   -- reorder :: ( ReducedTiler n (Tiler Fix Tiler) ) -> 
-  reorder :: Tiler (Fix Tiler, Fix Tiler) -> AnyReduced (Fix Tiler)
+  reorder :: Tiler (Fix Tiler, ReducedTiler (Fix Tiler) ? HasIC) ~~ n -> ReducedTiler (Fix Tiler) ~~ Cata n ::: HasIC (Cata n)
   reorder = \case
-    InputController (Just (_, AnyReduced (ReducedTiler (The t)))) -> AnyReduced $ ReducedTiler $ defn t
-    InputController _ -> AnyReduced EmptyTiler
-    t -> if any (isController . fst) t
-                then AnyReduced . ReducedTiler . defn . Fix . InputController . reducedToMaybe . mapFix . TR.reduce $ defn $ fmap snd t
-                else AnyReduced $ mapFix $ TR.reduce $ defn $ fmap snd t
+    -- The (InputController (Just (_, SomeName (The (ReducedTiler t))))) -> defn $ ReducedTiler t
+    -- The (InputController _) -> defn EmptyTiler
+    The t -> (... axiom) $ defn $ if any (isController . fst) t
+                then ReducedTiler . Fix . InputController . reducedToMaybe . coerce . the . TR.reduce $ defn $ fmap (flippedRename (the . exorcise) . snd) t
+                else coerce $ the $ TR.reduce $ defn $ fmap (flippedRename (the . exorcise) . snd) t
+    _ -> error "The needs type things"
+  flippedRename :: (forall n. ReducedTiler (Fix Tiler) ~~ n ::: HasIC n -> ReducedTiler (Fix Tiler)) -> ReducedTiler (Fix Tiler) ? HasIC -> ReducedTiler (Fix Tiler)
+  -- wat2 :: ReducedTiler (Fix Tiler)
+  flippedRename f t = rename t f
+  wat :: ReducedTiler (Fix Tiler) ~~ n ::: HasIC n -> ReducedTiler (Fix Tiler)
+  -- wat :: ReducedTiler (Fix Tiler) ~~ n ::: HasIC n -> ReducedTiler (Fix Tiler)
+  wat = the . exorcise
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomMonitorToInput
@@ -149,7 +157,6 @@ zoomInputToMonitor
   :: Member (State (Tiler (Fix Tiler))) r
   =>  Sem r ()
 zoomInputToMonitor =
-  trace "Testing" $
   modify $ fromMaybe (error "Can't be empty") . maybeFixable (cata $ \case
     Monitor t ->
       Just . Fix . Monitor . Just . Fix . InputController  $ join t
