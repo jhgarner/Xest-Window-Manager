@@ -75,7 +75,7 @@ zoomDirInputSkip trans action = do
     Cons (Horiz     _) _ -> 1
     Cons (Floating  _) _ -> 1
     Cons (FocusFull _) _ -> 1
-    Cons (Monitor   _) j -> j
+    Cons (Monitor   _) i -> i + 1
     Cons _             i -> i + 1
 
 -- | Zooms inwards, AKA away from the root. This function operates on
@@ -169,7 +169,7 @@ zoomOutMonitor =
 
 -- |changes a mode. For example, I have the windows key configured to change
 -- from Insert mode to Normal mode.
-changeModeTo :: Members '[State Mode, EventFlags] r => Mode -> Sem r Actions
+changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] r => Mode -> Sem r Actions
 changeModeTo newM = do
   eActions <- gets @Mode exitActions
   oldMode  <- get
@@ -181,6 +181,13 @@ changeModeTo newM = do
   selectButtons newM
 
   put newM
+
+  -- Whatever key is on top of the KeyStatus stack should be New instead
+  -- of Temp.
+  modify @KeyStatus $ \case
+    Temp oldKS oldMode kc -> New oldKS oldMode kc
+    Dead ks -> ks
+    _ -> error "Are you changing the mode twice in 1 action?"
 
   --Combine the two lists of actions to be executed. Execute exit actions first.
   return $ eActions ++ introActions newM

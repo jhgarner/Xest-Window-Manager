@@ -179,10 +179,16 @@ data Conf = Conf { keyBindings  :: [KeyTrigger]
                  }
   deriving Show
 
-data KeyStatus = New Mode KeyCode | Temp Mode KeyCode | Default
+data KeyStatus = New KeyStatus Mode KeyCode | Temp KeyStatus Mode KeyCode | Dead KeyStatus | Default
+makeBaseFunctor ''KeyStatus
 
 instance Show KeyStatus where
   show _ = "Key status"
+
+-- getMode :: KeyStatus -> Mode
+-- getMode (Default m) = m
+-- getMode (New m _) = getMode m
+-- getMode (Temp m _) = getMode m
 
 type KeyPostprocessor r = Mode -> KeyTrigger -> Action -> Actions
 
