@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE MultiWayIf #-}
 
 module Lib
   ( startWM
@@ -149,10 +150,11 @@ mainLoop = do
     UnmapEvent {..} -> unmapWin ev_window
     cre@ConfigureRequestEvent {} -> configureWin cre
     ConfigureEvent {} -> rootChange
-    CrossingEvent {..} -> 
-      if ev_event_type == enterNotify
-         then newFocus ev_window
-         else input @RootWindow >>= newFocus
+    CrossingEvent {..} -> do
+      root <- input @RootWindow
+      if | ev_event_type == enterNotify -> newFocus ev_window
+         | ev_window == root -> input @RootWindow >>= newFocus
+         | otherwise -> return ()
     ButtonEvent {..} -> 
       newFocus ev_window
     MotionEvent {..} -> motion

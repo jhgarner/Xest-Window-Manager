@@ -127,6 +127,8 @@ data Property m a where
   -- |Technically not a property but it kind of fits...
   GetChild :: Window -- ^ The parent
            -> Property m (Maybe Window) -- ^ The child
+  IsOverrideRedirect :: Window
+                     -> Property m Bool
 
   -- |Turns a String into an X11 managed Atom. Think of atoms as pointers to
   -- strings.
@@ -163,6 +165,9 @@ runProperty = interpret $ \case
 
   GetClassName win ->
     input >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return n
+
+  IsOverrideRedirect win ->
+    input >>= \d -> embed $ wa_override_redirect <$> getWindowAttributes d win
 
   GetChild win -> do
     display <- input @Display
