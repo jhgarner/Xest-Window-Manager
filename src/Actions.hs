@@ -35,19 +35,19 @@ import           FocusList
 
 -- | Helper type for the zoomDirInputSkip function. It would be cool if I could
 -- put this in the zoomDirInputSkip where block...
-type DeferedPath = DeferedListF (Tiler (Fix Tiler)) (Tiler (Fix Tiler))
+type DeferedPath = DeferedListF Tiler Tiler
 
 -- | This "smart" zoom function skips past the useless Tilers that would only slow you down.
 -- Instead of zooming in or out one layer at a time, this function skips over the Tilers you probably
 -- don't want to stop at. Note the use of probably. You should still bind the non smart versions as backup
 -- in case you really do want to zoom into something boring.
 zoomDirInputSkip
-  :: Members (States '[Tiler (Fix Tiler)]) r
+  :: Members (States '[Tiler]) r
   => (forall a . DeferedList a -> [a]) -- ^ Generally used to decide which side of the deffered list we're interested in
   -> Sem r () -- ^ The action to perform for every interesting Tiler in our path
   -> Sem r ()
 zoomDirInputSkip trans action = do
-  root <- get @(Tiler (Fix Tiler))
+  root <- get @Tiler
 
   replicateM_
     ( numToSkip -- Turns a list of Tilers into a number of things to skip
@@ -60,8 +60,8 @@ zoomDirInputSkip trans action = do
     -- Turns a tree into a path of focused elements.
     -- The InputController marks where the path might want to be split
   getPath
-    :: Tiler (Fix Tiler)
-    -> DeferedList (Tiler (Fix Tiler))
+    :: Tiler
+    -> DeferedList Tiler
   getPath = apo $ \case
     InputController t ->
       DActiveF $ maybe (Left DNil) (Right . unfix) t
@@ -71,7 +71,7 @@ zoomDirInputSkip trans action = do
 
   -- The number of jumps to make.
   numToSkip = cata $ \case 
-    Nil                    -> 0
+    Nil                    -> 1
     Cons (Horiz     _) _ -> 1
     Cons (Floating  _) _ -> 1
     Cons (FocusFull _) _ -> 1
@@ -83,7 +83,7 @@ zoomDirInputSkip trans action = do
 -- usually won't change, you will change the Tiler that will receive actions
 -- and events.
 zoomInInput
-  :: Member (State (Tiler (Fix Tiler))) r
+  :: Member (State Tiler) r
   => Sem r ()
 zoomInInput =
   modify $ fixable $ cata $ \case
@@ -95,7 +95,7 @@ zoomInInput =
 -- |Nearly identical to zooming in the input controller. The only
 -- differene is the Monitor needs to stay behind the input controller.
 zoomInMonitor
-  :: Member (State (Tiler (Fix Tiler))) r
+  :: Member (State Tiler) r
   => Sem r ()
 zoomInMonitor =
   modify $ fixable $ cata $ \case
@@ -107,11 +107,11 @@ zoomInMonitor =
 -- |Move the input controller towards the root
 -- This is complicated if the monitor is right behind it
 zoomOutInput
-  :: Member (State (Tiler (Fix Tiler))) r
+  :: Member (State Tiler) r
   => Sem r ()
 zoomOutInput =
   -- The unless guards against zooming the controller out of existence
-  unlessM (isController <$> gets @(Tiler (Fix Tiler)) Fix)
+  unlessM (isController <$> gets @Tiler Fix)
     $ modify
     $ fromMaybe (error "e")
     . maybeFixable (para $ \case
@@ -128,7 +128,7 @@ zoomOutInput =
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomMonitorToInput
-  :: Member (State (Tiler (Fix Tiler))) r
+  :: Member (State Tiler) r
   =>  Sem r ()
 zoomMonitorToInput =
   modify $ fromMaybe (error "Can't be empty") . maybeFixable (cata $ \case
@@ -139,10 +139,9 @@ zoomMonitorToInput =
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomInputToMonitor
-  :: Member (State (Tiler (Fix Tiler))) r
+  :: Member (State Tiler) r
   =>  Sem r ()
 zoomInputToMonitor =
-  trace "Testing" $
   modify $ fromMaybe (error "Can't be empty") . maybeFixable (cata $ \case
     Monitor t ->
       Just . Fix . Monitor . Just . Fix . InputController  $ join t
@@ -151,11 +150,11 @@ zoomInputToMonitor =
 
 -- |Very similar to zoomOutInput but less confusing to implement.
 zoomOutMonitor
-  :: Member (State (Tiler (Fix Tiler))) r
+  :: Member (State Tiler) r
   => Sem r ()
 zoomOutMonitor =
   -- Don't want to zoom the monitor out of existence
-  unlessM (isMonitor . Fix <$> get @(Tiler (Fix Tiler)))
+  unlessM (isMonitor . Fix <$> get @Tiler)
     $ modify
     $ fromMaybe (error "e")
     . maybeFixable (para $ \case
@@ -195,10 +194,10 @@ changeModeTo newM = do
 -- |If the current Tiler can hold multiple children, change which one
 -- is focused. Typically bound to the number keys.
 changeIndex
-  :: Member (State (Fix Tiler)) r
+  :: Member (State Tiler) r
   => Int -> Sem r ()
 changeIndex changeTo =
-  modify $ cata (applyInput $ fmap changer)
+  modify $ applyInput $ fmap changer
 
  where
   changer (Horiz fl) = Horiz
@@ -207,10 +206,10 @@ changeIndex changeTo =
 
 -- |Same as above but either adds or subtract one from the current index.
 moveDir
-  :: Member (State (Fix Tiler)) r
+  :: Member (State Tiler) r
   => Direction -> Sem r ()
 moveDir dir =
-  modify $ cata (applyInput $ fmap changer)
+  modify $ applyInput $ fmap changer
 
  where
   changer (Horiz fl) = Horiz $ focusDir dir fl
@@ -220,76 +219,77 @@ moveDir dir =
 -- from the stack back into the tree. This function accomplishes
 -- something similar to minimization.
 popTiler
-  :: Members (States '[Fix Tiler, [Fix Tiler]]) r
+  :: Members (States '[Tiler, [SubTiler]]) r
   => Sem r ()
 popTiler = do
   root <- get
 
-  sequence_ $ onInput (fmap (modify @[Fix Tiler] . (:))) root
-  modify $ cata (applyInput $ const Nothing)
+  sequence_ $ onInput (fmap (modify @[SubTiler] . (:))) root
+  modify $ applyInput $ const Nothing
 
 -- |Move a tiler from the stack into the tree. Should be the inverse
 -- of popTiler.
 pushTiler
-  :: Members (States '[Fix Tiler, [Fix Tiler]]) r
+  :: Members (States '[Tiler, [SubTiler]]) r
   => Sem r ()
 pushTiler = do
-  popped <- get @[Fix Tiler]
+  popped <- get @[SubTiler]
 
   case popped of
     (t : ts) -> do
       put ts
-      modify $ cata (applyInput $ Just . pushOrAdd t)
+      -- TODO These coercions are probably a sign that I should change something
+      modify $ applyInput $ coerce $ Just . pushOrAdd t
     [] -> return ()
 
 -- |Insert a tiler after the Input Controller.
 -- Note that this is not called when a new window is created.
 -- That would be the pushOrAdd function.
 insertTiler
-  :: Member (State (Fix Tiler)) r
+  :: Member (State Tiler) r
   => Insertable -> Sem r ()
 insertTiler t =
-  modify @(Fix Tiler) . cata $ applyInput (fmap toTiler)
+  modify @Tiler $ applyInput (fmap toTiler)
 
  where
   toTiler focused = case t of
-    Horizontal -> Horiz $ makeFL (NE (Sized 0 $ Fix focused) []) 0
-    Rotate     -> Reflect $ Fix focused
-    FullScreen -> FocusFull $ Fix focused
-    Hovering   -> Floating $ NE (Bottom $ Fix focused) []
+    Horizontal -> Horiz $ makeFL (NE (Sized 0 focused) []) 0
+    Rotate     -> Reflect focused
+    FullScreen -> FocusFull focused
+    Hovering   -> Floating $ NE (Bottom focused) []
 
 -- |Perform some special action based on the focused tiler
 doSpecial
-  :: Member (State (Fix Tiler)) r
+  :: Member (State Tiler) r
   => Sem r ()
 doSpecial =
-  modify @(Fix Tiler) (\root -> onInput (maybe root (makeSpecial root)) root)
+  modify @Tiler $ \root -> onInput (coerce $ maybe root (makeSpecial root)) root
  where
-  makeSpecial :: Fix Tiler -> Fix Tiler -> Fix Tiler
-  makeSpecial (Fix root) (Fix t) = case t of
+  makeSpecial :: Tiler -> Tiler -> Tiler
+  makeSpecial root t = case t of
     Floating (NE l ls) ->
       applyInput (\_ -> Just $ Floating $ NE (mkBottom l) $ fmap mkTop ls) root
     Horiz _ ->
       -- TODO rewrite this in a less bad way.
       -- maybe (error "We know it's not just an IC") (fromMaybe (error "Yikes") . fst . moveToIC i) $ removeIC i
       fromMaybe (error "We know it's not just an IC") $ removeIC
-        $ cata (applyInput (\(Just ((Horiz fl))) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController Nothing) fl)) $ Fix root
-    _                  -> Fix root
+        $ applyInput (\(Just ((Horiz fl))) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController Nothing) fl) root
+    _                  -> root
 
   mkTop t@(Top    _) = t
   mkTop (  Bottom t) = Top (RRect 0 0 0.2 0.2, t)
   mkBottom = Bottom . extract
 
   removeIC = cata $ \case 
-    InputController (Just t@(Just (Fix (Horiz _)))) -> t
-    t -> Fix <$> reduce t
+    InputController (Just t@(Just (Horiz _))) -> t
+    t -> reduce $ coerce t
 
 -- |Kill the active window
 killActive
-  :: Members '[State (Fix Tiler), State (Tiler (Fix Tiler)), GlobalX, Executor, State (Maybe ())] r
+  :: Members '[State Tiler, State Tiler, GlobalX, Executor, State (Maybe ())] r
   => Sem r ()
 killActive = do
-  root <- get @(Fix Tiler)
+  root <- get @Tiler
 
   -- We use the Beam data type to get the window at the end of
   -- the tree if it exists.
@@ -313,7 +313,7 @@ killActive = do
       _ <- kill True parent
       modify $ ripOut killed
  where
-  makeList (Fix (Wrap (ChildParent window w'))) = EndF $ Just (window, w')
-  makeList (Fix (InputControllerOrMonitor _ (Just t)  )) = ContinueF t
-  makeList (Fix (InputControllerOrMonitor _ Nothing   )) = EndF Nothing
-  makeList (Fix t                             ) = ContinueF (getFocused t)
+  makeList (Wrap (ChildParent window w')) = EndF $ Just (window, w')
+  makeList (InputControllerOrMonitor _ (Just t)  ) = ContinueF $ coerce t
+  makeList (InputControllerOrMonitor _ Nothing   ) = EndF Nothing
+  makeList t                              = ContinueF (coerce $ getFocused t)

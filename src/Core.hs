@@ -29,12 +29,12 @@ import qualified SDL (Window)
 
 refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX] r
         => Members (Inputs [Window, Screens, Borders, (Int32, Int32)]) r
-        => Members (States [Tiler (Fix Tiler), Mode, [Fix Tiler], Maybe ()]) r
+        => Members (States [Tiler, Mode, [SubTiler], Maybe ()]) r
         => Sem r ()
 refresh = do
     put @(Maybe ()) Nothing
     -- Fix the Monitor if the Input Controller moved in a weird way
-    modify @(Tiler (Fix Tiler)) fixMonitor
+    modify @Tiler fixMonitor
     -- tell X to focus whatever we're focusing
     xFocus
 
@@ -50,14 +50,14 @@ refresh = do
     -- Do some EWMH stuff
     setClientList
     writeActiveWindow
-    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix)) . Fix
+    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
 
 
 -- | Places a tiler somewhere on the screen without actually placing it
 placeWindow
   :: Rect
-  -> Tiler (Fix Tiler)
-  -> Cofree Tiler (Transformer Plane)
+  -> Tiler
+  -> Cofree TilerF (Transformer Plane)
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
 placeWindow screenSize root =
@@ -96,7 +96,7 @@ placeWindow screenSize root =
 
         Monitor t ->
           Monitor $ (overReal (\(Plane _ depth) -> Plane screenSize depth) trans,) <$> t
-      buildUp :: (Transformer Plane, Fix Tiler) -> CofreeF Tiler (Transformer Plane) (Transformer Plane, Fix Tiler)
+      buildUp :: (Transformer Plane, SubTiler) -> CofreeF TilerF (Transformer Plane) (Transformer Plane, SubTiler)
       buildUp initial = fst initial C.:< (uncurry placeWindow' $ second unfix initial)
   
 -- |Find a window with a class name. This is used when
@@ -112,18 +112,18 @@ getWindowByClass wName = do
 
 type RenderEffect r =
      ( Members (Inputs [Pointer, Screens]) r
-     , Members (States [Tiler (Fix Tiler), Mode]) r
+     , Members (States [Tiler, Mode]) r
      , Members [Mover, Minimizer, Colorer, GlobalX] r
      )
 -- |Moves windows around based on where they are in the tiler.
 render
-  :: (RenderEffect r, Member (State [Fix Tiler]) r)
-  => Tiler (Fix Tiler)
+  :: (RenderEffect r, Member (State [SubTiler]) r)
+  => Tiler
   -> Sem r [[Window]]
 render t = do
   screens <- input @Screens
 
-  let locations :: [(Cofree Tiler (Transformer Plane), Borders)] = toList $ fmap (\(Screen' rect t b) -> (placeWindow rect t, b)) screens
+  let locations :: [(Cofree TilerF (Transformer Plane), Borders)] = toList $ fmap (\(Screen' rect t b) -> (placeWindow rect t, b)) screens
 
   -- Draw the tiler we've been given. winOrder will be used by restackWindows
   -- while io coantains the io action which moves the windows.
@@ -131,13 +131,13 @@ render t = do
   sequence_ io
 
   -- Hide all of the popped tilers
-  minimized <- get @[Fix Tiler]
+  minimized <- get @[SubTiler]
   traverse_ (snd . cata (draw Nothing) . fmap unTransform . placeWindow (Rect 0 0 0 0) . unfix) minimized
 
   return winOrder
 
        -- The main part of this function.
- where draw :: RenderEffect r => Maybe Borders -> Base (Cofree Tiler Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
+ where draw :: RenderEffect r => Maybe Borders -> Base (Cofree TilerF Plane) ([Window], Sem r ()) -> ([Window], Sem r ())
        draw _ (Plane (Rect _ _ 0 0) _ :<~ Wrap (ChildParent win _)) = ([], minimize win)
        draw _ (Plane Rect {..} _ :<~ Wrap (ChildParent win win')) = ([win], do
            restore win
@@ -164,14 +164,14 @@ render t = do
                       changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
 
                       traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
-                      gets @(Tiler (Fix Tiler)) Fix >>= drawText u . cata getFocusList
+                      gets @Tiler Fix >>= drawText u . cata getFocusList
                   else do
                       changeLocationS l $ Rect 10000 0 0 0
                       changeLocationS u $ Rect 10000 0 0 0
                       changeLocationS d $ Rect 10000 0 0 0
                       changeLocationS r $ Rect 10000 0 0 0
                       traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
-                      gets @(Tiler (Fix Tiler)) Fix >>= drawText u . cata getFocusList
+                      gets @Tiler Fix >>= drawText u . cata getFocusList
                       
                 traverse_ bufferSwap winList
            )
@@ -200,19 +200,19 @@ render t = do
 
           
 -- |Writes the path to the topmost border.
-writePath :: Members '[State (Tiler (Fix Tiler)), Input Borders, Colorer, Property] r 
+writePath :: Members '[State Tiler, Input Borders, Colorer, Property] r 
           => Sem r ()
 writePath = do
   (_, u, _, _) <- input @Borders
-  root <- get @(Tiler (Fix Tiler))
+  root <- get @Tiler
   drawText u $ cata getFocusList $ Fix root
 
 -- |Focus the window our Tilers are focusing
 xFocus
-  :: Members [State (Tiler (Fix Tiler)), Minimizer, Input Window] r
+  :: Members [State Tiler, Minimizer, Input Window] r
   => Sem r ()
 xFocus = do
-  root <- get @(Tiler (Fix Tiler))
+  root <- get @Tiler
   rWin <- input @Window
   let w = fromMaybe (rWin, rWin) $ extract $ ana @(Beam _) makeList root
   restore $ fst w
@@ -225,7 +225,7 @@ xFocus = do
   makeList t = ContinueF (unfix $ getFocused t)
 
 -- |Push something if it can be pushed. Add it manually otherwise.
-pushOrAdd :: Fix Tiler -> Maybe (Tiler (Fix Tiler)) -> Tiler (Fix Tiler)
+pushOrAdd :: SubTiler -> Maybe Tiler -> Tiler
 pushOrAdd tWin = maybe (unfix tWin) (\case
   t@(Horiz _) -> add Back Focused tWin t
   t@(Floating _) -> add Back Focused tWin t
@@ -318,11 +318,11 @@ getBottomWindows = do
   return $ join lowerWindows
 
 -- |Writes all of the clients we're managing for others to see.
-setClientList :: (Members '[State (Tiler (Fix Tiler)), Input Window, Property] r)
+setClientList :: (Members '[State Tiler, Input Window, Property] r)
               => Sem r ()
 setClientList = do
   root <- input
-  tilers <- get @(Tiler (Fix Tiler))
+  tilers <- get @Tiler
   ncl <- getAtom False "_NET_CLIENT_LIST"
   warray <- getAtom False "WINDOW[]"
   putProperty 32 ncl root warray $ cata winList $ Fix tilers
@@ -330,7 +330,7 @@ setClientList = do
           winList t = concat t
 
 -- |Writes the active window to the root window.
-writeActiveWindow :: (Members '[State (Tiler (Fix Tiler)), Input Window, Property] r)
+writeActiveWindow :: (Members '[State Tiler, Input Window, Property] r)
               => Sem r ()
 writeActiveWindow = do
   root <- input

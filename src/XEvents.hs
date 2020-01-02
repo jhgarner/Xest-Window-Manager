@@ -22,7 +22,7 @@ import           Data.Bits
 import qualified Data.Map.Strict as M
 
 -- |Called when a new top level window wants to exist
-mapWin :: Member (State (Fix Tiler)) r
+mapWin :: Member (State Tiler) r
          => Members (Inputs '[Pointer]) r
          => Members [EventFlags, GlobalX, State (Maybe ())] r
          => Window
@@ -43,23 +43,23 @@ mapWin window =
     selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask)-- .|. buttonPressMask .|. buttonReleaseMask)
 
     -- TODO: I wonder if there's a better way to do all this wrapping...
-    let tWin = Fix $ Wrap $ ChildParent newWin window
+    let tWin = Wrap $ ChildParent newWin window
 
 
     -- This adds the new window to whatever tiler comes after inputController
     -- If you've zoomed the inputController in, you get nesting as a result
-    modify . cata . applyInput $ Just . pushOrAdd tWin
+    modify $ applyInput $ coerce $ Just . pushOrAdd tWin
     put $ Just ()
 
   where 
-    findWindow :: Window -> Fix Tiler -> Bool
+    findWindow :: Window -> Tiler -> Bool
     findWindow w = cata $ \case
           (Wrap w') -> inChildParent w w'
           t -> or t
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
-killed :: Members (States [Fix Tiler, Tiler (Fix Tiler), LocCache, Maybe ()]) r
+killed :: Members (States [Tiler, LocCache, Maybe ()]) r
        => Member GlobalX r
        => Window 
        -> Sem r ()
@@ -67,12 +67,12 @@ killed window = do
   -- Find the parent in the tree and kill it.
   (findParent window <$> get) >>= traverse_ (kill True >=> const (put $ Just ()))
   -- Remove the window from the tree.
-  modify @(Tiler (Fix Tiler)) $ ripOut window
+  modify @Tiler $ ripOut window
   -- Remove the window from our cache
   modify @LocCache $ M.delete window
 
 -- |A window is either dying slowly or has been minimized.
-unmapWin :: Members (States [Fix Tiler, Tiler (Fix Tiler), Set Window, LocCache, Maybe ()]) r
+unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe ()]) r
          => Member GlobalX r
          => Window 
          -> Sem r ()
@@ -90,7 +90,7 @@ unmapWin window =
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
 rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders, Mover] r
-           => Members (States [Tiler (Fix Tiler), Maybe (), Screens, ActiveScreen, [Fix Tiler]]) r
+           => Members (States [Tiler, Maybe (), Screens, ActiveScreen, [SubTiler]]) r
            => Sem r ()
 rootChange = do
   -- Update the list of screens
@@ -114,7 +114,7 @@ rootChange = do
     if member activeScreen newScreens then activeScreen else headEx (keys newScreens)
 
   -- Put all of the dead monitors into the minimized window stack
-  traverse_ ((fold . fmap (modify @[Fix Tiler] . (:))) . screenTree) $ difference oldScreens newScreens
+  traverse_ ((fold . fmap (modify @[SubTiler] . (:))) . screenTree) $ difference oldScreens newScreens
   -- Delete all of the border windows
   traverse_ ((\(a, b, c, d) -> traverse_ destroySDLWindow [a, b, c, d]) . screenBorders) $ difference oldScreens newScreens
   put $ Just ()
@@ -123,13 +123,13 @@ rootChange = do
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
 newFocus :: Members '[Input Screens, Property, Minimizer, Input Pointer] r
-         => Members (States [Fix Tiler, Maybe (), ActiveScreen, Screens]) r
+         => Members (States [Tiler, Maybe (), ActiveScreen, Screens]) r
          => Window
          -> Sem r ()
 newFocus window = do
   -- Change our tree so the focused window is the one we're hovering over
   mNewRoot <- 
-    focusWindow window <$> get @(Fix Tiler)
+    focusWindow window <$> get @Tiler
   setScreenFromMouse
 
   -- The root might be none if the newly focused window doesn't exist
@@ -137,7 +137,7 @@ newFocus window = do
     Just newRoot -> do
       realWin <- getChild window
       traverse_ setFocus realWin
-      put @(Fix Tiler) newRoot
+      put @Tiler newRoot
       put $ Just ()
     -- TODO is this pointless right here?
     Nothing -> setFocus window
@@ -146,7 +146,7 @@ newFocus window = do
 -- |On key press, execute some actions
 keyDown :: Members '[Property, Minimizer] r
        => Members (Inputs [Conf, Pointer, MouseButtons]) r
-       => Members (States [Fix Tiler, Mode, KeyStatus, Maybe ()]) r
+       => Members (States [Tiler, Mode, KeyStatus, Maybe ()]) r
        => KeyCode
        -> EventType
        -> Sem r Actions
@@ -201,7 +201,7 @@ keyDown keycode eventType
 -- |When the user moves the mouse in resize mode, this events are triggered.
 motion :: Members '[Property, Minimizer] r
        => Members (Inputs [Screens, Pointer, MouseButtons, Rect]) r
-       => Members (States [Fix Tiler, MouseButtons, Maybe ()]) r
+       => Members (States [Tiler, MouseButtons, Maybe ()]) r
        => Sem r ()
 motion = do
   -- First, let's find the current screen and its dimensions.
@@ -209,7 +209,7 @@ motion = do
   pointer <- input @Pointer
 
   -- Get the real locations of every window
-  sized <- placeWindow (Rect 0 0 width height) . unfix <$> get @(Fix Tiler)
+  sized <- placeWindow (Rect 0 0 width height) <$> get @Tiler
 
   -- Find the tiler that comes right after the input controller.
   case journey $ ana @(Path _ _) getInput sized of
@@ -219,7 +219,7 @@ motion = do
 
       -- Move the tiler based on the mouse movement
       modify
-        =<< cata . applyInput . fmap . changeSize rotation size 
+        =<< applyInput . fmap . coerce (changeSize rotation size)
               <$> get @MouseButtons
     _ -> return ()
 
@@ -230,7 +230,7 @@ motion = do
   put $ Just ()
 
        -- Gets the thing right after the input controller but also counts the number of rotations
- where getInput :: Cofree Tiler (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree Tiler (Transformer Plane))
+ where getInput :: Cofree TilerF (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree TilerF (Transformer Plane))
        getInput (_ :< InputController a) = FinishF $ fmap extract a
        getInput (_ :< Monitor (Just a)) = RoadF a
        getInput (_ :< Monitor Nothing) = FinishF Nothing
@@ -246,7 +246,7 @@ motion = do
 -- |Helper function for motion.
 -- TODO This function probably belongs in Tiler.
 -- TODO This function is awful.
-changeSize :: Bool -> Rect -> MouseButtons -> Tiler (Fix Tiler) -> Tiler (Fix Tiler)
+changeSize :: Bool -> Rect -> MouseButtons -> Tiler -> Tiler
 changeSize _ _ None = id
 changeSize rotation Rect{..} m = \case
   Horiz fl ->

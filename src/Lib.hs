@@ -111,8 +111,8 @@ startWM = do
     $ evalState (M.empty @Atom @[Int])
     $ evalState (M.empty @Window @Rect)
     $ evalState (M.empty @Int @Screen')
-    $ evalState ([] @(Fix Tiler))
-    $ evalState (InputController Nothing)
+    $ evalState ([] @SubTiler)
+    $ evalState @Tiler (InputController Nothing)
     $ evalState Nothing
     $ evalState (0 :: Int)
     $ runGetScreens

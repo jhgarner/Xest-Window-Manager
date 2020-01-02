@@ -456,7 +456,7 @@ eventFilter _ _ = True
 
 -- |IO
 runGlobalX
-  :: (Members [Input RootWindow, Input Conf, State Bool, State (Fix Tiler)] r)
+  :: (Members [Input RootWindow, Input Conf, State Bool, State Tiler] r)
   => Interpret GlobalX r a
 runGlobalX = interpret $ \case
   GetTree -> do
@@ -611,7 +611,7 @@ screenError = error "Tried to switch to a screen that doesn't exist"
 
 indexedState
   :: Members [State ActiveScreen, State Screens] r
-  => Sem (State (Tiler (Fix Tiler)) : r) a
+  => Sem (State Tiler : r) a
   -> Sem r a
 indexedState = interpret $ \case
   Get -> do
@@ -625,7 +625,7 @@ indexedState = interpret $ \case
 -- There's a lot of effects here. This type has them all!
 type DoAll r
   = (Members (States
-        [ Tiler (Fix Tiler), Fix Tiler, KeyStatus, Mode, Set Window, [Fix Tiler]
+        [ Tiler, KeyStatus, Mode, Set Window, [SubTiler]
         , MouseButtons, Maybe Font.Font, Bool, Map Window Rect, Maybe (), Conf, ActiveScreen, Screens
         ]) r
     , Members (Inputs
@@ -647,7 +647,7 @@ doAll
 doAll t c m d w =
   void
     . runM
-    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @(Fix Tiler) ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: Just () ::: c ::: (0 :: ActiveScreen) ::: HNil)
+    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @SubTiler ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: Just () ::: c ::: (0 :: ActiveScreen) ::: HNil)
     . runInputs (w ::: d ::: HNil)
     . stateToInput @Screens
     . smartBorders
@@ -655,7 +655,6 @@ doAll t c m d w =
     . runGetScreens
     . listOfScreens
     . indexedState
-    . fixState
     . runInputScreen
     . stateToInput @Conf
     . runGetButtons
@@ -677,14 +676,6 @@ doAll t c m d w =
     activeScreen <- get @ActiveScreen
     gets @Screens $ screenSize . fromMaybe screenError . lookup activeScreen
 
-  -- TODO Is this bad? It allows us to refer to the root tiler as either fix or unfixed.
-  fixState
-    :: Member (State (Tiler (Fix Tiler))) r
-    => Sem (State (Fix Tiler) ': r) a
-    -> Sem r a
-  fixState = interpret $ \case
-    Get         -> Fix <$> get
-    Put (Fix s) -> put s
   listOfScreens
     :: Member (Input Screens) r
     => Sem (Input [Rect] ': r) a

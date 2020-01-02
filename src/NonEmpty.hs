@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedLists #-}
@@ -15,7 +16,7 @@ import Data.List as All (elemIndex)
 import GHC.Exts
 
 data NonEmpty a = NE a [a]
-  deriving (Show, Eq, Functor, Foldable, Traversable)
+  deriving (Show, Eq, Functor, Foldable, Traversable, Generic)
 deriveShow1 ''NonEmpty
 deriveEq1 ''NonEmpty
 type instance Element (NonEmpty a) = a

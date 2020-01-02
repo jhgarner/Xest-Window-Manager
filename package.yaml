@@ -42,11 +42,12 @@ dependencies:
 - polysemy
 - polysemy-plugin
 - polysemy-zoo
+- template-haskell
 
 library:
   source-dirs: src
   ghc-options:
-  - -Weverything
+  # - -Weverything
   - -Wno-implicit-prelude
   - -Wno-missing-exported-signatures
   - -Wno-missing-import-lists

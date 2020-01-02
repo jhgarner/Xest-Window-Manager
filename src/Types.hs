@@ -7,6 +7,8 @@
 {-# LANGUAGE DeriveAnyClass   #-}
 {-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE ViewPatterns   #-}
+{-# LANGUAGE QuantifiedConstraints   #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 
 -- TODO Yikes to this entire module. None of these types
 -- are related. Tiler types should be in Tiler, Actions in
@@ -25,7 +27,10 @@ import           Text.Show.Deriving
 import           Data.Eq.Deriving
 import           FocusList
 import           Dhall (Interpret)
+import           Data.Functor.Foldable (embed)
 import qualified SDL (Window)
+import           TH
+import           Data.Kind
 
 -- | A simple rectangle
 data Rect = Rect
@@ -52,7 +57,7 @@ data Plane = Plane
   deriving Show
 
 data Sized a = Sized {getSize :: Double, getItem :: a}
-  deriving (Show, Functor, Foldable, Traversable)
+  deriving (Show, Functor, Foldable, Traversable, Generic)
 
 toTup :: ((Double, a) -> (c, b)) -> Sized a -> (c, b)
 toTup f (Sized d a) = f (d, a)
@@ -88,35 +93,77 @@ inChildParent win (ChildParent ww ww') = win == ww || win == ww'
 instance Eq ChildParent where
   (ChildParent a b) == (ChildParent a' b') = a == a' || b == b'
 
-data Tiler a
-  = Horiz (FocusedList (Sized a))
-  | Floating (NonEmpty (BottomOrTop a))
-  | Reflect a
-  | FocusFull a
-  | Wrap ChildParent
-  | InputController (Maybe a)
-  | Monitor (Maybe a)
-  deriving (Eq, Show, Functor, Foldable, Traversable)
-instance MonoFoldable (Tiler a)
-deriveShow1 ''Tiler
-deriveEq1 ''Tiler
+data TilerF a
+  = HorizF (FocusedList (Sized a))
+  | FloatingF (NonEmpty (BottomOrTop a))
+  | ReflectF a
+  | FocusFullF a
+  | WrapF ChildParent
+  | InputControllerF (Maybe a)
+  | MonitorF (Maybe a)
+  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+deriveShow1 ''TilerF
+deriveEq1 ''TilerF
 
-type instance Element (Tiler a) = a
+type instance Element (TilerF a) = a
+instance MonoFoldable (TilerF a)
 
-makeBaseFunctor ''Tiler
+type instance Base (TilerF (Fix TilerF)) = TilerF
 
-inputControllerOrMonitor :: Tiler a -> Maybe (Maybe b -> Tiler b, Maybe a)
+-- instance Functor (Base (TilerF a))
+instance Recursive (TilerF (Fix TilerF)) where
+  project = coerce
+
+instance Corecursive (TilerF (Fix TilerF)) where
+  embed = coerce
+
+-- |Used to make type signatures easier to read. A SubTiler is a Tiler that
+-- will be a child of another.
+type SubTiler = Fix TilerF
+type Tiler = TilerF (Fix TilerF)
+
+-- This class represents things that can be transformed to and from
+-- the TilerF data type.
+class TilerLike a where
+  type family PolyA a :: Type
+
+  toFType :: a -> TilerF (PolyA a)
+  fromFType :: TilerF (PolyA a) -> a
+
+-- A trivial instance. TilerF can be transformed into itself.
+instance TilerLike (TilerF a) where
+  type PolyA (TilerF a) = a
+  toFType = id
+  fromFType = id
+
+-- The interesting instance. A Fix TilerF can be coerced to and from
+-- TilerF.
+instance TilerLike (Fix TilerF) where
+  type PolyA (Fix TilerF) = Fix TilerF
+  toFType = coerce
+  fromFType = coerce
+
+-- I thought smart contsructors would be cool because I didn't want to
+-- think about whether I needed to Fix something or not. View patterns
+-- and pattern synonyms let me make that. Creating them by hand seemed
+-- tedius so I learned Template Haskell to do it for me.
+makeSimpleBase ''TilerF ''TilerLike ''PolyA 'toFType 'fromFType
+
+inputControllerOrMonitor :: TilerF a -> Maybe (Maybe b -> TilerF b, Maybe a)
 inputControllerOrMonitor (InputController a) = Just (InputController, a)
 inputControllerOrMonitor (Monitor a) = Just (Monitor, a)
 inputControllerOrMonitor _ = Nothing
 
-{-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, InputControllerOrMonitor #-}
+-- If you get panics in GHC try commenting these out. ¯\_(ツ)_/¯
+-- They're extremely useful though as they tell GHC not to worry about incomplete
+-- pattern matches.
+-- {-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, InputControllerOrMonitor :: TilerF #-}
+-- {-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, Monitor, InputController :: TilerF #-}
+
 -- I'm not sure why, but the explicit forall is required...
-pattern InputControllerOrMonitor :: forall a b. (Maybe b -> Tiler b) -> Maybe a -> Tiler a
+pattern InputControllerOrMonitor :: forall a b. (Maybe b -> TilerF b) -> Maybe a -> TilerF a
 pattern InputControllerOrMonitor c a <- (inputControllerOrMonitor -> Just (c, a))
 
-
-newtype MaybeTiler a = Maybe (Tiler a)
 
 -- | Convenience type for keyEvents
 type KeyTrigger = (KeyCode, Mode, Actions)
@@ -202,8 +249,8 @@ getButtonLoc (RightButton l) = l
 getButtonLoc _ = error "Tried to get a button when none exist"
 
 -- TODO should this all be here
-type Reparenter = Maybe (Tiler (Fix Tiler)) -> Maybe (Fix Tiler)
-type Unparented = Maybe (Fix Tiler)
+type Reparenter = Maybe SubTiler -> Tiler
+type Unparented = Maybe Tiler
 data TreeCombo = Neither | Unmovable | Movable (Reparenter, Unparented) | Both
 
 getMovable :: TreeCombo -> Maybe (Reparenter, Unparented)
@@ -252,7 +299,7 @@ instance Show TreeCombo where
 --   mempty = TreeCombo False False False
 
 data Screen' = Screen' { screenSize :: Rect
-                       , screenTree :: Tiler (Fix Tiler)
+                       , screenTree :: Tiler
                        , screenBorders :: Borders
                        }
   deriving Show
