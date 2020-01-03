@@ -135,6 +135,12 @@ data Property m a where
   GetAtom :: Bool -- ^ Should we not create it if it doesn't exist?
           -> String -- ^ The atom's name
           -> Property m Atom -- ^ The atom created/retrieved from X11
+
+  -- |Check if a window is transient for something else based on the
+  -- ICCM protocol.
+  GetTransientFor :: Window -- ^ The window being analyzed
+                  -> Property m (Maybe Window) -- ^ The parent window
+
 makeSem ''Property
 
 type AtomCache = Map String Atom
@@ -195,6 +201,10 @@ runProperty = interpret $ \case
         modify $ M.insert name atom
         return atom
       Just atom -> return atom
+
+  GetTransientFor w -> do
+    d <- input @Display
+    embed $ getTransientForHint d w
 
 -- * Event Flags
 
