@@ -32,6 +32,7 @@ module Standard
     , fixable
     , maybeFixable
     , makeRight
+    , bounded
     ) where
 
 import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
@@ -151,3 +152,6 @@ maybeFixable f = fmap unfix . f . Fix
 makeRight :: Either a a -> Either a a
 makeRight r@(Right _) = r
 makeRight (Left l) = Right l
+
+bounded :: Ord a => (a, a) -> a -> a
+bounded (min', max') = min max' . max min'

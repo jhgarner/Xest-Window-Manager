@@ -53,6 +53,11 @@ extra-deps:
     # - https://hackage.haskell.org/package/polysemy-plugin-0.2.0.1/polysemy-plugin-0.2.0.1.tar.gz
     - http://hackage.haskell.org/package/HList-0.5.0.0/HList-0.5.0.0.tar.gz
     - https://hackage.haskell.org/package/dhall-1.26.1/dhall-1.26.1.tar.gz
+    - optics-0.2@sha256:813ef6cc4d2e2b5ee00435831031f38917ba01d1e56dcb62dc18cd0315a9ccb7,6296
+    - optics-core-0.2@sha256:cfdf39871553769b59fcc54863a3521d262ea25d8d05d0f41ab87296c560cfa6,4392
+    - optics-extra-0.2@sha256:211ce1dfd1b3ffd95c1158d8c8beb53cbd17c4d477169e226b1831607f6789eb,3370
+    - optics-th-0.2@sha256:b4f6c5a3f134c697837190ed6da969dd284aefe79e43c3ef793093b607bb83b9,1929
+    - indexed-profunctors-0.1@sha256:ddf618d0d4c58319c1e735e746bc69a1021f13b6f475dc9614b80af03432e6d4,1016
     # - https://hackage.haskell.org/package/cborg-json-0.2.2.0/cborg-json-0.2.2.0.tar.gz
     # - https://hackage.haskell.org/package/prettyprinter-1.3.0/prettyprinter-1.3.0.tar.gz
     # - polysemy-plugin-0.2.4.0@sha256:b27f399946e90d480271d2b655b6172ed80f9d421f871c21a804511bc7b0f53c,2952

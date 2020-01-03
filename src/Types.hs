@@ -31,6 +31,7 @@ import           Data.Functor.Foldable (embed)
 import qualified SDL (Window)
 import           TH
 import           Data.Kind
+import           Optics
 
 -- | A simple rectangle
 data Rect = Rect
@@ -149,7 +150,7 @@ instance TilerLike (Fix TilerF) where
 -- tedius so I learned Template Haskell to do it for me.
 makeSimpleBase ''TilerF ''TilerLike ''PolyA 'toFType 'fromFType
 
-inputControllerOrMonitor :: TilerF a -> Maybe (Maybe b -> TilerF b, Maybe a)
+inputControllerOrMonitor :: TilerLike t => t -> Maybe (Maybe b -> TilerF b, Maybe (PolyA t))
 inputControllerOrMonitor (InputController a) = Just (InputController, a)
 inputControllerOrMonitor (Monitor a) = Just (Monitor, a)
 inputControllerOrMonitor _ = Nothing
@@ -161,7 +162,7 @@ inputControllerOrMonitor _ = Nothing
 -- {-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, Monitor, InputController :: TilerF #-}
 
 -- I'm not sure why, but the explicit forall is required...
-pattern InputControllerOrMonitor :: forall a b. (Maybe b -> TilerF b) -> Maybe a -> TilerF a
+pattern InputControllerOrMonitor :: forall b t. TilerLike t => (Maybe b -> TilerF b) -> Maybe (PolyA t) -> t
 pattern InputControllerOrMonitor c a <- (inputControllerOrMonitor -> Just (c, a))
 
 
@@ -243,10 +244,15 @@ type Borders = (SDL.Window, SDL.Window, SDL.Window, SDL.Window)
 
 data MouseButtons = LeftButton (Int, Int) | RightButton (Int, Int) | None
   deriving Show
-getButtonLoc :: MouseButtons -> (Int, Int)
-getButtonLoc (LeftButton l) = l
-getButtonLoc (RightButton l) = l
-getButtonLoc _ = error "Tried to get a button when none exist"
+getButtonLoc :: MouseButtons -> Maybe (Int, Int)
+getButtonLoc (LeftButton l) = Just l
+getButtonLoc (RightButton l) = Just l
+getButtonLoc _ = Nothing
+
+putButtonLoc :: MouseButtons -> (Int, Int) -> MouseButtons
+putButtonLoc (LeftButton _) l = LeftButton l 
+putButtonLoc (RightButton _) l = RightButton l 
+putButtonLoc _ _ = None
 
 -- TODO should this all be here
 type Reparenter = Maybe SubTiler -> Tiler

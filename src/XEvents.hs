@@ -20,6 +20,7 @@ import Core
 import           FocusList
 import           Data.Bits
 import qualified Data.Map.Strict as M
+import           Optics hiding ((:<))
 
 -- |Called when a new top level window wants to exist
 mapWin :: Member (State Tiler) r
@@ -42,13 +43,17 @@ mapWin window =
     -- on the parent.
     selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask)-- .|. buttonPressMask .|. buttonReleaseMask)
 
-    -- TODO: I wonder if there's a better way to do all this wrapping...
     let tWin = Wrap $ ChildParent newWin window
 
-
-    -- This adds the new window to whatever tiler comes after inputController
-    -- If you've zoomed the inputController in, you get nesting as a result
     modify $ applyInput $ coerce $ Just . pushOrAdd tWin
+    -- case getTransientFor window of
+    --   Nothing ->
+    --     -- This adds the new window to whatever tiler comes after inputController
+    --     -- If you've zoomed the inputController in, you get nesting as a result
+    --   Just realParent ->
+    --     undefined
+    --     -- This window needs to be floating in front of the main window
+
     put $ Just ()
 
   where 
@@ -56,6 +61,16 @@ mapWin window =
     findWindow w = cata $ \case
           (Wrap w') -> inChildParent w w'
           t -> or t
+    -- addToTiler :: SubTiler -> Tiler
+    -- addToTiler st = cata $ \case
+    --   Floating bt -> case getBottomList bt of
+    --                   Just bottom ->
+    --                     if bottom == st
+    -- getBottomList :: NonEmpty (BottomOrTop a) -> Maybe a
+    -- getBottomList = foldl' (\a acc -> acc <|> getBottom a) Nothing
+    -- getBottom :: BottomOrTop a -> Maybe a
+    -- getBottom (Bottom a) = Just a
+    -- getBottom _ = Nothing
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
@@ -204,30 +219,38 @@ motion :: Members '[Property, Minimizer] r
        => Members (States [Tiler, MouseButtons, Maybe ()]) r
        => Sem r ()
 motion = do
-  -- First, let's find the current screen and its dimensions.
-  Rect _ _ width height <- input @Rect
-  pointer <- input @Pointer
+  undefined
+  -- -- First, let's find the current screen and its dimensions.
+  -- Rect _ _ width height <- input @Rect
+  -- pointer@(xPointer, yPointer) <- input @Pointer
+  -- oldPointer <- gets @MouseButtons getButtonLoc
 
-  -- Get the real locations of every window
-  sized <- placeWindow (Rect 0 0 width height) <$> get @Tiler
+  -- let pointerChange = maybe (0, 0) (pointer -) oldPointer
 
-  -- Find the tiler that comes right after the input controller.
-  case journey $ ana @(Path _ _) getInput sized of
-    (rotations, Just (Transformer _ _ Plane {rect = size})) -> do
-      -- Determines whether we're currently rotated or not.
-      let rotation :: Bool = foldr ($) False rotations
 
-      -- Move the tiler based on the mouse movement
-      modify
-        =<< applyInput . fmap . coerce (changeSize rotation size)
-              <$> get @MouseButtons
-    _ -> return ()
+  -- -- Get the real locations of every window
+  -- sized <- placeWindow (Rect 0 0 width height) <$> get @Tiler
 
-  input @MouseButtons >>= put
+  -- -- Find the tiler that comes right after the input controller.
+  -- case journey $ ana @(Path _ _) getInput sized of
+  --   (rotations, Just (Transformer _ _ Plane {rect = size})) -> do
+  --     -- Determines whether we're currently rotated or not.
+  --     let rotPointerChange :: Bool =
+  --           if foldr ($) False rotations
+  --              then pointerChange
+  --              else flip pointerChange
 
-  -- We know what button is pressed, now we need to update the location
-  updateMouseLoc pointer
-  put $ Just ()
+  --     -- Move the tiler based on the mouse movement
+  --     modify
+  --       =<< applyInput . fmap . coerce (changeSize rotation size)
+  --             <$> get @MouseButtons
+  --   _ -> return ()
+
+  -- input @MouseButtons >>= put
+
+  -- -- We know what button is pressed, now we need to update the location
+  -- updateMouseLoc pointer
+  -- put $ Just ()
 
        -- Gets the thing right after the input controller but also counts the number of rotations
  where getInput :: Cofree TilerF (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree TilerF (Transformer Plane))
@@ -238,53 +261,62 @@ motion = do
        getInput (_ :< b) = RoadF $ getFocused b
 
        updateMouseLoc :: Member (State MouseButtons) r => (Int32, Int32) -> Sem r ()
-       updateMouseLoc (newX, newY) = modify @MouseButtons $ \case
-           LeftButton _ -> LeftButton (fromIntegral newX, fromIntegral newY)
-           RightButton _ -> RightButton (fromIntegral newX, fromIntegral newY)
-           None -> None
+       updateMouseLoc (newX, newY) = undefined --modify @MouseButtons $ \case
+           -- LeftButton _ -> LeftButton (fromIntegral newX, fromIntegral newY)
+           -- RightButton _ -> RightButton (fromIntegral newX, fromIntegral newY)
+           -- None -> None
 
 -- |Helper function for motion.
 -- TODO This function probably belongs in Tiler.
 -- TODO This function is awful.
-changeSize :: Bool -> Rect -> MouseButtons -> Tiler -> Tiler
-changeSize _ _ None = id
-changeSize rotation Rect{..} m = \case
+changeSize :: Rect -> MouseButtons -> Tiler -> Tiler
+changeSize _ None = id
+changeSize Rect{..} m = \case
   Horiz fl ->
+    let (dx, _) = fromMaybe (0, 0) $ getButtonLoc m
+        numWins = fromIntegral $ length fl
+        dxAsPercent :: Double = bounded (0, fromIntegral numWins - 1) $ fromIntegral dx / (fromIntegral w / fromIntegral numWins)
+        newFoc = case m of
+                   RightButton _ ->
+                     mapOne (Right Focused) (\(Sized s a) -> Sized (s+dxAsPercent) a) fl
+                   LeftButton _ ->
+                     let findNeFocIndex focused = pop (Right Focused) fl
+                      in 
     -- TODO The logic in here is terrible to follow...
     -- What's the right way to write this?
-    let numWins = fromIntegral $ length fl
-        dx = (if rotation then snd else fst) $ getButtonLoc m
-        windowSize = 1 / numWins
-        mouseDelta = fromIntegral dx
-        sign = if dx < 0 then (-) 0 else id
-        delta = mouseDelta / fromIntegral w
-        twoPx = 2 / fromIntegral w
-        foc = fromIntegral $ (case m of
-                                RightButton _ -> (+1)
-                                -- LeftButton == RightButton on the previous window
-                                LeftButton  _ -> id
-                                None -> error "Yikes, this shouldn't be possible"
-                             ) $ findNeFocIndex fl
+    -- let numWins = fromIntegral $ length fl
+    --     mousePos = (if rotation then snd else fst) $ getButtonLoc m
+    --     windowSize = 1 / numWins
+    --     mouseDelta = fromIntegral dx
+    --     sign = if dx < 0 then (-) 0 else id
+    --     delta = mouseDelta / fromIntegral w
+    --     twoPx = 2 / fromIntegral w
+    --     foc = fromIntegral $ (case m of
+    --                             RightButton _ -> (+1)
+    --                             -- LeftButton == RightButton on the previous window
+    --                             LeftButton  _ -> id
+    --                             None -> error "Yikes, this shouldn't be possible"
+    --                          ) $ findNeFocIndex fl
         
-        bound = max $ twoPx - windowSize
-        (_, trueDelta)  = foldl' 
-          (\(i, minS) (Sized size _) -> if i == foc && foc < numWins
-            then (i+1, min minS $ abs $ size - bound (size + delta))
-            else if i == foc + 1 && foc > 0
-            then (i+1, min minS $ abs $ size - bound (size - delta))
-            else (i+1, minS)) (1, 2) $ vOrder fl
-        propagate = 
-          fromVis fl . mapFold
-          (\i (Sized size t) -> if i == foc && foc < numWins
-            then (i+1, Sized (bound (size + sign trueDelta)) t)
-            else if i == foc + 1 && foc > 0
-            then (i+1, Sized (bound (size - sign trueDelta)) t)
-            else (i+1, Sized (bound size) t))
-          1
-          $ vOrder fl
-    in Horiz propagate
+    --     bound = max $ twoPx - windowSize
+    --     (_, trueDelta)  = foldl' 
+    --       (\(i, minS) (Sized size _) -> if i == foc && foc < numWins
+    --         then (i+1, min minS $ abs $ size - bound (size + delta))
+    --         else if i == foc + 1 && foc > 0
+    --         then (i+1, min minS $ abs $ size - bound (size - delta))
+    --         else (i+1, minS)) (1, 2) $ vOrder fl
+    --     propagate = 
+    --       fromVis fl . mapFold
+    --       (\i (Sized size t) -> if i == foc && foc < numWins
+    --         then (i+1, Sized (bound (size + sign trueDelta)) t)
+    --         else if i == foc + 1 && foc > 0
+    --         then (i+1, Sized (bound (size - sign trueDelta)) t)
+    --         else (i+1, Sized (bound size) t))
+    --       1
+    --       $ vOrder fl
+    in Horiz newFoc
   Floating (NE (Top (RRect{..}, t)) ls) -> 
-    let (dx, dy) = (if rotation then swap else id) $ getButtonLoc m
+    let (dx, dy) = (if undefined then swap else id) $ getButtonLoc m
         (ddx, ddy) = (fromIntegral dx / fromIntegral w, fromIntegral dy / fromIntegral h)
         twoPx = 2 / fromIntegral w
         boundedX = max (twoPx - wp) $ min (xp + ddx) (1 - twoPx)

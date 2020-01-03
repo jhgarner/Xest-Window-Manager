@@ -16,8 +16,6 @@ module FocusList
   , pop
   , flFilter
   , flLength
-  , vOrder
-  , fOrder
   , mapOne
   , focusElem
   , focusIndex
@@ -26,8 +24,8 @@ module FocusList
   , makeFL
   , focusDir
   , indexFL
-  , fromFoc
-  , fromVis
+  , asFocused
+  , asVisual
   )
 where
 
@@ -35,6 +33,7 @@ import           Standard
 import           Data.ChunkedZip
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
+import           Optics
 
 -- I am super unattached to all of the code in this module.
 -- If someone has a better way to represent this, I would gladly switch.
@@ -208,3 +207,15 @@ reconcile newAs order fl@FL{..} =
 
 fromFoc oldFl as = reconcile as (focusOrder oldFl) oldFl
 fromVis oldFl as = reconcile as (visualOrder oldFl) oldFl
+
+asFocused :: forall a b. Traversal (FocusedList a) (FocusedList b) a b
+asFocused = traversalVL trav
+  where trav :: forall s f. Applicative f => (a -> f b) -> FocusedList a -> f (FocusedList b)
+        trav f fl = fromFoc fl <$> traverse f (fOrder fl)
+
+asVisual :: forall a b. Traversal (FocusedList a) (FocusedList b) a b
+asVisual = traversalVL trav
+  where trav :: forall s f. Applicative f => (a -> f b) -> FocusedList a -> f (FocusedList b)
+        trav f fl = fromVis fl <$> traverse f (fOrder fl)
+asAnyOrder :: forall a b. Traversal (FocusedList a) (FocusedList b) a b
+asAnyOrder = traversed

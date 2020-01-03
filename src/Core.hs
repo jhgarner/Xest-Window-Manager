@@ -26,6 +26,7 @@ import           Tiler
 import           FocusList
 import Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import qualified SDL (Window)
+import Optics
 
 refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX] r
         => Members (Inputs [Window, Screens, Borders, (Int32, Int32)]) r
@@ -61,43 +62,49 @@ placeWindow
 -- | Wraps place their wrapped window filling all available space
 -- | If the window has no size, it gets unmapped
 placeWindow screenSize root =
-  ana buildUp ((Transformer id id $ Plane (Rect 0 0 0 0) 0), Fix root)
+  ana buildUp ((Transformer id id $ Plane (Rect 0 0 0 0) 0), coerce root)
     where
+      placeWindow' :: Transformer Plane -> Tiler -> TilerF (Transformer Plane, SubTiler)
       placeWindow' trans@(Transformer i o p@(Plane r depth)) = \case
         Wrap win -> Wrap win
+
         Reflect t ->
           let newTrans (Plane (Rect rx ry rw rh) keepD) =
                 Plane (Rect ry rx rh rw) keepD
               newTransformer =
                 overReal (\(Plane r d) -> Plane r $ d+1) $ addTrans newTrans newTrans trans
            in Reflect (newTransformer, t)
-        FocusFull (Fix t) ->
-          case t of
-            t'@(InputControllerOrMonitor _ _) -> FocusFull (Transformer i o (Plane r $ depth + 1), Fix t')
-            _ -> modFocused (first $ const (Transformer i o . Plane r $ depth + 2)) $ fmap (Transformer i o . Plane (Rect 0 0 0 0) $ depth + 1,) t
-        Horiz fl ->
-          let numWins = fromIntegral $ flLength fl -- Find the number of windows
-              location i lSize size = Rect (newX i lSize) y (w `div` fromIntegral numWins + round(size * fromIntegral w)) h
-              newX i lSize = fromIntegral w `div` numWins * i + x + round (fromIntegral w * lSize)
-              realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
-              (Plane Rect {..} depth) = i p
 
-           in Horiz $ fromVis realfl $ map (\(index, (lSize, size, t)) -> Sized size (Transformer i o . o . Plane (location index lSize size) $ depth + 1, t))
-                    $ zip [0 ..]
-                    $ vOrder realfl
+        FocusFull (t :: SubTiler) ->
+          case t of
+            InputControllerOrMonitor _ _ -> FocusFull (Transformer i o (Plane r $ depth + 1), t)
+            _ -> modFocused (first $ const (Transformer i o . Plane r $ depth + 2)) $ fmap (Transformer i o $ Plane (Rect 0 0 0 0) $ depth + 1,) $ unfix t
+
+        Horiz (fl :: FocusedList (Sized SubTiler)) ->
+          let (Plane Rect {..} depth) = i p
+              numWins = fromIntegral $ flLength fl -- Find the number of windows
+              (realfl, _) = mapAccumLOf asVisual (\xLoc (Sized size t) ->
+                let sizeInPx = round $ size * (fromIntegral w / fromIntegral numWins)
+                    newSized = Sized size (Transformer i o . o . Plane (Rect xLoc y sizeInPx h) $ depth + 1, t)
+                 in (newSized, xLoc + fromIntegral sizeInPx)) x fl
+
+           in Horiz realfl
+
         Floating ls ->
           let (Plane r@Rect{..} depth) = i p
            in Floating $ map (\case
                 Top (rr@RRect {..}, t) -> Top (rr, (Transformer i o . o $ Plane (Rect (round (fromIntegral x + fromIntegral w * xp)) (round(fromIntegral y + fromIntegral h * yp)) (round (fromIntegral w * wp)) (round (fromIntegral h * hp))) $ depth + 1, t))
                 Bottom t -> Bottom (Transformer i o . o $ Plane r $ depth + 1, t)) ls
                   where 
+
         InputController t ->
-          InputController $ (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) <$> t
+          InputController $ fmap (overReal (\(Plane Rect{..} depth) -> Plane (Rect x y w h) depth) trans,) t
 
         Monitor t ->
-          Monitor $ (overReal (\(Plane _ depth) -> Plane screenSize depth) trans,) <$> t
+          Monitor $ fmap (overReal (\(Plane _ depth) -> Plane screenSize depth) trans,) t
+
       buildUp :: (Transformer Plane, SubTiler) -> CofreeF TilerF (Transformer Plane) (Transformer Plane, SubTiler)
-      buildUp initial = fst initial C.:< (uncurry placeWindow' $ second unfix initial)
+      buildUp initial = fst initial C.:< (uncurry placeWindow' $ coerce initial)
   
 -- |Find a window with a class name. This is used when
 -- showing or hiding a window.
@@ -184,6 +191,7 @@ render t = do
                     bottoms = foldl' onlyBottoms [] ls
                     onlyBottoms acc (Bottom (ws, _)) = acc ++ ws
                     onlyBottoms acc _ = acc
+       draw _ (_ :<~ Horiz fl) = (foldMapOf asFocused (fst . getItem) fl, mapM_ (snd . getItem) fl)
        draw _ (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)
        hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)
        hsvToRgb h s v = let c = v * s
