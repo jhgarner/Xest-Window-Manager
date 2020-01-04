@@ -22,11 +22,12 @@ import           Data.Bits
 import qualified Data.Map.Strict as M
 
 -- |Called when a new top level window wants to exist
-mapWin :: Member (State Tiler) r
-         => Members (Inputs '[Pointer]) r
-         => Members [EventFlags, GlobalX, State (Maybe ())] r
-         => Window
-         -> Sem r ()
+mapWin :: Members (Inputs '[Pointer]) r
+       => Members [State Tiler, EventFlags, GlobalX, State (Maybe ()), Property] r
+       => Members '[Input Screens, Property, Minimizer, Input Pointer] r
+       => Members (States [Tiler, Maybe (), ActiveScreen, Screens]) r
+       => Window
+       -> Sem r ()
 mapWin window =
   -- Before we do anything else, let's see if we already manage this window.
   -- I don't know why, but things like Inkscape map windows multiple times.
@@ -42,20 +43,44 @@ mapWin window =
     -- on the parent.
     selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask)-- .|. buttonPressMask .|. buttonReleaseMask)
 
-    -- TODO: I wonder if there's a better way to do all this wrapping...
     let tWin = Wrap $ ChildParent newWin window
 
+    transient <- getTransientFor window
+    -- let transient = Nothing
+    
+    case transient of
+      Just parent -> do
+        root <- get @Tiler
+        let tilerParent = Wrap $ ChildParent parent parent
+            (worked, newRoot) = usingFloating tilerParent tWin root
+            altNewRoot = makeFloating tilerParent tWin root
+        put @Tiler $ if worked then newRoot else altNewRoot
+      Nothing ->
+        -- This adds the new window to whatever tiler comes after inputController
+        -- If you've zoomed the inputController in, you get nesting as a result
+        modify $ applyInput $ coerce $ Just . pushOrAdd tWin
 
-    -- This adds the new window to whatever tiler comes after inputController
-    -- If you've zoomed the inputController in, you get nesting as a result
-    modify $ applyInput $ coerce $ Just . pushOrAdd tWin
-    put $ Just ()
+
+    newFocus window
 
   where 
     findWindow :: Window -> Tiler -> Bool
     findWindow w = cata $ \case
           (Wrap w') -> inChildParent w w'
           t -> or t
+    usingFloating :: SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
+    usingFloating t newTiler = coerce . cata \case
+      oldT@(Floating fl) ->
+        if (Bottom (False, t)) `elem` fl
+          then (True, Floating $ Top (RRect 0 0 0.5 0.5, newTiler) +: fmap (fmap snd) fl)
+          else (any fst oldT, Fix $ fmap snd oldT)
+      oldT -> (any fst oldT, Fix $ fmap snd oldT)
+
+    makeFloating :: SubTiler -> SubTiler -> Tiler -> Tiler
+    makeFloating t newTiler = coerce . cata \oldT ->
+      if oldT == unfix t
+          then Floating $ NE (Top (RRect 0 0 0.5 0.5, newTiler)) [Bottom $ Fix oldT]
+          else Fix oldT
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
