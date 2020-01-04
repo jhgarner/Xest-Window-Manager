@@ -449,6 +449,7 @@ data GlobalX m a where
    GetTree :: GlobalX m [Window]
    NewWindow :: Window -> GlobalX m Window
    MoveToRoot :: Window -> GlobalX m ()
+   ClearQueue :: GlobalX m ()
    GetXEvent :: GlobalX m Event
    CheckXEvent :: GlobalX m Bool
    -- |Bool True == kill softly. False == kill hard
@@ -503,6 +504,9 @@ runGlobalX = interpret $ \case
     d         <- input @Display
     rootWin       <- input @RootWindow
     embed $ reparentWindow d w rootWin 0 0
+  ClearQueue -> do
+    d <- input @Display
+    embed $ sync d True
 
   GetXEvent -> do
     d <- input

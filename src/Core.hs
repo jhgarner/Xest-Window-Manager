@@ -51,6 +51,7 @@ refresh = do
     setClientList
     writeActiveWindow
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
+    clearQueue
 
 
 -- | Places a tiler somewhere on the screen without actually placing it

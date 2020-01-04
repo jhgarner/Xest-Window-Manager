@@ -206,7 +206,12 @@ motion :: Members '[Property, Minimizer] r
 motion = do
   -- First, let's find the current screen and its dimensions.
   Rect _ _ width height <- input @Rect
-  pointer <- input @Pointer
+  pointer@(xPointer, yPointer) <- input @Pointer
+  dPointer <- get @MouseButtons <&> \case
+    LeftButton (x', y') -> LeftButton (fromIntegral xPointer - x', fromIntegral yPointer - y')
+    RightButton (x', y') -> RightButton (fromIntegral xPointer - x', fromIntegral yPointer - y')
+    None -> None
+  
 
   -- Get the real locations of every window
   sized <- placeWindow (Rect 0 0 width height) <$> get @Tiler
@@ -219,8 +224,7 @@ motion = do
 
       -- Move the tiler based on the mouse movement
       modify
-        =<< applyInput . fmap . coerce (changeSize rotation size)
-              <$> get @MouseButtons
+        $ applyInput $ fmap $ coerce (changeSize rotation size dPointer)
     _ -> return ()
 
   input @MouseButtons >>= put
