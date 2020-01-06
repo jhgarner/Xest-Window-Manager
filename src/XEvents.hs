@@ -20,6 +20,7 @@ import Core
 import           FocusList
 import           Data.Bits
 import qualified Data.Map.Strict as M
+import           Graphics.X11.Xlib.Extras
 
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer]) r
@@ -51,8 +52,10 @@ mapWin window =
     case transient of
       Just parent -> do
         root <- get @Tiler
+        SizeHints{..} <- getSizeHints window
+        let idealSize = fromMaybe (50, 50) $ sh_base_size <|> sh_min_size
         let tilerParent = Wrap $ ChildParent parent parent
-            (worked, newRoot) = usingFloating tilerParent tWin root
+            (worked, newRoot) = usingFloating idealSize tilerParent tWin root
             altNewRoot = makeFloating tilerParent tWin root
         put @Tiler $ if worked then newRoot else altNewRoot
       Nothing ->
@@ -68,8 +71,8 @@ mapWin window =
     findWindow w = cata $ \case
           (Wrap w') -> inChildParent w w'
           t -> or t
-    usingFloating :: SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
-    usingFloating t newTiler = coerce . cata \case
+    usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
+    usingFloating size t newTiler = coerce . cata \case
       oldT@(Floating fl) ->
         if (Bottom (False, t)) `elem` fl
           then (True, Floating $ Top (RRect 0 0 0.5 0.5, newTiler) +: fmap (fmap snd) fl)

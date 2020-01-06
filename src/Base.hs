@@ -140,6 +140,9 @@ data Property m a where
   -- ICCM protocol.
   GetTransientFor :: Window -- ^ The window being analyzed
                   -> Property m (Maybe Window) -- ^ The parent window
+  
+  GetSizeHints :: Window -- ^ The window being analyzed
+               -> Property m SizeHints
 
 makeSem ''Property
 
@@ -205,6 +208,10 @@ runProperty = interpret $ \case
   GetTransientFor w -> do
     d <- input @Display
     embed $ getTransientForHint d w
+
+  GetSizeHints w -> do
+    d <- input @Display
+    embed $ getWMNormalHints d w
 
 -- * Event Flags
 
