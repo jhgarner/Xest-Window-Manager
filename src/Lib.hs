@@ -24,7 +24,6 @@ import           Graphics.X11.Xlib.Window
 import           SDL hiding (get, Window, Display, trace)
 import qualified SDL.Raw.Video as Raw
 import qualified SDL.Font as Font
--- import qualified SDL.Internal.Types as SI (Window(..))
 import           Types
 import           Base
 import           Tiler
@@ -84,7 +83,7 @@ startWM = do
     $ runInputConst root
     $ evalState (M.empty @String @Atom)
     $ evalState (M.empty @Atom @[Int])
-    $ evalState (M.empty @Window @Rect)
+    $ evalState (M.empty @Window @XRect)
     $ runProperty 
     $ initEwmh root ewmhWin
 
@@ -109,7 +108,7 @@ startWM = do
     $ runInputConst root
     $ evalState (M.empty @String @Atom)
     $ evalState (M.empty @Atom @[Int])
-    $ evalState (M.empty @Window @Rect)
+    $ evalState (M.empty @Window @XRect)
     $ evalState (M.empty @Int @Screen')
     $ evalState ([] @SubTiler)
     $ evalState @Tiler (InputController Nothing)

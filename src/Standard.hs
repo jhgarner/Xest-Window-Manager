@@ -3,21 +3,18 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Standard
     ( module All
     , untilM
-    , topDown
     , mapFold
     , Beam (..)
     , BeamF (..)
     , Path (..)
     , PathF (..)
-    , Transformer (..)
-    , overReal
-    , overTrans
-    , addTrans
-    , unTransform
     , journey
     , pattern (:<~)
     , ifM
@@ -32,6 +29,13 @@ module Standard
     , fixable
     , maybeFixable
     , makeRight
+    , RectA(..)
+    , Rect
+    , XRect
+    , Transformation(..)
+    , toScreenCoord
+    , getStartingPoint
+    , trd
     ) where
 
 import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
@@ -51,6 +55,8 @@ import Data.Functor.Foldable.TH as All
 import NonEmpty as All
 import Data.Monoid as All (Alt(..), getAlt, getFirst)
 import Data.Coerce as All
+import Data.Bifunctor.TH
+import Data.Bifunctor as All (bimap)
 
 {-# COMPLETE (:<~) #-}
 pattern (:<~) :: forall (f :: Type -> Type) a b. a -> f b -> C.CofreeF f a b
@@ -60,26 +66,54 @@ untilM :: Monad m => (a -> Bool) -> m a -> m a
 untilM f m = m >>= \a ->
   if f a then return a else untilM f m
 
-data Transformer a = Transformer (a -> a) (a -> a) a
+data RectA a b = Rect { x :: a
+                      , y :: a
+                      , w :: b
+                      , h :: b
+                      }
+  deriving (Show, Eq)
+deriveBifunctor ''RectA
 
-instance Show a => Show (Transformer a) where
-  show (Transformer _ _ a) = "Transformer: " ++ show a
+type Rect = RectA Double Double
+type XRect = RectA Int32 Word32
 
-overReal :: (a -> a) -> Transformer a -> Transformer a
-overReal f (Transformer trans undo a) = Transformer trans undo $ f a
-overTrans :: (a -> a) -> Transformer a -> Transformer a
-overTrans f (Transformer trans undo a) = Transformer trans undo . undo . f . trans $ a
-addTrans :: (a -> a) -> (a -> a) -> Transformer a -> Transformer a
-addTrans input output (Transformer trans undo a) = Transformer (input . trans) (undo . output) a
-unTransform :: Transformer a -> a
-unTransform (Transformer _ _ a) = a
+-- There must be some way to get the Compiler to make this one...
+instance Semigroup (RectA Double Double) where
+  Rect a1 a2 a3 a4 <> Rect b1 b2 b3 b4 = Rect (a1 + b1) (a2 + b2) (a3 + b3) (a4 + b4)
 
+instance Monoid (RectA Double Double) where
+  mempty = Rect 0 0 0 0
 
--- TODO is there some existing abstraction for this?
-topDown :: Functor f => (Transformer x -> f (Fix f) -> f (Transformer x, Fix f)) -> Transformer x -> Fix f -> Cofree f (Transformer x)
-topDown propagate initial (Fix f) =
-    initial :< fmap (uncurry (topDown propagate)) newF
-  where newF = propagate initial f
+-- Each Double is a percentage of the available screen
+data Transformation = Slide Rect Transformation | Spin Transformation | StartingPoint Rect
+  deriving (Eq, Show)
+
+makeBaseFunctor ''Transformation
+
+applyTrans :: Transformation -> Rect
+applyTrans = cata $ \case
+  SlideF (Rect dx dy dw dh) Rect {..} ->
+    Rect (x + dx * w) (y + dy * h) (w * dw) (h * dh)
+  SpinF Rect {..} -> Rect y x h w
+  StartingPointF r -> r
+
+isRotated :: Transformation -> Bool
+isRotated = cata $ \case
+  SpinF b -> not b
+  StartingPointF _ -> False
+  SlideF _ b -> b
+
+toScreenCoord :: Transformation -> Rect
+toScreenCoord t
+  | isRotated t = Rect y x h w
+  | otherwise = r
+  where r@Rect {..} = applyTrans t
+
+getStartingPoint :: Transformation -> Rect
+getStartingPoint = cata $ \case
+  StartingPointF r -> r
+  SpinF r -> r
+  SlideF _ r -> r
 
 data Beam a = End a | Continue (Beam a)
   deriving (Eq, Show, Functor)
@@ -151,3 +185,6 @@ maybeFixable f = fmap unfix . f . Fix
 makeRight :: Either a a -> Either a a
 makeRight r@(Right _) = r
 makeRight (Left l) = Right l
+
+trd :: (a, b, c) -> c
+trd (_, _, c) = c

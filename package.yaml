@@ -43,6 +43,7 @@ dependencies:
 - polysemy-plugin
 - polysemy-zoo
 - template-haskell
+- bifunctors
 
 library:
   source-dirs: src

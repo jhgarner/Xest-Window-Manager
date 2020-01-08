@@ -32,24 +32,6 @@ import qualified SDL (Window)
 import           TH
 import           Data.Kind
 
--- | A simple rectangle
-data Rect = Rect
-  { x :: Position
-  , y :: Position
-  , w :: Dimension
-  , h :: Dimension
-  }
-  deriving (Show, Eq)
-
--- | A simple rectangle
-data RRect = RRect
-  { xp :: Double
-  , yp :: Double
-  , wp :: Double
-  , hp :: Double
-  }
-  deriving (Show, Eq)
-
 data Plane = Plane
   { rect :: Rect
   , depth :: Int
@@ -70,7 +52,7 @@ instance Eq a => Eq (Sized a) where
 deriveShow1 ''Sized
 deriveEq1 ''Sized
 
-data BottomOrTop a = Bottom a | Top (RRect, a)
+data BottomOrTop a = Bottom a | Top (Rect, a)
   deriving (Eq, Show, Functor, Foldable, Traversable)
 deriveShow1 ''BottomOrTop
 deriveEq1 ''BottomOrTop
@@ -298,7 +280,7 @@ instance Show TreeCombo where
 -- instance Monoid TreeCombo where
 --   mempty = TreeCombo False False False
 
-data Screen' = Screen' { screenSize :: Rect
+data Screen' = Screen' { screenSize :: XRect
                        , screenTree :: Tiler
                        , screenBorders :: Borders
                        }

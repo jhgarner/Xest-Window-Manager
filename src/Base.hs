@@ -273,69 +273,6 @@ runEventFlags = interpret $ \case
       \(k, km, _) -> when (activeMode == km)
         (grabKey d k anyModifier win True grabModeAsync grabModeAsync)
 
--- * Mover
-
--- |Anything that changes where a window sits goes in here.
-data Mover m a where
-  ChangeLocation :: Window -> Rect -> Mover m ()
-  -- |Like the above but asks on SDL windows
-  ChangeLocationS :: SDL.Window -> Rect -> Mover m ()
-  Restack :: [Window] -> Mover m ()
-  -- |A super light wrapper around actually configuring stuff
-  ConfigureWin :: Event -> Mover m ()
-  DestroySDLWindow :: SDL.Window -> Mover m ()
-makeSem ''Mover
-
-type LocCache = Map Window Rect
-type SDLLocCache = Map SDL.Window Rect
-type WindowStack = [Window]
--- Move windows using IO
-runMover :: Members (States [LocCache, SDLLocCache, WindowStack]) r
-         => Interpret Mover r a
-runMover = interpret $ \case
-  ChangeLocation win r@(Rect x y h w) -> do
-    unlessM ((== Just r) . (M.!? win) <$> get) $ do
-      d <- input
-      void . embed $ moveWindow d win x y >> resizeWindow d win h w
-    modify $ M.insert win r
-
-  ChangeLocationS win r@(Rect x y h w) -> do
-    -- Avoid moving the SDL windows more than we need to
-    unlessM ((== Just r) . (M.!? win) <$> get) $ do
-      embed @IO $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
-      SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
-    modify $ M.insert win r
-
-  Restack wins -> do
-    unlessM ((== wins) <$> get) $ do
-      d <- input
-      void . embed $ restackWindows d wins
-    put wins
-
-
-  ConfigureWin ConfigureRequestEvent {..} ->
-    let wc = WindowChanges ev_x
-                           ev_y
-                           ev_width
-                           ev_height
-                           ev_border_width
-                           ev_above
-                           ev_detail
-    in  input >>= \d -> embed @IO $ configureWindow d ev_window ev_value_mask wc
-  ConfigureWin _ -> error "Don't call Configure Window with other events"
-  DestroySDLWindow window -> embed @IO $ SDL.destroyWindow window
-
--- |Run a mover when you don't actually want to do anything
-runMoverFake :: Sem (Mover ': r) a -> Sem r a
-runMoverFake = interpret $ \case
-  ChangeLocation _ _ -> return ()
-
-  ChangeLocationS _ _ -> return ()
-
-  Restack _ -> return ()
-  ConfigureWin _ -> return ()
-  DestroySDLWindow _ -> return ()
-
 -- * Minimizer
 
 -- |Anything that changes a state but doesn't actually move it goes here
@@ -374,6 +311,71 @@ runMinimizer = interpret $ \case
       setInputFocus d w revertToNone currentTime
       allowEvents d replayPointer currentTime
     put $ FocusedCache w
+
+-- * Mover
+
+-- |Anything that changes where a window sits goes in here.
+data Mover m a where
+  ChangeLocation :: Window -> XRect -> Mover m ()
+  -- |Like the above but asks on SDL windows
+  ChangeLocationS :: SDL.Window -> XRect -> Mover m ()
+  Restack :: [Window] -> Mover m ()
+  -- |A super light wrapper around actually configuring stuff
+  ConfigureWin :: Event -> Mover m ()
+  DestroySDLWindow :: SDL.Window -> Mover m ()
+makeSem ''Mover
+
+type LocCache = Map Window XRect
+type SDLLocCache = Map SDL.Window XRect
+type WindowStack = [Window]
+-- Move windows using IO
+runMover :: Members (States [LocCache, SDLLocCache, WindowStack]) r
+         => Member Minimizer r
+         => Interpret Mover r a
+runMover = interpret $ \case
+  ChangeLocation win r@(Rect x y h w) -> do
+    unlessM ((== Just r) . (M.!? win) <$> get) $ do
+      d <- input
+      void $ embed (moveWindow d win x y) >>
+        if h == 0 || w == 0 then minimize win else embed (resizeWindow d win h w)
+    modify $ M.insert win r
+
+  ChangeLocationS win r@(Rect x y h w) -> do
+    -- Avoid moving the SDL windows more than we need to
+    unlessM ((== Just r) . (M.!? win) <$> get) $ do
+      embed @IO $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
+      SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
+    modify $ M.insert win r
+
+  Restack wins -> do
+    unlessM ((== wins) <$> get) $ do
+      d <- input
+      void . embed $ restackWindows d wins
+    put wins
+
+
+  ConfigureWin ConfigureRequestEvent {..} ->
+    let wc = WindowChanges ev_x
+                           ev_y
+                           ev_width
+                           ev_height
+                           ev_border_width
+                           ev_above
+                           ev_detail
+    in  input >>= \d -> embed @IO $ configureWindow d ev_window ev_value_mask wc
+  ConfigureWin _ -> error "Don't call Configure Window with other events"
+  DestroySDLWindow window -> embed @IO $ SDL.destroyWindow window
+
+-- |Run a mover when you don't actually want to do anything
+runMoverFake :: Sem (Mover ': r) a -> Sem r a
+runMoverFake = interpret $ \case
+  ChangeLocation _ _ -> return ()
+
+  ChangeLocationS _ _ -> return ()
+
+  Restack _ -> return ()
+  ConfigureWin _ -> return ()
+  DestroySDLWindow _ -> return ()
 
 -- * Executor
 
@@ -647,10 +649,10 @@ indexedState = interpret $ \case
 type DoAll r
   = (Members (States
         [ Tiler, KeyStatus, Mode, Set Window, [SubTiler]
-        , MouseButtons, Maybe Font.Font, Bool, Map Window Rect, Maybe (), Conf, ActiveScreen, Screens
+        , MouseButtons, Maybe Font.Font, Bool, Map Window XRect, Maybe (), Conf, ActiveScreen, Screens
         ]) r
     , Members (Inputs
-        [ Conf, Window, Borders, Display, Rect, (Int32, Int32), MouseButtons, [XineramaScreenInfo], Screens, [Rect], NewBorders ]) r
+        [ Conf, Window, Borders, Display, XRect, (Int32, Int32), MouseButtons, [XineramaScreenInfo], Screens, [XRect], NewBorders ]) r
     , Members
         [ Mover, Property, Minimizer , Executor , GlobalX , Colorer, EventFlags, Embed IO ] r
     )
@@ -668,7 +670,7 @@ doAll
 doAll t c m d w =
   void
     . runM
-    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @SubTiler ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @Rect ::: [] @Window ::: Just () ::: c ::: (0 :: ActiveScreen) ::: HNil)
+    . runStates (m ::: S.empty @RootWindow ::: Default ::: t ::: [] @SubTiler ::: None ::: Nothing ::: False ::: M.empty @String ::: M.empty @Atom @[Int] ::: FocusedCache 0 ::: M.empty @SDL.Window ::: M.empty @Window @XRect ::: [] @Window ::: Just () ::: c ::: (0 :: ActiveScreen) ::: HNil)
     . runInputs (w ::: d ::: HNil)
     . stateToInput @Screens
     . smartBorders
@@ -692,14 +694,14 @@ doAll t c m d w =
 
   -- Get the screens from Xinerama
   runInputScreen :: Members (States [ActiveScreen, Screens]) r
-                => Sem (Input Rect ': r) a -> Sem r a
+                => Sem (Input XRect ': r) a -> Sem r a
   runInputScreen = runInputSem $ do
     activeScreen <- get @ActiveScreen
     gets @Screens $ screenSize . fromMaybe screenError . lookup activeScreen
 
   listOfScreens
     :: Member (Input Screens) r
-    => Sem (Input [Rect] ': r) a
+    => Sem (Input [XRect] ': r) a
     -> Sem r a
   listOfScreens = interpret $ \case
     Input         -> toList . fmap screenSize <$> input @Screens

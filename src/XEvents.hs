@@ -53,10 +53,10 @@ mapWin window =
       Just parent -> do
         root <- get @Tiler
         SizeHints{..} <- getSizeHints window
-        let idealSize = fromMaybe (50, 50) $ sh_base_size <|> sh_min_size
+        let idealSize = fromMaybe (500, 500) $ sh_base_size <|> sh_min_size
         let tilerParent = Wrap $ ChildParent parent parent
-            (worked, newRoot) = usingFloating idealSize tilerParent tWin root
-            altNewRoot = makeFloating tilerParent tWin root
+            (worked, newRoot) = usingFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
+            altNewRoot = makeFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
         put @Tiler $ if worked then newRoot else altNewRoot
       Nothing ->
         -- This adds the new window to whatever tiler comes after inputController
@@ -72,17 +72,17 @@ mapWin window =
           (Wrap w') -> inChildParent w w'
           t -> or t
     usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
-    usingFloating size t newTiler = coerce . cata \case
+    usingFloating (newW, newH) t newTiler = coerce . cata \case
       oldT@(Floating fl) ->
         if (Bottom (False, t)) `elem` fl
-          then (True, Floating $ Top (RRect 0 0 0.5 0.5, newTiler) +: fmap (fmap snd) fl)
+          then (True, Floating $ Top (Rect 0 0 newW newH, newTiler) +: fmap (fmap snd) fl)
           else (any fst oldT, Fix $ fmap snd oldT)
       oldT -> (any fst oldT, Fix $ fmap snd oldT)
 
-    makeFloating :: SubTiler -> SubTiler -> Tiler -> Tiler
-    makeFloating t newTiler = coerce . cata \oldT ->
+    makeFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> Tiler
+    makeFloating (newW, newH) t newTiler = coerce . cata \oldT ->
       if oldT == unfix t
-          then Floating $ NE (Top (RRect 0 0 0.5 0.5, newTiler)) [Bottom $ Fix oldT]
+          then Floating $ NE (Top (Rect 0 0 newW newH, newTiler)) [Bottom $ Fix oldT]
           else Fix oldT
 
 -- |A window was killed and no longer exists. Remove everything that
@@ -228,32 +228,23 @@ keyDown keycode eventType
 
 -- |When the user moves the mouse in resize mode, this events are triggered.
 motion :: Members '[Property, Minimizer] r
-       => Members (Inputs [Screens, Pointer, MouseButtons, Rect]) r
+       => Members (Inputs [Screens, Pointer, MouseButtons]) r
        => Members (States [Tiler, MouseButtons, Maybe ()]) r
        => Sem r ()
 motion = do
   -- First, let's find the current screen and its dimensions.
-  Rect _ _ width height <- input @Rect
-  pointer@(xPointer, yPointer) <- input @Pointer
+  pointer@(xPointer, yPointer) <- bimap fromIntegral fromIntegral <$> input @Pointer
   dPointer <- get @MouseButtons <&> \case
-    LeftButton (x', y') -> LeftButton (fromIntegral xPointer - x', fromIntegral yPointer - y')
-    RightButton (x', y') -> RightButton (fromIntegral xPointer - x', fromIntegral yPointer - y')
+    LeftButton (x', y') -> LeftButton (xPointer - x', yPointer - y')
+    RightButton (x', y') -> RightButton (xPointer - x', yPointer - y')
     None -> None
   
+  -- Are we rotated?
+  rotated <- cata numRotations <$> get @Tiler
 
-  -- Get the real locations of every window
-  sized <- placeWindow (Rect 0 0 width height) <$> get @Tiler
-
-  -- Find the tiler that comes right after the input controller.
-  case journey $ ana @(Path _ _) getInput sized of
-    (rotations, Just (Transformer _ _ Plane {rect = size})) -> do
-      -- Determines whether we're currently rotated or not.
-      let rotation :: Bool = foldr ($) False rotations
-
-      -- Move the tiler based on the mouse movement
-      modify
-        $ applyInput $ fmap $ coerce (changeSize rotation size dPointer)
-    _ -> return ()
+  -- Move the tiler based on the mouse movement
+  modify
+    $ applyInput $ fmap $ coerce (changeSize rotated dPointer)
 
   input @MouseButtons >>= put
 
@@ -261,36 +252,31 @@ motion = do
   updateMouseLoc pointer
   put $ Just ()
 
-       -- Gets the thing right after the input controller but also counts the number of rotations
- where getInput :: Cofree TilerF (Transformer Plane) -> PathF (Maybe (Transformer Plane)) (Bool -> Bool) (Cofree TilerF (Transformer Plane))
-       getInput (_ :< InputController a) = FinishF $ fmap extract a
-       getInput (_ :< Monitor (Just a)) = RoadF a
-       getInput (_ :< Monitor Nothing) = FinishF Nothing
-       getInput (_ :< Reflect a) = BreakF not a
-       getInput (_ :< b) = RoadF $ getFocused b
+ where numRotations :: TilerF Bool -> Bool
+       numRotations (InputControllerOrMonitor _ a) = fromMaybe False a
+       numRotations (Reflect a) = not a
+       numRotations (Wrap _) = False
+       numRotations b = getFocused b
 
-       updateMouseLoc :: Member (State MouseButtons) r => (Int32, Int32) -> Sem r ()
+       updateMouseLoc :: Member (State MouseButtons) r => (Int, Int) -> Sem r ()
        updateMouseLoc (newX, newY) = modify @MouseButtons $ \case
-           LeftButton _ -> LeftButton (fromIntegral newX, fromIntegral newY)
-           RightButton _ -> RightButton (fromIntegral newX, fromIntegral newY)
+           LeftButton _ -> LeftButton (newX, newY)
+           RightButton _ -> RightButton (newX, newY)
            None -> None
 
 -- |Helper function for motion.
 -- TODO This function probably belongs in Tiler.
 -- TODO This function is awful.
-changeSize :: Bool -> Rect -> MouseButtons -> Tiler -> Tiler
-changeSize _ _ None = id
-changeSize rotation Rect{..} m = \case
+changeSize :: Bool -> MouseButtons -> Tiler -> Tiler
+changeSize _ None = id
+changeSize rotation m = \case
   Horiz fl ->
     -- TODO The logic in here is terrible to follow...
     -- What's the right way to write this?
     let numWins = fromIntegral $ length fl
-        dx = (if rotation then snd else fst) $ getButtonLoc m
+        delta = (if rotation then snd else fst) $ bimap fromIntegral fromIntegral $ getButtonLoc m
         windowSize = 1 / numWins
-        mouseDelta = fromIntegral dx
-        sign = if dx < 0 then (-) 0 else id
-        delta = mouseDelta / fromIntegral w
-        twoPx = 2 / fromIntegral w
+        sign = if delta < 0 then (-) 0 else id
         foc = fromIntegral $ (case m of
                                 RightButton _ -> (+1)
                                 -- LeftButton == RightButton on the previous window
@@ -298,13 +284,13 @@ changeSize rotation Rect{..} m = \case
                                 None -> error "Yikes, this shouldn't be possible"
                              ) $ findNeFocIndex fl
         
-        bound = max $ twoPx - windowSize
+        bound = max (-windowSize)
         (_, trueDelta)  = foldl' 
           (\(i, minS) (Sized size _) -> if i == foc && foc < numWins
             then (i+1, min minS $ abs $ size - bound (size + delta))
             else if i == foc + 1 && foc > 0
             then (i+1, min minS $ abs $ size - bound (size - delta))
-            else (i+1, minS)) (1, 2) $ vOrder fl
+            else (i+1, minS)) (1, 0.01) $ vOrder fl
         propagate = 
           fromVis fl . mapFold
           (\i (Sized size t) -> if i == foc && foc < numWins
@@ -315,14 +301,10 @@ changeSize rotation Rect{..} m = \case
           1
           $ vOrder fl
     in Horiz propagate
-  Floating (NE (Top (RRect{..}, t)) ls) -> 
-    let (dx, dy) = (if rotation then swap else id) $ getButtonLoc m
-        (ddx, ddy) = (fromIntegral dx / fromIntegral w, fromIntegral dy / fromIntegral h)
-        twoPx = 2 / fromIntegral w
-        boundedX = max (twoPx - wp) $ min (xp + ddx) (1 - twoPx)
-        boundedY = max (twoPx - hp) $ min (yp + ddy) (1 - twoPx)
+  Floating (NE (Top (Rect{..}, t)) ls) -> 
+    let (dx, dy) = (if rotation then swap else id) $ bimap fromIntegral fromIntegral $ getButtonLoc m
     in Floating $ NE (case m of
-      RightButton _ -> Top (RRect xp yp (wp + ddx) (hp + ddy), t)
-      LeftButton _ -> Top (RRect boundedX boundedY wp hp, t)
+      RightButton _ -> Top (Rect x y (w + dx) (h + dy), t)
+      LeftButton _ -> Top (Rect (x+dx) (y+dy) w h, t)
       None -> error "Yikes, this shouldn't be possible!") ls
   t -> t

@@ -273,11 +273,11 @@ doSpecial =
       -- TODO rewrite this in a less bad way.
       -- maybe (error "We know it's not just an IC") (fromMaybe (error "Yikes") . fst . moveToIC i) $ removeIC i
       fromMaybe (error "We know it's not just an IC") $ removeIC
-        $ applyInput (\(Just ((Horiz fl))) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController Nothing) fl) root
+        $ applyInput (\(Just (Horiz fl)) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController Nothing) fl) root
     _                  -> root
 
   mkTop t@(Top    _) = t
-  mkTop (  Bottom t) = Top (RRect 0 0 0.2 0.2, t)
+  mkTop (  Bottom t) = Top (Rect 0 0 300 300, t)
   mkBottom = Bottom . extract
 
   removeIC = cata $ \case 

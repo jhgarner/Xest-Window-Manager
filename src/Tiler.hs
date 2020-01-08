@@ -19,7 +19,7 @@ import Data.Functor.Foldable (embed)
 -- | Add a new Tiler at the given location. Is the opposite of popping.
 add :: Direction -> Focus -> SubTiler -> Tiler -> Tiler
 add dir foc w (Horiz fl) = Horiz $ push dir foc (Sized 0 w) fl
-add _ foc w (Floating ls) = Floating $ if foc == Focused then Top (RRect 0 0 0.2 0.2, w) +: ls else append ls [Top (RRect 0 0 0.2 0.2, w)]
+add _ foc w (Floating ls) = Floating $ if foc == Focused then Top (Rect 0 0 300 300, w) +: ls else append ls [Top (Rect 0 0 300 300, w)]
 add _ _ _ _ = error "Attempted to add to something that isn't addable"
 
 
@@ -224,8 +224,8 @@ findParent w = cata step
 
 whichScreen :: (Eq (f Bool), Functor f)
             => (Int32, Int32) 
-            -> [f Rect] 
-            -> Maybe (f Rect)
+            -> [f XRect] 
+            -> Maybe (f XRect)
 whichScreen (mx, my) = getFirst . foldMap findOverlap
   where 
     findOverlap wrapped = 
