@@ -43,7 +43,7 @@ startWM = do
 
   -- Grab a display to capture. The chosen display cannot have a WM already running.
   args <- getArgs
-  let displayNumber = fromMaybe "0" $ headMay args
+  let displayNumber = fromMaybe "1" $ headMay args
   display <- openDisplay $ ":" ++ unpack displayNumber
 
   -- Read the config file

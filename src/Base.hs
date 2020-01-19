@@ -441,7 +441,7 @@ runColorer = interpret $ \case
     embed @IO $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
   DrawText w s -> do
     whenM (null <$> get @(Maybe Font.Font)) $ do
-      font <- embed @IO $ Font.load "/usr/share/fonts/adobe-source-code-pro/SourceCodePro-Medium.otf" 10
+      font <- embed @IO $ Font.load "/nix/store/6105i8mfqzjkz0y1rhynb34vr9hqg5sl-source-code-pro-2.030/share/fonts/opentype/SourceCodePro-Regular.otf" 10
       put $ Just font
     mfont <- get @(Maybe Font.Font)
     let Just font = mfont
