@@ -8,18 +8,20 @@ let NormalS = { modeName = "NormalS", hasButtons = False, hasBorders = True }
 let Resize = { modeName = "Resize", hasButtons = True, hasBorders = True }
 let Insert = { modeName = "Insert", hasButtons = False, hasBorders = False }
 in {
-  startupScript = "~/.config/xest/startup.sh",
+  startupScript = "echo test",
   initialMode = Insert,
   keyBindings = [
-    {key = "t", mode = Normal, actions = [Action.RunCommand "kitty"]},
+    {key = "t", mode = Normal, actions = [Action.RunCommand "termite"]},
     {key = "d", mode = Normal, actions = [Action.RunCommand "rofi -show drun"]},
     {key = "v", mode = Normal, actions = [Action.Insert Tiler.Rotate]},
     {key = "f", mode = Normal, actions = [Action.Insert Tiler.FullScreen]},
     {key = "h", mode = Normal, actions = [Action.Insert Tiler.Hovering]},
     {key = "n", mode = Normal, actions = [Action.Insert Tiler.Horizontal]},
+    -- {key = "h", mode = Normal, actions = [Action.ChangeLayoutTo {_1 = Tiler.Horizontal {=}}]},
+    -- {key = "w", mode = Normal, actions = [Action.ChangeLayoutTo {_1 = Tiler.Workspace {=}}]},
     {key = "i", mode = NormalS, actions = [Action.ZoomInInput]},
     {key = "i", mode = Normal, actions = [Action.ZoomInInput]},
-    {key = "Super_L", mode = Insert, actions = [Action.ChangeModeTo Normal]},
+    {key = "Alt_L", mode = Insert, actions = [Action.ChangeModeTo Normal]},
     {key = "Shift_L", mode = Normal, actions = [Action.ChangeModeTo NormalS]},
     {key = "Escape", mode = NormalS, actions = [Action.ChangeModeTo Normal]},
     {key = "Escape", mode = Normal, actions = [Action.ChangeModeTo Insert]},
@@ -49,6 +51,7 @@ in {
     {key = "8", mode = NormalS, actions = [Action.ChangeNamed "8"]},
     {key = "9", mode = NormalS, actions = [Action.ChangeNamed "9"]},
     {key = "y", mode = Normal, actions = [Action.PopTiler]},
+    -- {key = "u", mode = Normal, actions = [Action.ChangeLayoutTo Tiler.Floating]},
     {key = "p", mode = Normal, actions = [Action.PushTiler]},
     {key = "r", mode = Normal, actions = [Action.ChangeModeTo Resize]},
     {key = "s", mode = Normal, actions = [Action.ZoomOutMonitor, Action.ZoomOutInput, Action.MakeSpecial, Action.ZoomInInput, Action.ZoomMonitorToInput]},
@@ -56,7 +59,7 @@ in {
     {key = "m", mode = Normal, actions = [Action.KillActive]},
     {key = "z", mode = Normal, actions = [Action.ZoomMonitorToInput]},
     {key = "z", mode = NormalS, actions = [Action.ZoomInMonitor]},
-    {key = "b", mode = NormalS, actions = [Action.ExitNow]},
+    {key = "b", mode = Normal, actions = [Action.ExitNow]},
     {key = "w", mode = Normal, actions = [Action.ToggleLogging]},
     {key = "q", mode = Normal, actions = [Action.ZoomOutMonitor]}
   ]

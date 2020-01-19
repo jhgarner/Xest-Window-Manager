@@ -11,19 +11,16 @@
    a few are made generic so that they can implement multiple actions.
 -}
 
--- TODO can I move the Action type in here? Can I do so without creating
--- a recursive mess?
-module Actions where
+module Actions.Actions (module Actions.Actions, module Actions.ActionTypes) where
 
 import           Standard
-import           Base
+import           Base.DoAll
 import           Polysemy
 import           Polysemy.State
-import           Types
 import           Data.Either                    ( )
-import           Tiler
-import           Core
+import           Tiler.Tiler
 import           FocusList
+import Actions.ActionTypes
 
 -- * Zooming
 -- $What is it?
@@ -168,17 +165,16 @@ zoomOutMonitor =
 
 -- |changes a mode. For example, I have the windows key configured to change
 -- from Insert mode to Normal mode.
-changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] r => Mode -> Sem r Actions
+changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] r => Mode -> Sem r ()
 changeModeTo newM = do
-  eActions <- gets @Mode exitActions
-  oldMode  <- get
   -- Unbind the keys from the old mode and bind the ones for the new mode.
-  rebindKeys oldMode newM
+  currentMode  <- get
+  rebindKeys currentMode newM
+
   -- If this mode supports mouse actions, also capture the mouse.
   -- This is needed because while we've captured the mouse, no one else can
   -- use it.
   selectButtons newM
-
   put newM
 
   -- Whatever key is on top of the KeyStatus stack should be New instead
@@ -188,8 +184,6 @@ changeModeTo newM = do
     Dead ks -> ks
     _ -> error "Are you changing the mode twice in 1 action?"
 
-  --Combine the two lists of actions to be executed. Execute exit actions first.
-  return $ eActions ++ introActions newM
 
 -- |If the current Tiler can hold multiple children, change which one
 -- is focused. Typically bound to the number keys.
@@ -239,7 +233,7 @@ pushTiler = do
     (t : ts) -> do
       put ts
       -- TODO These coercions are probably a sign that I should change something
-      modify $ applyInput $ coerce $ Just . pushOrAdd t
+      modify $ applyInput $ coerce $ \tiler -> fmap (add t) tiler <|> Just (coerce t)
     [] -> return ()
 
 -- |Insert a tiler after the Input Controller.
@@ -313,7 +307,7 @@ killActive = do
       _ <- kill True parent
       modify $ ripOut killed
  where
-  makeList (Wrap (ChildParent window w')) = EndF $ Just (window, w')
+  makeList (Wrap (ParentChild window w')) = EndF $ Just (window, w')
   makeList (InputControllerOrMonitor _ (Just t)  ) = ContinueF $ coerce t
   makeList (InputControllerOrMonitor _ Nothing   ) = EndF Nothing
   makeList t                              = ContinueF (coerce $ getFocused t)

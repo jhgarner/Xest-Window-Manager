@@ -7,6 +7,7 @@
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE TupleSections    #-}
 {-# LANGUAGE OverloadedLists    #-}
+{-# LANGUAGE DeriveAnyClass    #-}
 
 module FocusList
   ( FocusedList
@@ -35,6 +36,7 @@ import           Standard
 import           Data.ChunkedZip
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
+import           Dhall (Interpret)
 
 -- I am super unattached to all of the code in this module.
 -- If someone has a better way to represent this, I would gladly switch.
@@ -45,7 +47,7 @@ data Focus = Focused | Unfocused
 
 -- |Meant to represent the Head and Last on the list when sorted in visual order
 data Direction = Front | Back
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, Interpret)
 
 -- |Things that are assumed about a Focused List but aren't proven: 
 -- 1. The orders actually point to valid indices
