@@ -14,7 +14,6 @@ import           Polysemy.State
 import           Polysemy.Input
 import           Core
 import           Data.Bits
-import           Foreign.C.String
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Display
 import           Graphics.X11.Xlib.Event
@@ -22,16 +21,14 @@ import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
 import           SDL hiding (get, Window, Display, trace)
-import qualified SDL.Raw.Video as Raw
 import qualified SDL.Font as Font
-import           Types
-import           Base
-import           Tiler
-import           Data.Char                      ( ord, chr )
+import           Base.DoAll
+import           Tiler.Tiler
 import qualified System.Environment as Env
 import qualified Data.Map                      as M
 import XEvents
-import Actions
+import Actions.ActionTypes
+import Actions.Actions
 
 -- | Starting point of the program. Should never return
 startWM :: IO ()
@@ -51,10 +48,7 @@ startWM = do
   print displayNumber
   c <- if displayNumber == "0" || displayNumber == "1"
           then readConfig display . pack $ homeDir ++ "/.config/xest/config.dhall"
-          else readConfig display . pack $ homeDir ++ "/.config/xest/config.dhall." ++ unpack displayNumber
-  print $ if displayNumber == "0" || displayNumber == "1"
-            then homeDir ++ "/.config/xest/config.dhall"
-            else pack $ homeDir ++ "/.config/xest/config.dhall." ++ unpack displayNumber
+          else readConfig display . pack $ homeDir ++ "/.config/xest/config." ++ unpack displayNumber ++ ".dhall"
 
   -- X orders windows like a tree.
   -- This gets the root.
@@ -62,7 +56,7 @@ startWM = do
 
 
   -- The initial mode is whatever comes first
-  let initialMode = fromMaybe (error "No modes") . headMay $ definedModes c
+  let startingMode = initialMode c
 
   -- Create our border windows which will follow the InputController
   -- [lWin, dWin, uWin, rWin] <- replicateM 4 $
@@ -120,14 +114,14 @@ startWM = do
     $ runEventFlags
     $ runProperty
     $ runMoverFake
-    $ rebindKeys initialMode initialMode >> rootChange >> get @Screens
+    $ rebindKeys startingMode startingMode >> rootChange >> get @Screens
   print ("Got Screens" ++ show screens)
 
   setDefaultErrorHandler
 
   setInputFocus display root revertToNone currentTime
   -- Execute the main loop. Will never return unless Xest exits
-  doAll screens c initialMode display root (forever mainLoop)
+  doAll screens c startingMode display root (forever mainLoop)
     >> say "Exiting"
 
 
@@ -175,8 +169,7 @@ mainLoop = do
       ZoomOutMonitor -> zoomOutMonitor
       ZoomMonitorToInput -> zoomMonitorToInput
       ZoomInputToMonitor -> zoomInputToMonitor
-      -- TODO recursion alert!
-      ChangeModeTo mode -> changeModeTo mode >>= foldMap executeActions
+      ChangeModeTo mode -> changeModeTo mode
       Move dir -> moveDir dir
       ChangeNamed name -> maybe (return ()) changeIndex $ readMay name
       PopTiler -> popTiler

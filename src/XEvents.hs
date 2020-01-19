@@ -7,20 +7,21 @@
 module XEvents where
 
 import           Standard
-import           Base
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xinerama
-import           Types
 import           Data.Either                    ( )
-import           Tiler
+import           Tiler.Tiler
+import           Base.DoAll
 import Core
 import           FocusList
 import           Data.Bits
 import qualified Data.Map.Strict as M
 import           Graphics.X11.Xlib.Extras
+import Config
+import Actions.ActionTypes
 
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer]) r
@@ -42,9 +43,11 @@ mapWin window =
     -- Think of the new parent as an extension of the root window.
     -- Just like on the root window, we need to register some events
     -- on the parent.
-    selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask)-- .|. buttonPressMask .|. buttonReleaseMask)
+    selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
+    restore newWin
+    restore window
 
-    let tWin = Wrap $ ChildParent newWin window
+    let tWin :: SubTiler = Wrap $ ParentChild newWin window
 
     transient <- getTransientFor window
     -- let transient = Nothing
@@ -54,36 +57,36 @@ mapWin window =
         root <- get @Tiler
         SizeHints{..} <- getSizeHints window
         let idealSize = fromMaybe (500, 500) $ sh_base_size <|> sh_min_size
-        let tilerParent = Wrap $ ChildParent parent parent
+        let tilerParent = Wrap $ ParentChild parent parent
             (worked, newRoot) = usingFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
             altNewRoot = makeFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
         put @Tiler $ if worked then newRoot else altNewRoot
       Nothing ->
         -- This adds the new window to whatever tiler comes after inputController
         -- If you've zoomed the inputController in, you get nesting as a result
-        modify $ applyInput $ coerce $ Just . pushOrAdd tWin
+        modify $ applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
 
 
-    newFocus window
+    newFocus newWin
 
   where 
     findWindow :: Window -> Tiler -> Bool
     findWindow w = cata $ \case
-          (Wrap w') -> inChildParent w w'
+          (Wrap w') -> inParentChild w w'
           t -> or t
     usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
-    usingFloating (newW, newH) t newTiler = coerce . cata \case
+    usingFloating (newW, newH) t newTiler = coerce . cata (\case
       oldT@(Floating fl) ->
-        if (Bottom (False, t)) `elem` fl
+        if Bottom (False, t) `elem` fl
           then (True, Floating $ Top (Rect 0 0 newW newH, newTiler) +: fmap (fmap snd) fl)
           else (any fst oldT, Fix $ fmap snd oldT)
-      oldT -> (any fst oldT, Fix $ fmap snd oldT)
+      oldT -> (any fst oldT, Fix $ fmap snd oldT))
 
     makeFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> Tiler
-    makeFloating (newW, newH) t newTiler = coerce . cata \oldT ->
+    makeFloating (newW, newH) t newTiler = coerce . cata (\oldT ->
       if oldT == unfix t
           then Floating $ NE (Top (Rect 0 0 newW newH, newTiler)) [Bottom $ Fix oldT]
-          else Fix oldT
+          else Fix oldT)
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
@@ -177,16 +180,16 @@ keyDown :: Members '[Property, Minimizer] r
        => Members (States [Tiler, Mode, KeyStatus, Maybe ()]) r
        => KeyCode
        -> EventType
-       -> Sem r Actions
+       -> Sem r [Action]
 keyDown keycode eventType
   | eventType == keyPress = do
     put $ Just ()
-    Conf bindings _ <- input @Conf
+    Conf bindings _ _ <- input @Conf
     mode <- get @Mode
     -- Is keycode (the key that was pressed) equal to k (the bound key)
-    case find (\(k, m, _) -> keycode == k && m == mode) bindings of
+    case find (\(KeyTrigger k m _) -> keycode == k && m == mode) bindings of
               Nothing -> return []
-              Just (_, _, actions) -> do
+              Just (KeyTrigger _ _ actions) -> do
                 -- KeyStatus is a state machine which decides if we
                 -- need to act like vim or notepad.
                 -- If the user holds down a key then clicks another,

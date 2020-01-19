@@ -48,7 +48,7 @@ dependencies:
 library:
   source-dirs: src
   ghc-options:
-  # - -Weverything
+  - -Weverything
   - -Wno-implicit-prelude
   - -Wno-missing-exported-signatures
   - -Wno-missing-import-lists
@@ -83,6 +83,10 @@ library:
     - TypeFamilies
     - NoImplicitPrelude
     - BlockArguments
+    - DeriveFunctor
+    - DeriveFoldable
+    - DeriveTraversable
+    - DeriveGeneric
 
 executables:
   neXtWM-exe:

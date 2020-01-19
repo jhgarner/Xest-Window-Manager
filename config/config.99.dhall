@@ -8,7 +8,7 @@ let NormalS = { modeName = "NormalS", hasButtons = False, hasBorders = True }
 let Resize = { modeName = "Resize", hasButtons = True, hasBorders = True }
 let Insert = { modeName = "Insert", hasButtons = False, hasBorders = False }
 in {
-  startupScript = "~/.config/xest/startup.sh",
+  startupScript = "echo test",
   initialMode = Insert,
   keyBindings = [
     {key = "t", mode = Normal, actions = [Action.RunCommand "termite"]},
@@ -21,7 +21,7 @@ in {
     -- {key = "w", mode = Normal, actions = [Action.ChangeLayoutTo {_1 = Tiler.Workspace {=}}]},
     {key = "i", mode = NormalS, actions = [Action.ZoomInInput]},
     {key = "i", mode = Normal, actions = [Action.ZoomInInput]},
-    {key = "Super_L", mode = Insert, actions = [Action.ChangeModeTo Normal]},
+    {key = "Alt_L", mode = Insert, actions = [Action.ChangeModeTo Normal]},
     {key = "Shift_L", mode = Normal, actions = [Action.ChangeModeTo NormalS]},
     {key = "Escape", mode = NormalS, actions = [Action.ChangeModeTo Normal]},
     {key = "Escape", mode = Normal, actions = [Action.ChangeModeTo Insert]},
@@ -59,7 +59,7 @@ in {
     {key = "m", mode = Normal, actions = [Action.KillActive]},
     {key = "z", mode = Normal, actions = [Action.ZoomMonitorToInput]},
     {key = "z", mode = NormalS, actions = [Action.ZoomInMonitor]},
-    {key = "b", mode = NormalS, actions = [Action.ExitNow]},
+    {key = "b", mode = Normal, actions = [Action.ExitNow]},
     {key = "w", mode = Normal, actions = [Action.ToggleLogging]},
     {key = "q", mode = Normal, actions = [Action.ZoomOutMonitor]}
   ]

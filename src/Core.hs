@@ -15,15 +15,16 @@
 module Core where
 
 import           Standard
-import           Base
+import Base.DoAll
+import Actions.ActionTypes
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
 import           Graphics.X11.Types
-import           Types
+import           Graphics.X11.Xlib.Atom
 import           Data.Either                    ( )
 import           Data.Char
-import           Tiler
+import           Tiler.Tiler
 import           FocusList
 import Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import qualified SDL (Window)
@@ -36,8 +37,6 @@ refresh = do
     put @(Maybe ()) Nothing
     -- Fix the Monitor if the Input Controller moved in a weird way
     modify @Tiler fixMonitor
-    -- tell X to focus whatever we're focusing
-    xFocus
 
     -- Write the path to the upper border
     writePath
@@ -46,6 +45,9 @@ refresh = do
     topWindows <- makeTopWindows
     bottomWindows <- getBottomWindows
     get >>= render >>= traverse_ (restack . \wins -> topWindows ++ bottomWindows ++ wins)
+
+    -- tell X to focus whatever we're focusing
+    xFocus
 
 
     -- Do some EWMH stuff
@@ -139,8 +141,8 @@ render t = do
 
        -- The main part of this function.
  where draw :: RenderEffect r => Maybe Borders -> Base (Cofree TilerF (XRect, Int)) ([Window], Sem r ()) -> ([Window], Sem r ())
-       draw _ ((Rect _ _ 0 0, _) :<~ Wrap (ChildParent win _)) = ([], minimize win)
-       draw _ ((Rect {..}, _) :<~ Wrap (ChildParent win win')) = ([win], do
+       draw _ ((Rect _ _ 0 0, _) :<~ Wrap (ParentChild win _)) = ([], minimize win)
+       draw _ ((Rect {..}, _) :<~ Wrap (ParentChild win win')) = ([win], do
            restore win
            restore win'
            changeLocation win $ Rect x y (abs w) (abs h)
@@ -221,19 +223,10 @@ xFocus = do
   restore $ snd w
   setFocus $ snd w
  where
-  makeList (Wrap (ChildParent w w'))              = EndF $ Just (w, w')
+  makeList (Wrap (ParentChild w w'))              = EndF $ Just (w, w')
   makeList (InputControllerOrMonitor _ (Just (Fix t))) = ContinueF t
   makeList (InputControllerOrMonitor _ Nothing) = EndF Nothing
   makeList t = ContinueF (unfix $ getFocused t)
-
--- |Push something if it can be pushed. Add it manually otherwise.
-pushOrAdd :: SubTiler -> Maybe Tiler -> Tiler
-pushOrAdd tWin = maybe (unfix tWin) (\case
-  t@(Horiz _) -> add Back Focused tWin t
-  t@(Floating _) -> add Back Focused tWin t
-  t -> mkHoriz t
-                                    )
-    where mkHoriz t = Horiz $ makeFL (NE (Sized 0 $ Fix t) [Sized 0 tWin]) 0
 
 -- |Set the current screen number based on pointer position.
 setScreenFromMouse :: Members [Input Pointer, State ActiveScreen, State Screens] r
@@ -250,7 +243,6 @@ initEwmh root upper = do
   a    <- getAtom False "_NET_SUPPORTED"
   nswc <- getAtom False "_NET_SUPPORTING_WM_CHECK"
   xestName <- getAtom False "xest"
-  c    <- getAtom False "ATOM"
   supp <- mapM
     (getAtom False)
     [ "_NET_NUMBER_OF_DESKTOPS"
@@ -259,9 +251,9 @@ initEwmh root upper = do
     , "_NET_ACTIVE_WINDOW"
     , "_NET_SUPPORTING_WM_CHECK"
     ]
-  putProperty 32 a root c (fmap fromIntegral supp)
-  putProperty 32 nswc root c [fromIntegral upper]
-  putProperty 32 a upper c [fromIntegral xestName]
+  putProperty 32 a root aTOM (fmap fromIntegral supp)
+  putProperty 32 nswc root aTOM [fromIntegral upper]
+  putProperty 32 a upper aTOM [fromIntegral xestName]
 
 
 -- |Write workspaces in a EWMH compatible way
@@ -273,13 +265,12 @@ writeWorkspaces (names, i) = do
   root <- input
   ndn <- getAtom False "_NET_DESKTOP_NAMES" 
   utf8 <- getAtom False "UTF8_STRING"
-  cardinal <- getAtom False "CARDINAL"
   nnod <- getAtom False "_NET_NUMBER_OF_DESKTOPS"
   ncd <- getAtom False "_NET_CURRENT_DESKTOP"
   putProperty 8 ndn root utf8
     $ concatMap (fmap ord . unpack) names
-  putProperty 32 nnod root cardinal [length names]
-  putProperty 32 ncd root cardinal [i]
+  putProperty 32 nnod root cARDINAL [length names]
+  putProperty 32 ncd root cARDINAL [i]
 
 -- |Some windows (like Polybar) want to be on top of everything else
 -- This function finds those windows and returns them in a list.
@@ -311,8 +302,7 @@ getBottomWindows = do
   lowerWindows <- for wins $ \win -> do
     -- EWMH defines how to do this.
     -- Check out their spec if you're curious.
-    wn <- getAtom False "WM_NAME"
-    prop <- getProperty @_ @Word8 8 wn win
+    prop <- getProperty @_ @Word8 8 wM_NAME win
     return $ case prop of
       [] -> []
       states ->
@@ -326,9 +316,8 @@ setClientList = do
   root <- input
   tilers <- get @Tiler
   ncl <- getAtom False "_NET_CLIENT_LIST"
-  warray <- getAtom False "WINDOW[]"
-  putProperty 32 ncl root warray $ cata winList $ Fix tilers
-    where winList (Wrap (ChildParent _ w)) = [fromIntegral w]
+  putProperty 32 ncl root wINDOW $ cata winList $ Fix tilers
+    where winList (Wrap (ParentChild _ w)) = [fromIntegral w]
           winList t = concat t
 
 -- |Writes the active window to the root window.
@@ -337,10 +326,9 @@ writeActiveWindow :: (Members '[State Tiler, Input Window, Property] r)
 writeActiveWindow = do
   root <- input
   tilers <- gets Fix
-  window <- getAtom False "WINDOW"
   naw <- getAtom False "_NET_ACTIVE_WINDOW"
-  putProperty 32 naw root window [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
-    where makeList (Fix (Wrap (ChildParent _ w))) = EndF . Just $ fromIntegral w
+  putProperty 32 naw root wINDOW [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
+    where makeList (Fix (Wrap (ParentChild _ w))) = EndF . Just $ fromIntegral w
           makeList (Fix (InputControllerOrMonitor _ (Just t))) = ContinueF t
           makeList (Fix (InputControllerOrMonitor _ Nothing)) = EndF Nothing
           makeList (Fix t) = ContinueF (getFocused t)
