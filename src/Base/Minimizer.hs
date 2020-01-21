@@ -20,6 +20,7 @@ import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
 import qualified Data.Set                      as S
+import Base.Property
 import Base.Helpers
 
 
@@ -35,7 +36,9 @@ newtype FocusedCache = FocusedCache Window
   deriving Eq
 -- |Do the actions in IO
 runMinimizer
-  :: Members (States [Set Window, FocusedCache]) r => Interpret Minimizer r a
+  :: Members (States [Set Window, FocusedCache]) r
+  => Member Property r
+  => Interpret Minimizer r a
 runMinimizer = interpret $ \case
   Minimize win -> do
     d <- input
@@ -45,6 +48,10 @@ runMinimizer = interpret $ \case
     when (mapped /= waIsUnmapped) $ do
       modify $ S.insert win
       embed @IO $ unmapWindow d win
+      wm_state <- getAtom False "WM_STATE"
+      win_state :: [Int] <- getProperty 32 wm_state win
+      unless (null win_state) $
+        putProperty 32 wm_state win wm_state [0, fromIntegral none]
 
   Restore win -> do
     d <- input
@@ -54,6 +61,10 @@ runMinimizer = interpret $ \case
     when (mapped == waIsUnmapped) $ do
       modify $ S.delete win
       embed @IO $ mapWindow d win
+      wm_state <- getAtom False "WM_STATE"
+      win_state :: [Int] <- getProperty 32 wm_state win
+      unless (null win_state) $
+        putProperty 32 wm_state win wm_state [1, fromIntegral none]
     embed $ sync d False
     
 

@@ -1,4 +1,4 @@
-name:                neXtWM
+name:                xest
 version:             0.1.0.0
 github:              "githubuser/neXtWM"
 license:             BSD3
@@ -89,7 +89,7 @@ library:
     - DeriveGeneric
 
 executables:
-  neXtWM-exe:
+  xest-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -102,10 +102,10 @@ executables:
     - -Wincomplete-uni-patterns
     - -Wredundant-constraints
     dependencies:
-    - neXtWM
+    - xest
 
 tests:
-  neXtWM-test:
+  xest-test:
     main:                Spec.hs
     source-dirs:         test
     ghc-options:
@@ -114,4 +114,4 @@ tests:
     - -with-rtsopts=-N
     - -Wall
     dependencies:
-    - neXtWM
+    - xest

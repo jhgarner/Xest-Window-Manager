@@ -42,6 +42,7 @@ confToType display (Conf kb startupScript initialMode) isReload = do
 data KeyTrigger a = KeyTrigger { key     :: a
                              , mode    :: Mode
                              , actions :: [Action]
+                             , exitActions :: [Action]
                              }
   deriving (Generic, Show, Interpret, Functor, Traversable, Foldable)
 

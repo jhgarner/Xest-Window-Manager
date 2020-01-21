@@ -180,7 +180,7 @@ changeModeTo newM = do
   -- Whatever key is on top of the KeyStatus stack should be New instead
   -- of Temp.
   modify @KeyStatus $ \case
-    Temp oldKS oldMode kc -> New oldKS oldMode kc
+    Temp oldKS oldMode kc ea -> New oldKS oldMode kc ea
     Dead ks -> ks
     _ -> error "Are you changing the mode twice in 1 action?"
 

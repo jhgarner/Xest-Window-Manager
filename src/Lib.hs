@@ -78,6 +78,9 @@ startWM = do
     $ evalState (M.empty @String @Atom)
     $ evalState (M.empty @Atom @[Int])
     $ evalState (M.empty @Window @XRect)
+    $ evalState False
+    $ evalState c
+    $ runExecutor 
     $ runProperty 
     $ initEwmh root ewmhWin
 
@@ -112,6 +115,8 @@ startWM = do
     $ runNewBorders
     $ evalState False
     $ runEventFlags
+    $ evalState c
+    $ runExecutor 
     $ runProperty
     $ runMoverFake
     $ rebindKeys startingMode startingMode >> rootChange >> get @Screens
@@ -138,7 +143,8 @@ mainLoop = do
   currentScreen <- get @ActiveScreen
 
   runInputConst currentScreen $ getXEvent >>= (\x -> printMe ("evaluating event: " ++ show x) >> return x) >>= \case
-    MapRequestEvent {..} -> mapWin ev_window
+    MapRequestEvent {..} -> unlessM (findWindow ev_window <$> get) $
+      reparentWin ev_window >>= mapWin
     DestroyWindowEvent {..} -> killed ev_window
     UnmapEvent {..} -> unmapWin ev_window
     cre@ConfigureRequestEvent {} -> configureWin cre
@@ -156,6 +162,10 @@ mainLoop = do
     _ -> return ()
 
   where
+    findWindow :: Window -> Tiler -> Bool
+    findWindow w = cata $ \case
+          (Wrap w') -> inParentChild w w'
+          t -> or t
     executeActions :: Action -> DoAll r
     executeActions action = printMe ("Action: " ++ show action) >> case action of
       RunCommand command -> execute command

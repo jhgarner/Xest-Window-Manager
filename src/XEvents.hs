@@ -23,57 +23,65 @@ import           Graphics.X11.Xlib.Extras
 import Config
 import Actions.ActionTypes
 
+-- |Called when we want to reparent a window
+reparentWin :: Members (Inputs '[Pointer]) r
+       => Members [State Tiler, EventFlags, GlobalX, State (Maybe ()), Property] r
+       => Members '[Input Screens, Property, Minimizer, Input Pointer, Executor] r
+       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow]) r
+       => Window
+       -> Sem r ParentChild
+reparentWin window = do
+  -- Reparent the window inside of a new one.
+  -- Originally, Xest didn't do this but then a bunch of bugs came up
+  -- where crossing events weren't reported correctly. All of those
+  -- bugs went away when reparenting was added.
+  newWin <- newWindow window
+  printMe $ "\n\n window: " ++ show window ++ " with parent " ++ show newWin ++ "\n\n"
+
+  -- Think of the new parent as an extension of the root window.
+  -- Just like on the root window, we need to register some events
+  -- on the parent.
+  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
+  return $ ParentChild newWin window
+
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer]) r
        => Members [State Tiler, EventFlags, GlobalX, State (Maybe ()), Property] r
-       => Members '[Input Screens, Property, Minimizer, Input Pointer] r
-       => Members (States [Tiler, Maybe (), ActiveScreen, Screens]) r
-       => Window
+       => Members '[Input Screens, Property, Minimizer, Input Pointer, Executor] r
+       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow]) r
+       => ParentChild
        -> Sem r ()
-mapWin window =
-  -- Before we do anything else, let's see if we already manage this window.
-  -- I don't know why, but things like Inkscape map windows multiple times.
-  unlessM (findWindow window <$> get) $ do
-    -- Reparent the window inside of a new one.
-    -- Originally, Xest didn't do this but then a bunch of bugs came up
-    -- where crossing events weren't reported correctly. All of those
-    -- bugs went away when reparenting was added.
-    newWin <- newWindow window
+mapWin pc@(ParentChild newWin window) = do
+  transient <- getTransientFor window
 
-    -- Think of the new parent as an extension of the root window.
-    -- Just like on the root window, we need to register some events
-    -- on the parent.
-    selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
-    restore newWin
-    restore window
+  let tWin :: SubTiler = Wrap $ ParentChild newWin window
 
-    let tWin :: SubTiler = Wrap $ ParentChild newWin window
-
-    transient <- getTransientFor window
-    -- let transient = Nothing
-    
-    case transient of
-      Just parent -> do
-        root <- get @Tiler
-        SizeHints{..} <- getSizeHints window
-        let idealSize = fromMaybe (500, 500) $ sh_base_size <|> sh_min_size
-        let tilerParent = Wrap $ ParentChild parent parent
-            (worked, newRoot) = usingFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
-            altNewRoot = makeFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
-        put @Tiler $ if worked then newRoot else altNewRoot
-      Nothing ->
-        -- This adds the new window to whatever tiler comes after inputController
-        -- If you've zoomed the inputController in, you get nesting as a result
-        modify $ applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
+  case transient of
+    Just parent -> do
+      root <- get @Tiler
+      SizeHints{..} <- getSizeHints window
+      let idealSize = fromMaybe (500, 500) $ sh_base_size <|> sh_min_size
+      let tilerParent = Wrap $ ParentChild parent parent
+          (worked, newRoot) = usingFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
+          (workedAlt, altNewRoot) = makeFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
+      printMe $ "Checking transient " ++ show transient ++ " with parent " ++ show newWin ++ "\nWith newRoot = " ++ show newRoot ++ "\n and worked = " ++ show worked ++ " and altRoot = " ++ show altNewRoot ++ "\n\n"
+      if
+          | worked -> put @Tiler newRoot >> focusPC
+          | workedAlt -> put @Tiler altNewRoot >> focusPC
+          | otherwise -> modify @LostWindow $ insertWith (++) parent [pc]
+    Nothing -> do
+      -- This adds the new window to whatever tiler comes after inputController
+      -- If you've zoomed the inputController in, you get nesting as a result
+      modify $ applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
+      focusPC
 
 
-    newFocus newWin
+
+  -- Were any lost children expecting to find this window?
+  lostChildren <- lookup window <$> get @LostWindow
+  traverse_ (traverse_ mapWin) lostChildren
 
   where 
-    findWindow :: Window -> Tiler -> Bool
-    findWindow w = cata $ \case
-          (Wrap w') -> inParentChild w w'
-          t -> or t
     usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
     usingFloating (newW, newH) t newTiler = coerce . cata (\case
       oldT@(Floating fl) ->
@@ -82,11 +90,14 @@ mapWin window =
           else (any fst oldT, Fix $ fmap snd oldT)
       oldT -> (any fst oldT, Fix $ fmap snd oldT))
 
-    makeFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> Tiler
-    makeFloating (newW, newH) t newTiler = coerce . cata (\oldT ->
-      if oldT == unfix t
-          then Floating $ NE (Top (Rect 0 0 newW newH, newTiler)) [Bottom $ Fix oldT]
-          else Fix oldT)
+    makeFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
+    makeFloating (newW, newH) t newTiler = coerce . cata (\oldTAndB ->
+      let oldT = fmap snd oldTAndB
+          wasFound = any fst oldTAndB
+       in if oldT == unfix t
+            then (True, Floating $ NE (Top (Rect 0 0 newW newH, newTiler)) [Bottom $ Fix oldT])
+            else (wasFound, Fix oldT))
+    focusPC = restore newWin >> restore window >> newFocus newWin
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
@@ -187,25 +198,25 @@ keyDown keycode eventType
     Conf bindings _ _ <- input @Conf
     mode <- get @Mode
     -- Is keycode (the key that was pressed) equal to k (the bound key)
-    case find (\(KeyTrigger k m _) -> keycode == k && m == mode) bindings of
+    case find (\(KeyTrigger k m _ _) -> keycode == k && m == mode) bindings of
               Nothing -> return []
-              Just (KeyTrigger _ _ actions) -> do
+              Just (KeyTrigger _ _ actions newEa) -> do
                 -- KeyStatus is a state machine which decides if we
                 -- need to act like vim or notepad.
                 -- If the user holds down a key then clicks another,
                 -- act like notepad. If they press a key then release
                 -- it, act like vim.
                 modify @KeyStatus $ \case
-                  Default -> Temp Default mode keycode
+                  Default -> Temp Default mode keycode newEa
                   Dead _ -> error "Dead got into keyDown"
-                  ks@(New oldKS oldMode watchedKey) ->
+                  ks@(New oldKS oldMode watchedKey ea) ->
                     if watchedKey == keycode
                        then ks
-                       else Temp ( Temp oldKS oldMode watchedKey) mode keycode
-                  ks@(Temp _ _ watchedKey) ->
+                       else Temp ( Temp oldKS oldMode watchedKey ea) mode keycode newEa
+                  ks@(Temp _ _ watchedKey _) ->
                     if watchedKey == keycode
                        then ks
-                       else Temp ks mode keycode
+                       else Temp ks mode keycode newEa
                 return actions
 
   | otherwise = do
@@ -218,13 +229,13 @@ keyDown keycode eventType
                       => KeyStatusF (KeyStatus, (Sem r (), [Action]))
                       -> (Sem r (), [Action])
             doRelease = \case
-              NewF (_, (cks, as)) _ watchedKey ->
+              NewF (_, (cks, as)) _ watchedKey _ ->
                 if watchedKey == keycode
                   then (put @KeyStatus Default, as)
                   else (cks, as)
-              TempF (oldKS, (cks, as)) oldMode watchedKey ->
+              TempF (oldKS, (cks, as)) oldMode watchedKey ea ->
                 if watchedKey == keycode
-                  then (put @KeyStatus $ Dead oldKS, ChangeModeTo oldMode : as)
+                  then (put @KeyStatus $ Dead oldKS, ChangeModeTo oldMode : ea ++ as)
                   else (cks, as)
               DefaultF -> (return (), [])
               DeadF _ -> error "Dead got into doRelease"

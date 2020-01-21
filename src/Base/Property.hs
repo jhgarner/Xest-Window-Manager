@@ -22,6 +22,7 @@ import           Foreign.Marshal.Array
 import           Foreign.Storable
 import qualified Data.Map                      as M
 import Base.Helpers
+import Base.Executor
 
 
 -- |X11 defines properties as a dictionary like object from Atoms and windows
@@ -77,7 +78,7 @@ type RootPropCache = Map Atom [Int]
 
 -- |Runs a propertiy using IO
 runProperty :: Members (States [AtomCache, RootPropCache]) r
-            => Member (Input RootWindow) r
+            => Members [Input RootWindow, Executor] r
             => Interpret Property r a
 runProperty = interpret $ \case
   GetProperty i atom win -> input >>= \d -> embed @IO $
@@ -91,8 +92,8 @@ runProperty = interpret $ \case
       let longMsg = fmap fromIntegral msg
           charMsg = fmap fromIntegral msg
       embed @IO $ case i of
-        8 -> changeProperty8 d w atomContent atomType propModeReplace $ charMsg ++ [0]
-        32 -> changeProperty32 d w atomContent atomType propModeReplace $ longMsg ++ [0]
+        8 -> changeProperty8 d w atomContent atomType propModeReplace $ charMsg
+        32 -> changeProperty32 d w atomContent atomType propModeReplace $ longMsg
         _ -> error "Can only write 32 and 8 bit values to properties right now"
     when (rootWin == w) $
       modify @RootPropCache (M.insert atomContent msg)

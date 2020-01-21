@@ -25,6 +25,7 @@ import           Foreign.Marshal.Array
 import           Foreign.Storable
 import           System.Exit
 import Base.Helpers
+import Base.Property
 import Config
 import Tiler.TilerTypes
 
@@ -52,7 +53,7 @@ eventFilter _ _ = True
 
 -- |IO
 runGlobalX
-  :: (Members [Input RootWindow, Input Conf, State Bool, State Tiler] r)
+  :: (Members [Input RootWindow, Input Conf, State Bool, State Tiler, Property] r)
   => Interpret GlobalX r a
 runGlobalX = interpret $ \case
   GetTree -> do
@@ -77,6 +78,8 @@ runGlobalX = interpret $ \case
     d         <- input @Display
     rootWin       <- input @RootWindow
     let defScr = defaultScreen d
+    wm_state <- getAtom False "WM_STATE"
+    putProperty 32 wm_state w wm_state [1, fromIntegral none]
     xwin <- embed $ createSimpleWindow d rootWin
       0 0 400 200 0
       (blackPixel d defScr)
@@ -130,7 +133,7 @@ runGlobalX = interpret $ \case
                -- We got something that won't be filtered so stop looping.
               then writeIORef pRef (-1)
               -- We got something that will be filtered so drop it.
-              else nextEvent d p >> (eventsQueued d queuedAfterReading
+              else nextEvent d p >> allowEvents d replayPointer currentTime >> (eventsQueued d queuedAfterReading
                       >>= (writeIORef pRef . fromIntegral))
             readIORef pRef
 

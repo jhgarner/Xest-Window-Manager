@@ -51,7 +51,7 @@ runEventFlags = interpret $ \case
     selectInput d w flags
     -- This is just grabs button presses on a window
     -- TODO why was I doing this here?
-    grabButton d anyButton anyModifier w False 
+    grabButton d (button1 .|. button2 .|. button3) anyModifier w False 
                (buttonPressMask .|. buttonReleaseMask) 
                grabModeSync grabModeSync none none
 
@@ -74,10 +74,10 @@ runEventFlags = interpret $ \case
 
     -- Unbind the old keys
     embed $ forM_ kb $
-      \(KeyTrigger k km _) -> when (oldMode == km)
+      \(KeyTrigger k km _ _) -> when (oldMode == km)
         (ungrabKey d k anyModifier win)
 
     -- bind the new ones
     embed $ forM_ kb $
-      \(KeyTrigger k km _) -> when (activeMode == km)
+      \(KeyTrigger k km _ _) -> when (activeMode == km)
         (grabKey d k anyModifier win True grabModeAsync grabModeAsync)

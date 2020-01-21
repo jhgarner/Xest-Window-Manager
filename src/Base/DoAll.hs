@@ -43,15 +43,19 @@ import           Base.Global
 import           Base.Colorer
 import           Base.EventFlags
 import           Tiler.TilerTypes
+import           Tiler.ParentChild
 import           Config
 import           Actions.ActionTypes
+
+
+type LostWindow = Map Window [ParentChild]
 
 -- There's a lot of effects here. This type has them all!
 type DoAll r
   =  ( Members
         ( States
             '[Tiler, KeyStatus, Mode, Set Window, [SubTiler], MouseButtons, Maybe
-              Font.Font, Bool, Map Window XRect, Maybe (), Conf, ActiveScreen, Screens]
+              Font.Font, Bool, Map Window XRect, Maybe (), Conf, ActiveScreen, Screens, LostWindow]
         )
         r
     , Members
@@ -93,6 +97,7 @@ doAll t c m d w =
         ::: FocusedCache 0
         ::: M.empty @SDL.Window
         ::: M.empty @Window @XRect
+        ::: M.empty @Window @[ParentChild]
         ::: [] @Window
         ::: Just ()
         ::: c
@@ -110,12 +115,12 @@ doAll t c m d w =
     . stateToInput @Conf
     . runGetButtons
     . runGetPointer
+    . runExecutor
     . runProperty
     . runEventFlags
     . runGlobalX
     . runMinimizer
     . runMover
-    . runExecutor
     . runColorer
  where
 
@@ -150,7 +155,7 @@ doAll t c m d w =
   stateToInput = interpret $ \case
     Input -> get
 
-data KeyStatus = New KeyStatus Mode KeyCode | Temp KeyStatus Mode KeyCode | Dead KeyStatus | Default
+data KeyStatus = New KeyStatus Mode KeyCode [Action] | Temp KeyStatus Mode KeyCode [Action] | Dead KeyStatus | Default
 makeBaseFunctor ''KeyStatus
 
 instance Show KeyStatus where
