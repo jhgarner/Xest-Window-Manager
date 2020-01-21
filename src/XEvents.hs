@@ -2,6 +2,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 
 module XEvents where
@@ -44,6 +45,8 @@ reparentWin window = do
   selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
   return $ ParentChild newWin window
 
+deriving instance Show SizeHints
+
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer]) r
        => Members [State Tiler, EventFlags, GlobalX, State (Maybe ()), Property] r
@@ -59,16 +62,16 @@ mapWin pc@(ParentChild newWin window) = do
   case transient of
     Just parent -> do
       root <- get @Tiler
-      SizeHints{..} <- getSizeHints window
-      let idealSize = fromMaybe (500, 500) $ sh_base_size <|> sh_min_size
+      sizes@SizeHints{..} <- getSizeHints window
+      let idealSize = fromMaybe (500, 500) sh_min_size
       let tilerParent = Wrap $ ParentChild parent parent
           (worked, newRoot) = usingFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
           (workedAlt, altNewRoot) = makeFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
-      printMe $ "Checking transient " ++ show transient ++ " with parent " ++ show newWin ++ "\nWith newRoot = " ++ show newRoot ++ "\n and worked = " ++ show worked ++ " and altRoot = " ++ show altNewRoot ++ "\n\n"
+      printMe $ "Checking transient " ++ show transient ++ " with window " ++ show window ++ " with parent " ++ show newWin ++ "\nWith newRoot = " ++ show newRoot ++ "\n and worked = " ++ show worked ++ " and altRoot = " ++ show altNewRoot ++ "\n and altWorked " ++ show workedAlt ++ " and sizes " ++ show sizes ++ "\n\n"
       if
           | worked -> put @Tiler newRoot >> focusPC
           | workedAlt -> put @Tiler altNewRoot >> focusPC
-          | otherwise -> modify @LostWindow $ insertWith (++) parent [pc]
+          | otherwise -> modify @LostWindow (insertWith (++) parent [pc]) >> minimize newWin
     Nothing -> do
       -- This adds the new window to whatever tiler comes after inputController
       -- If you've zoomed the inputController in, you get nesting as a result
