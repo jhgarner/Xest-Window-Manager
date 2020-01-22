@@ -155,9 +155,9 @@ doAll t c m d w =
   stateToInput = interpret $ \case
     Input -> get
 
-data KeyStatus = New KeyStatus Mode KeyCode [Action] | Temp KeyStatus Mode KeyCode [Action] | Dead KeyStatus | Default
+data TempType = FromMod | NotMod
+  deriving Show
+
+data KeyStatus = New KeyStatus Mode KeyCode [Action] | Temp TempType KeyStatus Mode KeyCode [Action] | Default
+  deriving Show
 makeBaseFunctor ''KeyStatus
-
-instance Show KeyStatus where
-  show _ = "Key status"
-

@@ -104,7 +104,7 @@ getFocused = fst . popWindow (Right Focused)
 -- apply it to the first Tiler after the inputController.
 applyInput :: (Maybe SubTiler -> Maybe SubTiler) -> Tiler -> Tiler
 applyInput f = toFType . cata \case
-  InputController (t) -> InputController $ f t
+  InputController t -> InputController $ f t
   t                   -> coerce t
 
 -- |Kind of like applyInput but can be used to get arbitrary info out of

@@ -191,7 +191,7 @@ newFocus window = do
 
 
 -- |On key press, execute some actions
-keyDown :: Members '[Property, Minimizer] r
+keyDown :: Members '[Property, Minimizer, Executor] r
        => Members (Inputs [Conf, Pointer, MouseButtons]) r
        => Members (States [Tiler, Mode, KeyStatus, Maybe ()]) r
        => KeyCode
@@ -212,38 +212,44 @@ keyDown keycode eventType
                 -- act like notepad. If they press a key then release
                 -- it, act like vim.
                 modify @KeyStatus $ \case
-                  Default -> Temp Default mode keycode newEa
-                  Dead _ -> error "Dead got into keyDown"
+                  Default -> Temp NotMod Default mode keycode newEa
                   ks@(New oldKS oldMode watchedKey ea) ->
                     if watchedKey == keycode
                        then ks
-                       else Temp ( Temp oldKS oldMode watchedKey ea) mode keycode newEa
-                  ks@(Temp _ _ watchedKey _) ->
+                       else Temp NotMod ( Temp FromMod oldKS oldMode watchedKey $ ChangeModeTo oldMode : ea) mode keycode newEa
+                  ks@(Temp _ _ _ watchedKey _) ->
                     if watchedKey == keycode
                        then ks
-                       else Temp ks mode keycode newEa
+                       else Temp NotMod ks mode keycode newEa
                 return actions
 
   | otherwise = do
     put $ Just ()
     currentKS <- get @KeyStatus
-    let (newKS_, actions) = para doRelease currentKS
+    printMe $ "\n\ncurrentKS: " ++ show currentKS ++ "\n"
+    let (newKS_, actions) = fold $ para doRelease currentKS
     newKS_
+    newKS <- get @KeyStatus
+    printMe $ "\n\nnewKS: " ++ show newKS ++ "\n"
     return actions
       where doRelease :: Member (State KeyStatus) r
-                      => KeyStatusF (KeyStatus, (Sem r (), [Action]))
-                      -> (Sem r (), [Action])
+                      => KeyStatusF (KeyStatus, Maybe (Sem r (), [Action]))
+                      -> Maybe (Sem r (), [Action])
             doRelease = \case
-              NewF (_, (cks, as)) _ watchedKey _ ->
-                if watchedKey == keycode
-                  then (put @KeyStatus Default, as)
-                  else (cks, as)
-              TempF (oldKS, (cks, as)) oldMode watchedKey ea ->
-                if watchedKey == keycode
-                  then (put @KeyStatus $ Dead oldKS, ChangeModeTo oldMode : ea ++ as)
-                  else (cks, as)
-              DefaultF -> (return (), [])
-              DeadF _ -> error "Dead got into doRelease"
+              NewF (_, otherActions) _ watchedKey _ ->
+                case otherActions of
+                  Just _ -> Just (put @KeyStatus Default, [])
+                  Nothing -> if watchedKey == keycode
+                                then Just (put @KeyStatus Default, [])
+                                else Nothing
+              TempF _ (oldKS, otherActions) _ watchedKey ea ->
+                case otherActions of
+                  Just (cks, as) -> Just (put @KeyStatus oldKS >> cks, ea ++ as)
+                  Nothing ->
+                    if watchedKey == keycode
+                       then Just (put @KeyStatus oldKS, ea)
+                       else Nothing
+              DefaultF -> Nothing
 
 -- |When the user moves the mouse in resize mode, this events are triggered.
 motion :: Members '[Property, Minimizer] r

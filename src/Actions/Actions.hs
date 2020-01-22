@@ -84,7 +84,8 @@ zoomInInput
   => Sem r ()
 zoomInInput =
   modify $ fixable $ cata $ \case
-    t@(InputController (Just (Fix (Wrap _)))) -> Fix t
+    t@(InputController (Just (Wrap _))) -> Fix t
+    InputController (Just (Monitor Nothing)) -> Monitor . Just $ InputController Nothing
     InputController (Just (Fix t)) -> Fix $ modFocused (Fix . InputController . Just) t
     t -> Fix t
 
@@ -128,22 +129,22 @@ zoomMonitorToInput
   :: Member (State Tiler) r
   =>  Sem r ()
 zoomMonitorToInput =
-  modify $ fromMaybe (error "Can't be empty") . maybeFixable (cata $ \case
+  modify $ coerce . fromMaybe (error "Can't be empty") . cata (\case
     InputController t ->
-      Just . Fix . Monitor . Just . Fix . InputController  $ join t
+      Just . Monitor . Just . InputController  $ join t
     Monitor childT -> join childT
-    t -> Fix <$> reduce t)
+    t -> coerce $ reduce t)
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomInputToMonitor
   :: Member (State Tiler) r
   =>  Sem r ()
 zoomInputToMonitor =
-  modify $ fromMaybe (error "Can't be empty") . maybeFixable (cata $ \case
+  modify $ coerce . fromMaybe (error "Can't be empty") . cata (\case
     Monitor t ->
-      Just . Fix . Monitor . Just . Fix . InputController  $ join t
+      Just . Monitor . Just . InputController $ join t
     InputController childT -> join childT
-    t -> Fix <$> reduce t)
+    t -> coerce $ reduce t)
 
 -- |Very similar to zoomOutInput but less confusing to implement.
 zoomOutMonitor
@@ -180,9 +181,8 @@ changeModeTo newM = do
   -- Whatever key is on top of the KeyStatus stack should be New instead
   -- of Temp.
   modify @KeyStatus $ \case
-    Temp oldKS oldMode kc ea -> New oldKS oldMode kc ea
-    Dead ks -> ks
-    _ -> error "Are you changing the mode twice in 1 action?"
+    Temp NotMod oldKS oldMode kc ea -> New oldKS oldMode kc ea
+    ks -> ks
 
 
 -- |If the current Tiler can hold multiple children, change which one
