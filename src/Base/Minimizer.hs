@@ -20,25 +20,27 @@ import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
 import qualified Data.Set                      as S
-import Base.Property
-import Base.Helpers
+import           Data.Bits
+import           Base.Property
+import           Base.Helpers
+import           Tiler.TilerTypes
+import           Tiler.ParentChild
 
 
 -- |Anything that changes a window state but doesn't actually move the window
 -- goes here
 data Minimizer m a where
-  Minimize :: Window -> Minimizer m ()
-  Restore :: Window -> Minimizer m ()
-  SetFocus :: Window -> Minimizer m ()
+  Minimize ::Window -> Minimizer m ()
+  Restore ::Window -> Minimizer m ()
+  SetFocus ::Window -> Minimizer m ()
 makeSem ''Minimizer
 
 newtype FocusedCache = FocusedCache Window
   deriving Eq
 -- |Do the actions in IO
 runMinimizer
-  :: Members (States [Set Window, FocusedCache]) r
-  => Member Property r
-  => Interpret Minimizer r a
+  :: Members (States '[Set Window, FocusedCache, Tiler]) r
+  => Member Property r => Interpret Minimizer r a
 runMinimizer = interpret $ \case
   Minimize win -> do
     d <- input
@@ -48,10 +50,10 @@ runMinimizer = interpret $ \case
     when (mapped /= waIsUnmapped) $ do
       modify $ S.insert win
       embed @IO $ unmapWindow d win
-      wm_state <- getAtom False "WM_STATE"
+      wm_state           <- getAtom False "WM_STATE"
       win_state :: [Int] <- getProperty 32 wm_state win
-      unless (null win_state) $
-        putProperty 32 wm_state win wm_state [0, fromIntegral none]
+      unless (null win_state)
+        $ putProperty 32 wm_state win wm_state [0, fromIntegral none]
 
   Restore win -> do
     d <- input
@@ -61,16 +63,33 @@ runMinimizer = interpret $ \case
     when (mapped == waIsUnmapped) $ do
       modify $ S.delete win
       embed @IO $ mapWindow d win
-      wm_state <- getAtom False "WM_STATE"
+      wm_state           <- getAtom False "WM_STATE"
       win_state :: [Int] <- getProperty 32 wm_state win
-      unless (null win_state) $
-        putProperty 32 wm_state win wm_state [1, fromIntegral none]
+      unless (null win_state)
+        $ putProperty 32 wm_state win wm_state [1, fromIntegral none]
     embed $ sync d False
-    
+
 
   SetFocus w -> input @Display >>= \d -> do
-    unlessM ((== FocusedCache w) <$> get @FocusedCache) $ embed @IO $
+    root <- get @Tiler
+    unlessM ((== FocusedCache w) <$> get @FocusedCache) $ embed @IO $ do
       setInputFocus d w revertToNone currentTime
+      cata (grabOthers d w) root
+
     embed @IO $ allowEvents d replayPointer currentTime
     put $ FocusedCache w
+   where
+    grabOthers d target (Wrap (ParentChild parent child))
+      | child == target = ungrabButton d anyButton anyModifier parent
+      | otherwise = grabButton d
+                               anyButton
+                               anyModifier
+                               parent
+                               False
+                               (buttonPressMask .|. buttonReleaseMask)
+                               grabModeSync
+                               grabModeSync
+                               none
+                               none
+    grabOthers _ _ t = sequence_ t
 

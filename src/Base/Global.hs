@@ -20,10 +20,12 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Window
 import           Graphics.X11.Xlib.Atom
+import           Graphics.X11.Xlib.Misc
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
 import           Foreign.Storable
 import           System.Exit
+import Data.Bits
 import Base.Helpers
 import Base.Property
 import Config
@@ -86,6 +88,10 @@ runGlobalX = interpret $ \case
       (blackPixel d defScr)
     embed $ mapWindow d xwin
     embed $ reparentWindow d w xwin 0 0
+    -- embed $ grabButton d (button1 .|. button2 .|. button3) anyModifier xwin True 
+    -- embed $ grabButton d anyButton anyModifier xwin True 
+    --             (buttonPressMask .|. buttonReleaseMask) 
+    --             grabModeSync grabModeSync none none
     return xwin
 
   MoveToRoot w -> do

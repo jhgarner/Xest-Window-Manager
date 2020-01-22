@@ -283,3 +283,8 @@ fixMonitor root = if cata isInPath root
     InputController t ->
       Just $ Fix $ Monitor $ Just $ Fix $ InputController $ join t
     t -> Fix <$> reduce t
+
+findWindow :: Window -> Tiler -> Bool
+findWindow w = cata $ \case
+      (Wrap w') -> inParentChild w w'
+      t -> or t

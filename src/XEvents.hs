@@ -118,14 +118,17 @@ killed window = do
 
 -- |A window is either dying slowly or has been minimized.
 unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe ()]) r
-         => Member GlobalX r
+         => Members [GlobalX, Property] r
          => Window 
          -> Sem r ()
-unmapWin window =
+unmapWin window = do
   -- We need to check if we expected the window to be unmapped. Any window
   -- we explicitly minimized ends up in a set (Thanks XMonad for the idea).
   -- If the window is in the set, we don't need to do anything.
-  unlessM (member window <$> get @(Set Window)) $ do
+  minimized <- get @(Set Window)
+  root <- get @Tiler
+
+  unless (member window minimized || not (findWindow window root)) $ do
     -- Windows that weren't minimized but were unmapped are probably dying.
     -- We need to move the window onto the root so that we can kill the parent
     -- and it can die in its own time.
@@ -184,7 +187,6 @@ newFocus window = do
       traverse_ setFocus realWin
       put @Tiler newRoot
       put $ Just ()
-    -- TODO is this pointless right here?
     Nothing -> setFocus window
 
 

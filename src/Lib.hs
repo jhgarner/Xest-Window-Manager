@@ -53,6 +53,9 @@ startWM = do
   -- X orders windows like a tree.
   -- This gets the root.
   let root = defaultRootWindow display
+  -- grabButton display anyButton anyModifier root False 
+  --             (buttonPressMask .|. buttonReleaseMask) 
+  --             grabModeSync grabModeSync none none
 
 
   -- The initial mode is whatever comes first
@@ -162,10 +165,6 @@ mainLoop = do
     _ -> return ()
 
   where
-    findWindow :: Window -> Tiler -> Bool
-    findWindow w = cata $ \case
-          (Wrap w') -> inParentChild w w'
-          t -> or t
     executeActions :: Action -> DoAll r
     executeActions action = printMe ("Action: " ++ show action) >> case action of
       RunCommand command -> execute command

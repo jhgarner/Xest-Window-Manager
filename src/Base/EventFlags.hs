@@ -47,13 +47,10 @@ runEventFlags
   :: Members (Inputs [RootWindow, Conf]) r
   => Interpret EventFlags r a
 runEventFlags = interpret $ \case
-  SelectFlags w flags -> input >>= \d -> embed @IO $ do
+  SelectFlags w flags -> input >>= \d -> embed @IO $
     selectInput d w flags
     -- This is just grabs button presses on a window
     -- TODO why was I doing this here?
-    grabButton d (button1 .|. button2 .|. button3) anyModifier w False 
-               (buttonPressMask .|. buttonReleaseMask) 
-               grabModeSync grabModeSync none none
 
   SelectButtons NewMode {hasButtons = hb}  -> do
       d <- input @Display
