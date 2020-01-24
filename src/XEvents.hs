@@ -59,7 +59,8 @@ mapWin pc@(ParentChild newWin window) = do
 
   let tWin :: SubTiler = Wrap $ ParentChild newWin window
 
-  case transient of
+  -- If a window wants to be transient for itself, just make it a normal window
+  case if transient == Just window then Nothing else transient of
     Just parent -> do
       root <- get @Tiler
       sizes@SizeHints{..} <- getSizeHints window
