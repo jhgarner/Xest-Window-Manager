@@ -27,12 +27,11 @@ import           Polysemy.State
 import           Polysemy.Input
 import           Polysemy.Several
 import           Graphics.X11.Xlib.Types
-import           Graphics.X11.Xinerama
+import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Types
 import qualified Data.Set                      as S
 import qualified Data.Map                      as M
 import qualified SDL
-import qualified SDL.Font                      as Font
 import           Base.Helpers
 import           Base.Other
 import           Base.Mover
@@ -51,25 +50,25 @@ import           Actions.ActionTypes
 type LostWindow = Map Window [ParentChild]
 
 -- There's a lot of effects here. This type has them all!
-type DoAll r
-  =  ( Members
-        ( States
-            '[Tiler, KeyStatus, Mode, Set Window, [SubTiler], MouseButtons, Maybe
-              Font.Font, Bool, Map Window XRect, Maybe (), Conf, ActiveScreen, Screens, LostWindow]
-        )
-        r
-    , Members
-        ( Inputs
-            '[Conf, Window, Borders, Display, XRect, (Int32, Int32), MouseButtons, [ XineramaScreenInfo
-            ], Screens, [XRect], NewBorders]
-        )
-        r
-    , Members
-        '[Mover, Property, Minimizer, Executor, GlobalX, Colorer, EventFlags, Embed
-          IO]
-        r
-    )
-  => Sem r ()
+-- type DoAll r
+--   =  ( Members
+--         ( States
+--             '[Tiler, KeyStatus, Mode, Set Window, [SubTiler], MouseButtons, Maybe
+--               Font.Font, Bool, Map Window XRect, Maybe (), Conf, ActiveScreen, Screens, LostWindow]
+--         )
+--         r
+--     , Members
+--         ( Inputs
+--             '[Conf, Window, Borders, Display, XRect, (Int32, Int32), MouseButtons, [ XineramaScreenInfo
+--             ], Screens, [XRect], NewBorders]
+--         )
+--         r
+--     , Members
+--         '[Mover, Property, Minimizer, Executor, GlobalX, Colorer, EventFlags, Embed
+--           IO]
+--         r
+--     )
+--   => Sem r ()
 
 -- Want to do everything in IO? Use this!
 doAll
@@ -102,6 +101,7 @@ doAll t c m d w =
         ::: Just ()
         ::: c
         ::: (0 :: ActiveScreen)
+        ::: currentTime
         ::: HNil
         )
     . runInputs (w ::: d ::: HNil)

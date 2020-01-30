@@ -16,10 +16,12 @@ import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Window
+import           Graphics.X11.Xlib.Event
 import qualified Data.Map                      as M
 import qualified SDL
 import Base.Helpers
 import Base.Minimizer
+import Tiler.Tiler
 
 -- |Anything that changes where a window sits goes in here.
 data Mover m a where
@@ -36,7 +38,7 @@ type LocCache = Map Window XRect
 type SDLLocCache = Map SDL.Window XRect
 type WindowStack = [Window]
 -- Move windows using IO
-runMover :: Members (States [LocCache, SDLLocCache, WindowStack]) r
+runMover :: Members (States [LocCache, SDLLocCache, WindowStack, Tiler]) r
          => Member Minimizer r
          => Interpret Mover r a
 runMover = interpret $ \case
@@ -52,6 +54,7 @@ runMover = interpret $ \case
     unlessM ((== Just r) . (M.!? win) <$> get) $ do
       embed @IO $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
       SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
+    embed @IO $ SDL.raiseWindow win
     modify $ M.insert win r
 
   Restack wins -> do
@@ -61,16 +64,28 @@ runMover = interpret $ \case
     put wins
 
 
-  ConfigureWin ConfigureRequestEvent {..} ->
+  ConfigureWin ConfigureRequestEvent {..} -> do
+    d <- input
+    tiler <- get @Tiler
+    WindowAttributes {..} <- embed @IO $ getWindowAttributes d ev_window
     let wc = WindowChanges ev_x
-                           ev_y
-                           ev_width
-                           ev_height
-                           ev_border_width
-                           ev_above
-                           ev_detail
-    in  input >>= \d -> embed @IO $ configureWindow d ev_window ev_value_mask wc
+                          ev_y
+                          ev_width
+                          ev_height
+                          ev_border_width
+                          ev_above
+                          ev_detail
+    if findWindow ev_window tiler
+       then
+         embed @IO $ allocaXEvent $ \pe -> do
+           setEventType pe configureNotify
+           setConfigureEvent pe ev_window ev_window wa_x wa_y wa_width wa_height wa_border_width none False
+           sendEvent d ev_window False noEventMask pe
+       else
+         embed @IO $ configureWindow d ev_window ev_value_mask wc
+
   ConfigureWin _ -> error "Don't call Configure Window with other events"
+
   DestroySDLWindow window -> embed @IO $ SDL.destroyWindow window
 
 -- |Run a mover when you don't actually want to do anything

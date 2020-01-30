@@ -39,7 +39,7 @@ data GlobalX m a where
    MoveToRoot :: Window -> GlobalX m ()
    ClearQueue :: GlobalX m ()
    GetXEvent :: GlobalX m Event
-   CheckXEvent :: GlobalX m Bool
+   CheckXEvent :: GlobalX m Int
    -- |Bool True == kill softly. False == kill hard
    Kill :: Bool -> Window -> GlobalX m (Maybe Window)
    -- If you look into the void, you can find anything
@@ -130,7 +130,7 @@ runGlobalX = interpret $ \case
       pRef <- newIORef $ fromIntegral p :: IO (IORef Int)
       -- If p < 1, we get to take the easy way out.
       if p < 1 
-         then return False
+         then return 0
          else do
           -- Otherwise, we loop for a while
           untilM (<1) $ allocaXEvent $ \p -> do
@@ -144,7 +144,7 @@ runGlobalX = interpret $ \case
             readIORef pRef
 
           -- If P ended at -1, return True because the queue wasn't empty
-          (/= 0) <$> readIORef pRef
+          readIORef pRef
 
   Kill isSoft w -> input >>= \d -> embed @IO $ do
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False

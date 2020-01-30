@@ -29,11 +29,12 @@ import           FocusList
 import Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import qualified SDL (Window)
 
-refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX] r
+refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX, Executor] r
         => Members (Inputs [Window, Screens, Borders, (Int32, Int32)]) r
-        => Members (States [Tiler, Mode, [SubTiler], Maybe ()]) r
+        => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time]) r
         => Sem r ()
 refresh = do
+    printMe "\n\nRefreshing\n"
     put @(Maybe ()) Nothing
     -- Fix the Monitor if the Input Controller moved in a weird way
     modify @Tiler fixMonitor
@@ -55,6 +56,7 @@ refresh = do
     writeActiveWindow
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
     clearQueue
+    printMe "\n\nDone refreshing\n"
 
 
 -- | Places a tiler somewhere on the screen without actually placing it
@@ -213,7 +215,7 @@ writePath = do
 
 -- |Focus the window our Tilers are focusing
 xFocus
-  :: Members [State Tiler, Minimizer, Input Window] r
+  :: Members [State Tiler, Minimizer, Input Window, State Time] r
   => Sem r ()
 xFocus = do
   root <- get @Tiler
@@ -242,6 +244,8 @@ initEwmh :: Member Property r
 initEwmh root upper = do
   a    <- getAtom False "_NET_SUPPORTED"
   nswc <- getAtom False "_NET_SUPPORTING_WM_CHECK"
+  nwname <- getAtom False "_NET_WM_NAME"
+  utf8 <- getAtom False "UTF8_STRING"
   xestName <- getAtom False "xest"
   supp <- mapM
     (getAtom False)
@@ -250,10 +254,13 @@ initEwmh root upper = do
     , "_NET_CLIENT_LIST"
     , "_NET_ACTIVE_WINDOW"
     , "_NET_SUPPORTING_WM_CHECK"
+    , "_NET_WM_STATE"
+    , "_NET_WM_STATE_FULLSCREEN"
     ]
   putProperty 32 a root aTOM (fmap fromIntegral supp)
-  putProperty 32 nswc root aTOM [fromIntegral upper]
-  putProperty 32 a upper aTOM [fromIntegral xestName]
+  putProperty 32 nswc root wINDOW [fromIntegral upper]
+  putProperty 32 nswc upper wINDOW [fromIntegral upper]
+  putProperty 8 nwname upper utf8 $ fmap ord "xest"
 
 
 -- |Write workspaces in a EWMH compatible way

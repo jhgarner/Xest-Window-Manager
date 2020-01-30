@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 module Lib
   ( startWM
@@ -134,38 +135,59 @@ startWM = do
 
 
 -- | Performs the main logic. Does it all!
-mainLoop :: DoAll r
+-- Is this uncommented signature better than the DoAll one?
+-- mainLoop :: DoAll r
+mainLoop :: Sem _ ()
 mainLoop = do
   printMe "\n\n========================"
   printMe "Tiler state at beginning of loop:\n"
   get @ActiveScreen >>= \as -> printMe $ show as ++ " is the active screen \n"
   get @Screens >>= \as -> printMe $ show as ++ " \n\n"
 
-  whenM (isJust <$> get @(Maybe ())) refresh
+  numEvents <- (== 0) <$> checkXEvent
+  refreshRequested <- isJust <$> get @(Maybe ())
+  when (numEvents && refreshRequested) refresh
   
   currentScreen <- get @ActiveScreen
 
   runInputConst currentScreen $ getXEvent >>= (\x -> printMe ("evaluating event: " ++ show x) >> return x) >>= \case
-    MapRequestEvent {..} -> unlessM (findWindow ev_window <$> get) $
+    MapRequestEvent {..} -> do
+      whenM (findWindow ev_window <$> get @Tiler) $
+        unmapWin ev_window
       reparentWin ev_window >>= mapWin
     DestroyWindowEvent {..} -> killed ev_window
     UnmapEvent {..} -> unmapWin ev_window
     cre@ConfigureRequestEvent {} -> configureWin cre
     ConfigureEvent {} -> rootChange
     CrossingEvent {..} -> do
+      put ev_time
       root <- input @RootWindow
       if | ev_event_type == enterNotify -> newFocus ev_window
          | ev_window == root -> input @RootWindow >>= newFocus
          | otherwise -> return ()
-    ButtonEvent {..} -> 
-      newFocus ev_window
+    ButtonEvent {..} ->
+      put ev_time >> newFocus ev_window
     MotionEvent {..} -> motion
-    KeyEvent {..} -> keyDown ev_keycode ev_event_type >>= foldMap executeActions
+    KeyEvent {..} -> put ev_time >> keyDown ev_keycode ev_event_type >>= foldMap executeActions
     MappingNotifyEvent {} -> reloadConf
-    _ -> return ()
+    ClientMessageEvent {..} -> do
+      wm_state <- getAtom False "_NET_WM_STATE"
+      full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
+      let isSet = (== Just 1) $ headMay ev_data
+      printMe $ "\nGot message: " ++ show wm_state ++ " " ++ show full_screen ++ " " ++ show isSet ++ "\n"
+      when (wm_state == ev_message_type) $
+        when (fromIntegral full_screen `elem` ev_data) $ do
+          if isSet
+             then makeFullscreen ev_window >> newFocus ev_window
+             else changeLocation ev_window $ Rect 1 1 1 1
+          put $ Just ()
+
+    AnyEvent {ev_event_type = 21, ev_window = window} -> killed window
+
+    _ -> void $ printMe "Got unknown event"
 
   where
-    executeActions :: Action -> DoAll r
+    executeActions :: Action -> Sem _ ()
     executeActions action = printMe ("Action: " ++ show action) >> case action of
       RunCommand command -> execute command
       ShowWindow wName -> getWindowByClass wName >>= mapM_ restore

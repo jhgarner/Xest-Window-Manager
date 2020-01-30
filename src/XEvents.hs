@@ -13,6 +13,7 @@ import           Polysemy.State
 import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xinerama
+import           Graphics.X11.Xlib.Atom
 import           Data.Either                    ( )
 import           Tiler.Tiler
 import           Base.DoAll
@@ -25,10 +26,7 @@ import Config
 import Actions.ActionTypes
 
 -- |Called when we want to reparent a window
-reparentWin :: Members (Inputs '[Pointer]) r
-       => Members [State Tiler, EventFlags, GlobalX, State (Maybe ()), Property] r
-       => Members '[Input Screens, Property, Minimizer, Input Pointer, Executor] r
-       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow]) r
+reparentWin :: Members '[EventFlags, GlobalX, Executor] r
        => Window
        -> Sem r ParentChild
 reparentWin window = do
@@ -48,10 +46,9 @@ reparentWin window = do
 deriving instance Show SizeHints
 
 -- |Called when a new top level window wants to exist
-mapWin :: Members (Inputs '[Pointer]) r
-       => Members [State Tiler, EventFlags, GlobalX, State (Maybe ()), Property] r
-       => Members '[Input Screens, Property, Minimizer, Input Pointer, Executor] r
-       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow]) r
+mapWin :: Members (Inputs '[Pointer, Screens]) r
+       => Members [EventFlags, GlobalX, Property, Executor, Minimizer] r
+       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time]) r
        => ParentChild
        -> Sem r ()
 mapWin pc@(ParentChild newWin window) = do
@@ -78,6 +75,11 @@ mapWin pc@(ParentChild newWin window) = do
       -- If you've zoomed the inputController in, you get nesting as a result
       modify $ applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
       focusPC
+      wm_state <- getAtom False "_NET_WM_STATE"
+      full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
+      isFullScreen <- maybe False (== full_screen) . headMay <$> getProperty 32 wm_state window
+      when isFullScreen $
+        makeFullscreen window
 
 
 
@@ -172,7 +174,7 @@ rootChange = do
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
 newFocus :: Members '[Input Screens, Property, Minimizer, Input Pointer] r
-         => Members (States [Tiler, Maybe (), ActiveScreen, Screens]) r
+         => Members (States [Tiler, Maybe (), ActiveScreen, Screens, Time]) r
          => Window
          -> Sem r ()
 newFocus window = do
@@ -334,3 +336,18 @@ changeSize rotation m = \case
       LeftButton _ -> Top (Rect (x+dx) (y+dy) w h, t)
       None -> error "Yikes, this shouldn't be possible!") ls
   t -> t
+
+makeFullscreen :: Members '[State Tiler, Minimizer, Property] r
+               => Window
+               -> Sem r ()
+makeFullscreen window = do
+  root <- get @Tiler
+  wm_state <- getAtom False "_NET_WM_STATE"
+  wm_full <- getAtom False "_NET_WM_STATE_FULLSCREEN"
+  currentState <- getProperty 32 wm_state window
+  putProperty 32 wm_state window aTOM $ fmap fromIntegral (wm_full : currentState)
+  modify @Tiler $ coerce . fromMaybe (coerce root) . cata \case
+    Wrap pc@(ParentChild _ child)
+      | child == window -> Just $ Monitor $ Just $ InputController $ Just $ Wrap pc
+    InputControllerOrMonitor _ t -> coerce $ join t
+    t -> coerce $ reduce t
