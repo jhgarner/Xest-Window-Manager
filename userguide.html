@@ -69,17 +69,17 @@
 <h3 id="startupscript">StartupScript</h3>
 <p>A string containing a script to run in your shell. This is useful for starting things like Compton, Feh, Polybar, etc.</p>
 <h3 id="keybindings">KeyBindings</h3>
-<p>A list of key bindings. See the example config file for more info on the format.</p>
-<h3 id="definedmodes">DefinedModes</h3>
-<p>A list of defined modes. Intro Actions and exit actions are performed no matter how you trigger entering the mode. The hasButtons field is used to control whether a mode can be used to resize windows. If this is true, you won’t be able to interact with windows while you’re in this mode. If hasBorders is true, the colorful borders will be shown.</p>
+<p>A list of key bindings. See the example config file for more info on the format. The weirdest field is the exitActions one. This field contains a list of actions that will be performed when the key is released assuming it didn’t trigger a permanent mode change.</p>
+<h3 id="initialmode">InitialMode</h3>
+<p>A single mode which will be used once you start up Xest.</p>
 <h2 id="actions">Actions</h2>
 <p>Actions are performed when you press a key binding or change modes. You can perform multiple actions at any time. If an action is invalid, it should do nothing instead of crashing Xest.</p>
 <h3 id="insert-t-tilers">Insert (t: Tilers)</h3>
 <p>Adds the Tiler t right after the Input Controller. Whatever used to be the Input Controller’s child will become the child of t.</p>
 <h3 id="runcommand-s-text">RunCommand (s: Text)</h3>
 <p>Runs a command using your shell.</p>
-<h3 id="changemodeto-m-text">ChangeModeTo (m: Text)</h3>
-<p>Changes to a mode in the definedModes section of the config. The parameter is the mode’s name. An invalid name will crash Xest.</p>
+<h3 id="changemodeto-m-mode">ChangeModeTo (m: Mode)</h3>
+<p>Changes the current mode. For example, I usually map the Windows key to Normal mode and the escape key to Insert mode.</p>
 <h3 id="showwindow-w-text">ShowWindow (w: Text)</h3>
 <p>Shows a given window given it’s class name. For example, this can be used to hide or show a taskbar. You should probably avoid using this on windows managed by Xest.</p>
 <h3 id="hidewindow-w-text">HideWindow (w: Text)</h3>
@@ -100,14 +100,14 @@
 <p>Changes children either forwards or backwards depending on the Boolean value passed to it. Only used by Horizontal and Floating.</p>
 <h3 id="killactive">KillActive</h3>
 <p>Kills the currently focused window.</p>
-<h3 id="exit">Exit</h3>
+<p>ExitNow ^^^^</p>
 <p>Exits from Xest without trying to kill anything first. If you trigger this on accident, you will likely lose work.</p>
 <h3 id="togglelogging">ToggleLogging</h3>
 <p>Each call to this action toggles whether logging happens in the /tmp/xest.txt file. By default, it is off. Each time you turn it on, the file is overwritten.</p>
 <h3 id="zoommonitortoinput">ZoomMonitorToInput</h3>
 <p>Moves the Monitor so that it is right behind the Input Controller.</p>
 <h3 id="zoomininputskipzoomoutinputskip">ZoomInInputSkip/ZoomOutInputSkip</h3>
-<p>Smart zoomers that try to jump over useless things like Rotate Tilers. Usually this is what you want but it isn’t always.</p>
+<p>Smart zoomers that try to jump over useless things like Rotate Tilers. Since creating these, I’ve become a lot less sure on their semantics. As a result, you might prefer the non skipping versions for now.</p>
         </main>
 
     </body>
