@@ -31,43 +31,46 @@ import XEvents
 import Actions.ActionTypes
 import Actions.Actions
 
--- | Starting point of the program. Should never return
+-- | Starting point of the program. This function should never return
 startWM :: IO ()
 startWM = do
   -- We want antialiasing on our text and normal Xlib can't give us that.
   -- We use SDL for the window borders to get around that problem.
+  -- Here we initialize SDL and its cool fonts.
   initializeAll
   Font.initialize
 
   -- Grab a display to capture. The chosen display cannot have a WM already running.
+  -- We grab it based on the arguments passed to Xest.
+  -- By default we pick 1 since that seems to be what GDM offers most
+  -- of the time. If you launch it with startx, you probably want 0.
   args <- getArgs
   let displayNumber = fromMaybe "1" $ headMay args
   display <- openDisplay $ ":" ++ unpack displayNumber
 
-  -- Read the config file
+  -- Read the config file from the user's home directory.
+  -- If using display number 0 or 1, you're probably launching a real
+  -- environment using startx or some display manager. In that case,
+  -- we just launch the config.dhall file. If you run Xest on a different
+  -- display, it likely means you're testing and want a slightly different
+  -- config. For example, my testing config uses Alt instead of the Super
+  -- (Windows) key.
   homeDir <- Env.getEnv "HOME"
   print displayNumber
   c <- if displayNumber == "0" || displayNumber == "1"
           then readConfig display . pack $ homeDir ++ "/.config/xest/config.dhall"
           else readConfig display . pack $ homeDir ++ "/.config/xest/config." ++ unpack displayNumber ++ ".dhall"
-
-  -- X orders windows like a tree.
-  -- This gets the root.
-  let root = defaultRootWindow display
-  -- grabButton display anyButton anyModifier root False 
-  --             (buttonPressMask .|. buttonReleaseMask) 
-  --             grabModeSync grabModeSync none none
-
-
-  -- The initial mode is whatever comes first
   let startingMode = initialMode c
 
-  -- Create our border windows which will follow the InputController
-  -- [lWin, dWin, uWin, rWin] <- replicateM 4 $
-  --   SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
+  -- X orders windows like a tree.
+  -- This gets the root of said tree.
+  let root = defaultRootWindow display
 
   -- EWMH wants us to create an extra window to verify we really
   -- can handle some of the EWMH spec. This window does that.
+  -- Since we don't want the window to be visible, we give it a crazy
+  -- location. We alse set_override_redirect because Xest shouldn't be
+  -- alerted if the window gets moved around.
   ewmhWin <- createSimpleWindow display root
           10000 10000 1 1 0 0
           $ whitePixel display (defaultScreen display)
@@ -76,6 +79,10 @@ startWM = do
     >> changeWindowAttributes display ewmhWin cWOverrideRedirect wa
   mapWindow display ewmhWin
 
+  -- Here we have our first look at Polysemy. All those evalState calls
+  -- might seem weird, but they're just setting up the caching environment
+  -- that the property effects like to use. All of this ceremony is just
+  -- needed to initialize all of the ewmh code.
   runM 
     $ runInputConst display
     $ runInputConst root
@@ -101,7 +108,10 @@ startWM = do
     .|. keyPressMask
     .|. keyReleaseMask
 
-  -- Grabs the initial keybindings and screen list
+  -- Grabs the initial keybindings and screen list.
+  -- Once again we have a lot of Polysemy stuff going on which can
+  -- be safely ignored. The only interesting finction is the last one
+  -- in the chain.
   (screens :: Screens) <-
     runM
     $ runInputConst c
@@ -126,9 +136,13 @@ startWM = do
     $ rebindKeys startingMode startingMode >> rootChange >> get @Screens
   print ("Got Screens" ++ show screens)
 
+  -- Normally, Xlib will crash on any error. Calling this function 
+  -- asks Xlib to print recoverable errors instead of crashing on them.
   setDefaultErrorHandler
 
+  -- Focus the root window so we can receive our keybindings.
   setInputFocus display root revertToNone currentTime
+
   -- Execute the main loop. Will never return unless Xest exits
   doAll screens c startingMode display root (forever mainLoop)
     >> say "Exiting"
@@ -139,54 +153,88 @@ startWM = do
 -- mainLoop :: DoAll r
 mainLoop :: Sem _ ()
 mainLoop = do
+  -- These debug lines have saved me countless times.
   printMe "\n\n========================"
   printMe "Tiler state at beginning of loop:\n"
+
   get @ActiveScreen >>= \as -> printMe $ show as ++ " is the active screen \n"
   get @Screens >>= \as -> printMe $ show as ++ " \n\n"
 
+  -- Check how many events are in the queue and whether someone
+  -- has asked us to replace the windows.
   numEvents <- (== 0) <$> checkXEvent
   refreshRequested <- isJust <$> get @(Maybe ())
   when (numEvents && refreshRequested) refresh
   
+  -- Note that this doesn't correspond to an X11 screen but to an
+  -- Xrandr or Xinerama screen.
   currentScreen <- get @ActiveScreen
 
+  -- Here we have the bulk of the program. Most of the events given to us
+  -- by the server are just handed off to something in the XEvents file.
+  -- A handful of them have slightly more complicated logic.
   runInputConst currentScreen $ getXEvent >>= (\x -> printMe ("evaluating event: " ++ show x) >> return x) >>= \case
+    -- Called when a new window is created by someone
     MapRequestEvent {..} -> do
+      -- If we think the window is currently managed, unmap it first.
       whenM (findWindow ev_window <$> get @Tiler) $
         unmapWin ev_window
       reparentWin ev_window >>= mapWin
+    -- Called when a window actually dies.
     DestroyWindowEvent {..} -> killed ev_window
+    -- Called when a window is dying. Because X is asynchronous, there's a chance
+    -- the window will be dead by the time we get this event.
     UnmapEvent {..} -> unmapWin ev_window
+    -- The window tried to change it's own position. Here, we try to deny the
+    -- request in a way that doesn't upset the caller.
     cre@ConfigureRequestEvent {} -> configureWin cre
+    -- This is usually called when a monitor is connected or disconnected.
     ConfigureEvent {} -> rootChange
+    -- The mouse moved from one window to another.
     CrossingEvent {..} -> do
       put ev_time
       root <- input @RootWindow
+      -- Why the if statement? Well we want to focus the root window
+      -- if no other windows are currently focused.
       if | ev_event_type == enterNotify -> newFocus ev_window
          | ev_window == root -> input @RootWindow >>= newFocus
          | otherwise -> return ()
+    -- Button in this case means mouse button. Used to trigger click to focus.
     ButtonEvent {..} ->
       put ev_time >> newFocus ev_window
+    -- The pointer moved and we probably want to resize something.
     MotionEvent {..} -> motion
+    -- A press of the keyboard.
     KeyEvent {..} -> put ev_time >> keyDown ev_keycode ev_event_type >>= foldMap executeActions
+    -- This usually means the keyboard layout changed.
     MappingNotifyEvent {} -> reloadConf
+    -- Some other window sent us a message. Currently, we only care if they
+    -- ask to be fullscreen.
     ClientMessageEvent {..} -> do
       wm_state <- getAtom False "_NET_WM_STATE"
       full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
       let isSet = (== Just 1) $ headMay ev_data
       printMe $ "\nGot message: " ++ show wm_state ++ " " ++ show full_screen ++ " " ++ show isSet ++ "\n"
+
       when (wm_state == ev_message_type) $
         when (fromIntegral full_screen `elem` ev_data) $ do
           if isSet
              then makeFullscreen ev_window >> newFocus ev_window
+             -- Why change the location? Well Chrome seems to expect
+             -- that we restore it to it's original size. By making it
+             -- small, we force it to draw in the new size.
              else changeLocation ev_window $ Rect 1 1 1 1
           put $ Just ()
 
+    -- 21 == reparent event. If a window decides to reparent itself,
+    -- it's practically unmapped and dead.
     AnyEvent {ev_event_type = 21, ev_window = window} -> killed window
 
     _ -> void $ printMe "Got unknown event"
 
   where
+    -- Here we have executors for the various actions a user might
+    -- have in their config. These go to Actions/Actions.hs
     executeActions :: Action -> Sem _ ()
     executeActions action = printMe ("Action: " ++ show action) >> case action of
       RunCommand command -> execute command

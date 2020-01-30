@@ -199,15 +199,15 @@ KeyBindings
 ^^^^^^^^^^^
 
 A list of key bindings. See the example config file for more info on the format.
+The weirdest field is the exitActions one. This field contains a list of actions
+that will be performed when the key is released assuming it didn't trigger a
+permanent mode change.
 
-DefinedModes
+InitialMode
 ^^^^^^^^^^^^
 
-A list of defined modes. Intro Actions and exit actions are performed no matter
-how you trigger entering the mode. The hasButtons field is used to control
-whether a mode can be used to resize windows. If this is true, you won't be able
-to interact with windows while you're in this mode. If hasBorders is true, the
-colorful borders will be shown.
+A single mode which will be used once you start up Xest.
+
 
 Actions
 -------
@@ -227,11 +227,11 @@ RunCommand (s: Text)
 
 Runs a command using your shell.
 
-ChangeModeTo (m: Text)
+ChangeModeTo (m: Mode)
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Changes to a mode in the definedModes section of the config. The parameter is
-the mode's name. An invalid name will crash Xest.
+Changes the current mode. For example, I usually map the Windows key to Normal
+mode and the escape key to Insert mode.
 
 ShowWindow (w: Text)
 ^^^^^^^^^^^^^^^^^^^^
@@ -289,7 +289,7 @@ KillActive
 
 Kills the currently focused window.
 
-Exit
+ExitNow
 ^^^^
 
 Exits from Xest without trying to kill anything first. If you trigger this on
@@ -309,5 +309,6 @@ Moves the Monitor so that it is right behind the Input Controller.
 ZoomInInputSkip/ZoomOutInputSkip
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Smart zoomers that try to jump over useless things like Rotate Tilers. Usually
-this is what you want but it isn't always.
+Smart zoomers that try to jump over useless things like Rotate Tilers. Since
+creating these, I've become a lot less sure on their semantics. As a result, you
+might prefer the non skipping versions for now.

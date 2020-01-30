@@ -29,6 +29,10 @@ import           FocusList
 import Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import qualified SDL (Window)
 
+-- |Creates a new "frame" for the window manager. Note that this function isn't
+-- called every literal frame; Xest doesn't have to do anything if it's
+-- children want to change their contents. Xest only gets involved when they
+-- need to move.
 refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX, Executor] r
         => Members (Inputs [Window, Screens, Borders, (Int32, Int32)]) r
         => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time]) r
@@ -45,7 +49,7 @@ refresh = do
     -- restack all of the windows
     topWindows <- makeTopWindows
     bottomWindows <- getBottomWindows
-    get >>= render >>= traverse_ (restack . \wins -> topWindows ++ bottomWindows ++ wins)
+    render >>= traverse_ (restack . \wins -> topWindows ++ bottomWindows ++ wins)
 
     -- tell X to focus whatever we're focusing
     xFocus
@@ -59,28 +63,41 @@ refresh = do
     printMe "\n\nDone refreshing\n"
 
 
--- | Places a tiler somewhere on the screen without actually placing it
+-- | Places a tiler somewhere on the screen without actually placing it. The
+-- Cofree thing just means every node in our Tiler tree also contains
+-- instructions for how it should be placed on the screen.
 placeWindow
   :: Rect
   -> Tiler
   -> Cofree TilerF (Transformation, Int)
--- | Wraps place their wrapped window filling all available space
--- | If the window has no size, it gets unmapped
 placeWindow screenSize root =
   ana buildUp (StartingPoint mempty, 0, Fix root)
 
     where
+      -- The meat of the placeWindow function.
       placeWindow' :: Transformation -> Int -> SubTiler -> TilerF (Transformation, Int, SubTiler)
       placeWindow' trans depth = \case
+        -- Wraps are super simple.
         Wrap win -> Wrap win
 
+        -- Reflects are straightforward. Increase the depth by 1 and add a spin
+        -- transformation. It's worth noting that Reflect is 100% the wrong
+        -- word for what is actually happening. Unfortunately, Rotate is
+        -- already taken by the Config stuff.
         Reflect t -> Reflect (Spin trans, depth + 1, t)
 
+        -- A FocusFull looks in its child and extracts the focused element.
+        -- Everything but the focused element is ignored. This gives you one
+        -- way to implement workspaces.
         FocusFull (Fix t) ->
           modFocused ((trans, depth + 2,) . trd) $ fmap (StartingPoint mempty, depth + 1,) t
 
+        -- Do some math to figure out how to place the various windows. The
+        -- main problem is that each element of a Horiz is resizable using a
+        -- percentage of the total space available to the Horiz. If you have a
+        -- better way to represent that, I would happily change.
         Horiz fl ->
-          let numWins = fromIntegral $ flLength fl -- Find the number of windows
+          let numWins = fromIntegral $ flLength fl
               location i lSize size = Slide (Rect (newX i lSize) 0 (1 / numWins + size) 1) trans
               newX i lSize = 1.0 / numWins * i + lSize
               realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
@@ -89,23 +106,33 @@ placeWindow screenSize root =
                     $ zip [0 ..]
                     $ vOrder realfl
 
+        -- Floating windows sit on top of a background window. There are some
+        -- problems here. TODO How can I make sure windows never get drawn off
+        -- the screen?
         Floating ls ->
            Floating $ map (\case
                 Top (rr@Rect {..}, t) ->
                   let Rect realX realY realW realH = getStartingPoint trans
                    in Top (rr, (Slide (Rect ((x - realX) / realW) ((y - realY) / realH) (w / realW) (h / realH)) trans, depth + 1, t))
                 Bottom t -> Bottom (trans, depth + 1, t)) ls
+
+        -- Input controllers don't really do anything.
         InputController t ->
           InputController $ fmap (trans, depth, ) t
 
+        -- Monitors specify the starting point for the transformations that
+        -- follow.
         Monitor t ->
           Monitor $ fmap (StartingPoint screenSize, depth, ) t
 
+      -- Runs the above function after shuffling the types around.
       buildUp :: (Transformation, Int, SubTiler) -> CofreeF TilerF (Transformation, Int) (Transformation, Int, SubTiler)
       buildUp (trans, depth, t) = (trans, depth) C.:< placeWindow' trans depth t
   
+
 -- |Find a window with a class name. This is used when
--- showing or hiding a window.
+-- showing or hiding a window. TODO Can I just ask the user to use some random
+-- bash utility instead?
 getWindowByClass
   :: Members [Property, GlobalX] r
   => String
@@ -115,17 +142,14 @@ getWindowByClass wName = do
   filterM findWindow childrenList
   where findWindow win = (== wName) <$> getClassName win
 
-type RenderEffect r =
-     ( Members (Inputs [Pointer, Screens]) r
-     , Members (States [Tiler, Mode]) r
-     , Members [Mover, Minimizer, Colorer, GlobalX] r
-     )
 -- |Moves windows around based on where they are in the tiler.
 render
-  :: (RenderEffect r, Member (State [SubTiler]) r)
-  => Tiler
-  -> Sem r [[Window]]
-render t = do
+  :: ( Members (Inputs [Pointer, Screens]) r
+     , Members (States [Tiler, Mode, [SubTiler]]) r
+     , Members [Mover, Minimizer, Colorer, GlobalX] r
+     )
+  => Sem r [[Window]]
+render = do
   screens <- input @Screens
 
   let locations :: [(Cofree TilerF (Transformation, Int), Borders)] = toList $ fmap (\(Screen' rect t b) -> (placeWindow (bimap fromIntegral fromIntegral rect) t, b)) screens
@@ -142,21 +166,32 @@ render t = do
   return winOrder
 
        -- The main part of this function.
- where draw :: RenderEffect r => Maybe Borders -> Base (Cofree TilerF (XRect, Int)) ([Window], Sem r ()) -> ([Window], Sem r ())
-       draw _ ((Rect _ _ 0 0, _) :<~ Wrap (ParentChild win _)) = ([], minimize win)
+ where draw :: Maybe Borders -> Base (Cofree TilerF (XRect, Int)) ([Window], Sem _ ()) -> ([Window], Sem _ ())
+       -- Windows without any height or width become invisible.
+       draw _ ((Rect _ _ _ 0, _) :<~ Wrap (ParentChild win _)) = ([], minimize win)
+       draw _ ((Rect _ _ 0 _, _) :<~ Wrap (ParentChild win _)) = ([], minimize win)
+
+       -- Otherwise, the windows get moved and unminimized.
        draw _ ((Rect {..}, _) :<~ Wrap (ParentChild win win')) = ([win], do
            restore win
            restore win'
            changeLocation win $ Rect x y (abs w) (abs h)
            changeLocation win' $ Rect 0 0 (abs w) (abs h))
+       
+       -- The InputController places the SDL window borders around the focused
+       -- Tiler if you're in a mode that wants borders.
        draw maybeBorders ((Rect{..}, depth) :<~ InputController t) =
            (maybe [] fst t, do
+              -- Do the movements requested by the children.
               mapM_ snd t
+
               -- Extract the border windows
               flip (maybe $ return ()) maybeBorders $ \(l, u, r, d) -> do
                 let winList :: [SDL.Window] = [l, u, r, d]
 
                 -- Calculate the color for our depth
+                -- Basically, add the golden ratio to the hue depending on how
+                -- deep we are.
                 let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
 
                 currentMode <- get
@@ -181,6 +216,7 @@ render t = do
                 traverse_ bufferSwap winList
            )
 
+       -- Draw the background with the floating windows on top.
        draw _ (_ :<~ Floating ls) = 
           (tops ++ bottoms, mapM_ (snd . getEither) ls)
               where tops = foldl' onlyTops [] ls
@@ -189,6 +225,8 @@ render t = do
                     bottoms = foldl' onlyBottoms [] ls
                     onlyBottoms acc (Bottom (ws, _)) = acc ++ ws
                     onlyBottoms acc _ = acc
+
+       -- Everything else just needs to draw it's children
        draw _ (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)
 
        hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)

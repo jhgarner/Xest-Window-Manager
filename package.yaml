@@ -44,6 +44,7 @@ dependencies:
 - polysemy-zoo
 - template-haskell
 - bifunctors
+- monad-loops
 
 library:
   source-dirs: src

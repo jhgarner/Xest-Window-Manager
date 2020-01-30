@@ -83,7 +83,7 @@ zoomInInput
   :: Member (State Tiler) r
   => Sem r ()
 zoomInInput =
-  modify $ fixable $ cata $ \case
+  modify $ unfix . cata \case
     t@(InputController (Just (Wrap _))) -> Fix t
     InputController (Just (Monitor Nothing)) -> Monitor . Just $ InputController Nothing
     InputController (Just (Fix t)) -> Fix $ modFocused (Fix . InputController . Just) t
@@ -96,8 +96,8 @@ zoomInMonitor
   :: Member (State Tiler) r
   => Sem r ()
 zoomInMonitor =
-  modify $ fixable $ cata $ \case
-    t@(Monitor (Just (Fix (Wrap _)))) -> Fix t
+  modify @Tiler $ unfix . cata \case
+    t@(Monitor (Just (Fix (Wrap _)))) -> Fix (t :: Tiler)
     Monitor (Just (Fix t)) -> Fix $ modFocused (Fix . Monitor . Just) t
     t -> Fix t
 
@@ -110,9 +110,9 @@ zoomOutInput
 zoomOutInput =
   -- The unless guards against zooming the controller out of existence
   unlessM (isController <$> gets @Tiler Fix)
-    $ modify
+    $ modify @Tiler
     $ fromMaybe (error "e")
-    . maybeFixable (para $ \case
+    . coerce (para $ \case
         InputController t -> t >>= snd
         t -> fmap Fix $ if any (isController . fst) t
                            then Just . InputController . fmap Fix . reduce $ fmap snd t
@@ -155,7 +155,7 @@ zoomOutMonitor =
   unlessM (isMonitor . Fix <$> get @Tiler)
     $ modify
     $ fromMaybe (error "e")
-    . maybeFixable (para $ \case
+    . coerce (para $ \case
         Monitor t -> t >>= snd
         t -> fmap Fix $ if any (isMonitor . fst) t
                            then Just . Monitor . fmap Fix . reduce $ fmap snd t

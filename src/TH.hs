@@ -7,7 +7,7 @@ module TH where
 import           Language.Haskell.TH
 import           Standard
 
--- |This awful piece of template haskell creates a series of
+-- |This piece of template haskell creates a series of
 -- patterns based on a given data type.
 --
 -- Why? I decided typing Fix and unfix everywhere was annoying
@@ -23,7 +23,7 @@ import           Standard
 -- this function. I have no idea if this template haskell is useful
 -- for any other datatypes or type classes. Each of those Name
 -- parameters correspond to either the datatype of one of the
--- class details. For example, we need the class name, the associated
+-- class details. Specifically, we need the class name, the associated
 -- type family, and the to/from functions inside the class.
 --
 -- I was originally using quasiquoting, but things got weird in

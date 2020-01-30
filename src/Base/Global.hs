@@ -106,12 +106,11 @@ runGlobalX = interpret $ \case
     d <- input
     root <- input
     embed @IO $
-      untilM (eventFilter root) $
+      iterateWhile (not . eventFilter root) $
         allocaXEvent $ \p -> do
-          
-          -- eventsQueued d queuedAfterReading >>= System.IO.print
           nextEvent d p
           getEvent p 
+
   CheckXEvent -> do
     d <- input 
     root <- input
@@ -133,13 +132,13 @@ runGlobalX = interpret $ \case
          then return 0
          else do
           -- Otherwise, we loop for a while
-          untilM (<1) $ allocaXEvent $ \p -> do
-            event <- peekEvent d p >> getEvent p
+          _ <- iterateWhile (>0) $ allocaXEvent $ \e -> do
+            event <- peekEvent d e >> getEvent e
             if eventFilter root event 
                -- We got something that won't be filtered so stop looping.
               then writeIORef pRef (-1)
               -- We got something that will be filtered so drop it.
-              else nextEvent d p >> allowEvents d replayPointer currentTime >> (eventsQueued d queuedAfterReading
+              else nextEvent d e >> allowEvents d replayPointer currentTime >> (eventsQueued d queuedAfterReading
                       >>= (writeIORef pRef . fromIntegral))
             readIORef pRef
 
