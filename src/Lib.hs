@@ -175,11 +175,11 @@ mainLoop = do
   -- A handful of them have slightly more complicated logic.
   runInputConst currentScreen $ getXEvent >>= (\x -> printMe ("evaluating event: " ++ show x) >> return x) >>= \case
     -- Called when a new window is created by someone
-    MapRequestEvent {..} -> do
+    MapRequestEvent {..} ->
       -- If we think the window is currently managed, unmap it first.
-      whenM (findWindow ev_window <$> get @Tiler) $
-        unmapWin ev_window
-      reparentWin ev_window >>= mapWin
+      unlessM (findWindow ev_window <$> get @Tiler) $
+        -- unmapWin ev_window
+        reparentWin ev_window >>= mapWin
     -- Called when a window actually dies.
     DestroyWindowEvent {..} -> killed ev_window
     -- Called when a window is dying. Because X is asynchronous, there's a chance
@@ -214,7 +214,9 @@ mainLoop = do
       wm_state <- getAtom False "_NET_WM_STATE"
       full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
       let isSet = (== Just 1) $ headMay ev_data
-      printMe $ "\nGot message: " ++ show wm_state ++ " " ++ show full_screen ++ " " ++ show isSet ++ "\n"
+      messageType <- fromAtom ev_message_type
+      messageC <- traverse (fromAtom . fromIntegral) ev_data
+      printMe $ "\nGot message: " ++ messageType ++ " " ++ show messageC ++ " " ++ show isSet ++ "\n"
 
       when (wm_state == ev_message_type) $
         when (fromIntegral full_screen `elem` ev_data) $ do

@@ -112,8 +112,8 @@ placeWindow screenSize root =
         Floating ls ->
            Floating $ map (\case
                 Top (rr@Rect {..}, t) ->
-                  let Rect realX realY realW realH = getStartingPoint trans
-                   in Top (rr, (Slide (Rect ((x - realX) / realW) ((y - realY) / realH) (w / realW) (h / realH)) trans, depth + 1, t))
+                  let starting@(Rect realX realY realW realH) = getStartingPoint trans
+                   in Top (rr, (Slide (Rect ((x - realX) / realW) ((y - realY) / realH) (w / realW) (h / realH)) $ StartingPoint starting, depth + 1, t))
                 Bottom t -> Bottom (trans, depth + 1, t)) ls
 
         -- Input controllers don't really do anything.

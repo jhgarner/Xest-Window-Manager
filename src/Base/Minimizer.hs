@@ -81,7 +81,7 @@ runMinimizer = interpret $ \case
     printMe $ show w ++ " with " ++ show protocols ++ " and " ++ show wm_take_focus ++ " "
     unlessM ((== FocusedCache w) <$> get @FocusedCache) $ do
       hints <- embed @IO $ getWMHints d w
-      if wm_take_focus `elem` protocols -- && not (wmh_input hints)
+      if wm_take_focus `elem` protocols && not (wmh_input hints)
          then do
            printMe "Using wm_sender\n"
            embed @IO $ allocaXEvent $ \pe -> do

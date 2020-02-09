@@ -63,6 +63,10 @@ data Property m a where
           -> String -- ^ The atom's name
           -> Property m Atom -- ^ The atom created/retrieved from X11
 
+  -- |Gives you the name of some Atom.
+  FromAtom :: Atom
+           -> Property m String
+
   -- |Check if a window is transient for something else based on the
   -- ICCM protocol.
   GetTransientFor :: Window -- ^ The window being analyzed
@@ -131,6 +135,9 @@ runProperty = interpret $ \case
         modify $ M.insert name atom
         return atom
       Just atom -> return atom
+
+  FromAtom atom -> input >>= \d ->
+    embed @IO $ fromMaybe "" <$> getAtomName d atom
 
   GetTransientFor w -> do
     d <- input @Display
