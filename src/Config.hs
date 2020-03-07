@@ -24,6 +24,7 @@ import           System.Exit
 data ConfA a = Conf { keyBindings  :: [KeyTrigger a]
                  , startupScript :: String
                  , initialMode :: Mode
+                 , fontLocation :: String
                  }
   deriving (Generic, Show, Interpret)
 
@@ -37,7 +38,7 @@ type ConfUser = ConfA Text
 -- launching the config for the first time. If we're only reloading, don't run
 -- the startup script.
 confToType :: Display -> ConfUser -> Bool -> IO Conf
-confToType display (Conf kb startupScript initialMode) isReload = do
+confToType display (Conf kb startupScript initialMode fontLocation) isReload = do
   keyBindings <- traverse (traverse $ keysymToKeycode display . stringToKeysym . unpack) kb
 
   unless isReload $

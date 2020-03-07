@@ -65,7 +65,7 @@ runEventFlags = interpret $ \case
                                    grabModeAsync root none currentTime
 
   RebindKeys oldMode activeMode -> do
-    Conf kb _ _ <- input @Conf
+    Conf kb _ _ _ <- input @Conf
     d           <- input @Display
     win         <- input @RootWindow
 

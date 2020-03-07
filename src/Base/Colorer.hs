@@ -10,8 +10,8 @@
 module Base.Colorer where
 
 import           Standard
+import           Config
 import           Polysemy
-import           Polysemy.State
 import           Polysemy.Input
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Display
@@ -28,9 +28,14 @@ data Colorer m a where
   BufferSwap :: SDL.Window -> Colorer m ()
 makeSem ''Colorer
 
+withFont :: Members '[Embed IO, Input Conf] r => InterpreterFor (Input Font.Font) r
+withFont = runInputSem $ do
+  font <- inputs fontLocation
+  embed @IO $ Font.load font 18
+
 -- |More IO
-runColorer :: Member (State (Maybe Font.Font)) r => Interpret Colorer r a
-runColorer = interpret $ \case
+runColorer :: Members '[Input Conf, Embed IO, Input Display] r => Sem (Colorer ': Input Font.Font ': r) a -> Sem r a
+runColorer = withFont . (interpret $ \case
   GetColor color -> do
     display <- input @Display
     let colorMap = defaultColormap display (defaultScreen display)
@@ -41,14 +46,9 @@ runColorer = interpret $ \case
     embed @IO $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
 
   DrawText w s -> do
-    whenM (null <$> get @(Maybe Font.Font)) $ do
-      font <- embed @IO $ Font.load "/nix/store/6105i8mfqzjkz0y1rhynb34vr9hqg5sl-source-code-pro-2.030/share/fonts/opentype/SourceCodePro-Regular.otf" 10
-      put $ Just font
-    mfont <- get @(Maybe Font.Font)
-    -- If this ever fails, something has gone very wrong...
-    let Just font = mfont
+    font <- input @Font.Font
     surface <- embed @IO $ Font.blended font (SDL.V4 0 0 0 0) $ pack s
     winSurface <- embed @IO $ SDL.getWindowSurface w
     void . embed @IO $ SDL.surfaceBlit surface Nothing winSurface Nothing
 
-  BufferSwap w -> embed @IO $ SDL.updateWindowSurface w
+  BufferSwap w -> embed @IO $ SDL.updateWindowSurface w)

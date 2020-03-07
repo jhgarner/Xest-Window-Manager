@@ -136,12 +136,8 @@ inputControllerOrMonitor (InputController a) = Just (InputController, a)
 inputControllerOrMonitor (Monitor a) = Just (Monitor, a)
 inputControllerOrMonitor _ = Nothing
 
--- If you get panics in GHC try commenting these out. ¯\_(ツ)_/¯
--- They're extremely useful though as they tell GHC not to worry about incomplete
--- pattern matches. I think this will be fixed in 8.8.2 or 8.10.
--- {-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, InputControllerOrMonitor :: TilerF #-}
--- {-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, Monitor, InputController :: TilerF #-}
--- I'm not sure why, but the explicit forall is required...
+{-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, InputControllerOrMonitor :: TilerF #-}
+{-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, Monitor, InputController :: TilerF #-}
 
 -- |The pattern used to match the function from above.
 pattern InputControllerOrMonitor :: forall a b.

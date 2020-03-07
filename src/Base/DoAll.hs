@@ -25,7 +25,6 @@ import           Standard
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
-import           Polysemy.Several
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Types

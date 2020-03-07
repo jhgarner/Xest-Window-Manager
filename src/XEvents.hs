@@ -203,7 +203,7 @@ keyDown :: Members '[Property, Minimizer, Executor] r
 keyDown keycode eventType
   | eventType == keyPress = do
     put $ Just ()
-    Conf bindings _ _ <- input @Conf
+    Conf bindings _ _ _ <- input @Conf
     mode <- get @Mode
     -- Is keycode (the key that was pressed) equal to k (the bound key)
     case find (\(KeyTrigger k m _ _) -> keycode == k && m == mode) bindings of

@@ -199,7 +199,7 @@ render = do
                   then do
                       -- Draw them with the right color and position
                       changeLocationS l $ Rect x y 2 h
-                      changeLocationS u $ Rect (x + 2) y (w-2) 10
+                      changeLocationS u $ Rect (x + 2) y (w-2) 20
                       changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
                       changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
 

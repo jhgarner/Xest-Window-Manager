@@ -10,11 +10,35 @@ import           Standard
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
-import           Polysemy.Several
 import           Data.Kind
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
 
+{-# LANGUAGE TemplateHaskell #-}
+
+import Polysemy
+import Data.Kind
+
+infixr 5 :::
+data HList a where
+    HNil  :: HList '[]
+    (:::) :: a -> HList (b :: [Type]) -> HList (a ': b)
+
+type family TypeMap (f :: a -> b) (xs :: [a]) where
+    TypeMap _ '[]       = '[]
+    TypeMap f (x ': xs) = f x ': TypeMap f xs
+
+type family TypeConcat (a :: [t]) (b :: [t]) where
+    TypeConcat '[] b = b
+    TypeConcat (a ': as) b = a ': TypeConcat as b
+
+runSeveral
+    :: (forall r' k x. k -> Sem (e k ': r') x -> Sem r' x)
+    -> HList t
+    -> Sem (TypeConcat (TypeMap e t) r) a
+    -> Sem r a
+runSeveral f (a ::: as) = runSeveral f as . f a
+runSeveral _ HNil       = id
 
 -- * Helper Polysemy functions
 -- $RunningSeveral

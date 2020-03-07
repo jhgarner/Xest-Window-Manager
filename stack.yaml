@@ -34,8 +34,7 @@ nix:
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver: lts-14.6
-# resolver: nightly-2020-01-01
+resolver: lts-15.2
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -56,16 +55,13 @@ packages:
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
 extra-deps: 
-    # - https://hackage.haskell.org/package/polysemy-0.2.2.0/polysemy-0.2.2.0.tar.gz
-    # - https://hackage.haskell.org/package/polysemy-plugin-0.2.0.1/polysemy-plugin-0.2.0.1.tar.gz
     - http://hackage.haskell.org/package/HList-0.5.0.0/HList-0.5.0.0.tar.gz
-    - https://hackage.haskell.org/package/dhall-1.26.1/dhall-1.26.1.tar.gz
-    # - https://hackage.haskell.org/package/cborg-json-0.2.2.0/cborg-json-0.2.2.0.tar.gz
-    # - https://hackage.haskell.org/package/prettyprinter-1.3.0/prettyprinter-1.3.0.tar.gz
-    # - polysemy-plugin-0.2.4.0@sha256:b27f399946e90d480271d2b655b6172ed80f9d421f871c21a804511bc7b0f53c,2952
-    # - polysemy-zoo-0.6.0.1@sha256:a1f545d34cb7cfa7c7b3511a1ff21843473d8b7d1f4d1570cda2cdc4616e5696,3852
-    # - hedis-0.12.11@sha256:4d3a0cba503af23a29b761182551ee5b85897b3642ad869ce38bd86d22304af2,5033
-    # - th-abstraction-0.3.1.0@sha256:96042f6658f2dccfac03b33f0fd59f62b1f65b9b0a765d8a2ea6026f4081ee4a
+    - polysemy-1.3.0.0@sha256:2254c11bed4f6e4b115fa470f396f9df4c7d2d3431b02bdbde962300d6892bf1,5919
+    - https://hackage.haskell.org/package/polysemy-plugin-0.2.5.0/polysemy-plugin-0.2.5.0.tar.gz
+    # - https://hackage.haskell.org/package/polysemy-zoo-0.6.0.1/polysemy-zoo-0.6.0.1.tar.gz
+    # - polysemy-zoo-0.5.0.1@sha256:57895c7ee78555c0918fcb119582488ae1b34251cadac7b1a12f4366d9319c44,3575
+    - ghc-tcplugins-extra-0.3.2@sha256:1bbfd4449c3669a31618ea0ebc5d00d980a53988daad3b6218bab5c8cdff268d,1687
+    # - compact-0.1.0.1@sha256:a74976cfdb16a76ca006b58f2a952d604e3244b404e0458a1ec1c255d7d7c8eb,1997
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

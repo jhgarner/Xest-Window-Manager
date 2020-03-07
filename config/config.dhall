@@ -11,8 +11,9 @@ let Insert = { modeName = "Insert", hasButtons = False, hasBorders = False }
 in {
   startupScript = "~/.config/xest/startup.sh",
   initialMode = Insert,
+  fontLocation = "/usr/share/fonts/TTF/Sauce Code Pro Nerd Font Complete.ttf",
   keyBindings = [
-    {key = "t", mode = Normal, actions = [Action.RunCommand "kitty"], exitActions = [] : List Action},
+    {key = "t", mode = Normal, actions = [Action.RunCommand "termite"], exitActions = [] : List Action},
     {key = "d", mode = Normal, actions = [Action.RunCommand "rofi -show drun"], exitActions = [] : List Action},
     {key = "v", mode = Normal, actions = [Action.Insert Tiler.Rotate], exitActions = [] : List Action},
     {key = "f", mode = Normal, actions = [Action.Insert Tiler.FullScreen], exitActions = [] : List Action},
