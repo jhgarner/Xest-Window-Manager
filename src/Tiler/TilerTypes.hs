@@ -42,7 +42,7 @@ data TilerF a =
     -- element requests no extra space. Any other number means the element
     -- requests that much more space as a percentage of the total amount of
     -- space.
-    HorizF (FocusedList (Sized a))
+    HorizF (MultiList (Sized a))
     -- |Floats multiple elements on top of a background element. The background
     -- element takes up all of the space it can. The foreground elements take up
     -- the space given by some rectangle. Those foreground elements can float

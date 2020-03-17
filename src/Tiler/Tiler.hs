@@ -4,6 +4,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 
 {- |
@@ -36,11 +37,11 @@ import           Data.Functor.Foldable          ( embed )
 -- | Add a new Tiler wherever it would make the most sense to the user. For
 -- example, it's placed at the back for Horiz.
 add :: SubTiler -> Tiler -> Tiler
-add w (Horiz    fl) = Horiz $ push Back Focused (Sized 0 w) fl
+add w (Horiz    fl) = traceShowId $ Horiz $ multiPush Back Focused (Sized 0 w) fl
 -- TODO I could try to make the Rectangle float with whatever size the window
 -- is asking for, but that requires doing IO. Is it worth it?
 add w (Floating ls) = Floating $ Top (Rect 0 0 300 300, w) +: ls
-add w t             = Horiz $ makeFL (NE (Sized 0 $ Fix t) [Sized 0 w]) 0
+add w t             = Horiz $ multiPush Back Focused (Sized 0 w) $ point (Sized 0 $ Fix t)
 
 
 -- | Remove a Window if it exists in the tree.
@@ -57,12 +58,10 @@ ripOut toDelete = project . fromMaybe (error "No root!") . cata isEqual
 
 -- | Removes empty Tilers
 reduce :: TilerF (Maybe SubTiler) -> Maybe Tiler
--- Yo dog, I head you like fmaps
+-- Yo dog, I head you like fmap
 -- on a serious note, these two cases are super unreadable TODO
 reduce (Horiz fl) =
-  fmap Horiz
-    $   fmap (fmap $ fromMaybe (error "Impossible"))
-    <$> flFilter (not . null . getItem) fl
+  Horiz <$> toNonEmptyML (catMaybes $ fmap sequence $ MLE fl)
 reduce (Floating ls) = newTiler
  where
   newTiler =
@@ -79,7 +78,9 @@ reduce (Wrap      w                 ) = Just $ Wrap w
 popWindow
   :: Show a => Either Direction Focus -> TilerF a -> (a, Maybe (TilerF a))
 
-popWindow howToPop (Horiz    fl) = getItem *** fmap Horiz $ pop howToPop fl
+popWindow howToPop (Horiz    fl) =
+  let flNode = view (endOf howToPop) fl
+   in (getItem $ flNodeElement flNode, Horiz <$> toNonEmptyML (multiRemove flNode fl))
 
 popWindow howToPop (Floating ls) = second (fmap Floating) $ case howToPop of
   Right Unfocused -> (getEither $ last ls, init ls)
@@ -121,7 +122,7 @@ onInput f root = f $ extract $ ana @(Beam _) findIC $ coerce root
 -- | Kind of like applyInput but instead of searching for the InputController,
 -- it just applies the function to whatever is focused by an individual Tiler.
 modFocused :: (a -> a) -> TilerF a -> TilerF a
-modFocused f (Horiz fl) = Horiz $ mapOne (Right Focused) (fmap f) fl
+modFocused f (Horiz fl) = Horiz $ over (endOf (Right Focused) % #element) (fmap f) fl
 modFocused f (   Floating  (NE a as)         ) = Floating $ NE (fmap f a) as
 modFocused f (   Reflect   t                 ) = Reflect $ f t
 modFocused f (   FocusFull t                 ) = FocusFull $ f t
@@ -130,9 +131,10 @@ modFocused f t@( InputControllerOrMonitor _ _) = fmap f t
 
 
 -- | Change the focus of a Tiler
-focus :: SubTiler -> Tiler -> Tiler
-focus newF (  Horiz           fl) = Horiz $ focusElem (Sized 0 newF) fl
-focus newF (Floating ls) = Floating $ moveF 0 ((== newF) . getEither) ls
+focus :: (a -> Bool) -> TilerF a -> TilerF a
+focus newF (  Horiz           fl) =
+  Horiz $ modPointer (Right Focused) (newF . getItem . flNodeElement) fl
+focus newF (Floating ls) = Floating $ moveF 0 (newF . getEither) ls
 focus _    t@(Wrap            _ ) = t
 focus _    t@(Reflect         _ ) = t
 focus _    t@(FocusFull       _ ) = t
@@ -159,12 +161,12 @@ moveToClosestParent predicateUnmove predicateMove = coerce
   moveToClosestParent' t
     | predicateUnmove $ fmap fst t =
       -- We are looking at the unmovable part
-                                     case asum $ fmap (getMovable . snd) t of
+      case asum $ fmap (getMovable . snd) t of
         -- We haven't seen the movable part, so just set the Unmovable flag and be done
-      Nothing -> (withNewFocus t, Unmovable)
-      -- We already saw the movable part so add that in as this thing's parents
-      Just (reparentFunction, _) ->
-        (Just $ reparentFunction $ coerce $ withNewFocus t, Both)
+        Nothing -> (withNewFocus t, Unmovable)
+        -- We already saw the movable part so add that in as this thing's parents
+        Just (reparentFunction, _) ->
+          (Just $ reparentFunction $ coerce $ withNewFocus t, Both)
     | otherwise = case predicateMove $ fmap fst t of
         -- Whatever we found, it's neither of the parts. It might be the parent though.
       Nothing -> case hasBothIndividually t of
@@ -179,12 +181,9 @@ moveToClosestParent predicateUnmove predicateMove = coerce
         then (withNewFocus t, Both)
                                           -- Otherwise, let's remove it and set the right flag
         else (unparented, Movable functions)
-  reduced :: TilerF (Maybe SubTiler, a) -> Maybe Tiler
-  reduced t = reduce $ fmap fst t
   withNewFocus :: TilerF (Maybe SubTiler, TreeCombo) -> Maybe Tiler
-  withNewFocus t = fromMaybe (reduced t) $ do
-    elementToFoc <- find (\(_, tc) -> isUnmovable tc || isBoth tc) t >>= fst
-    Just $ focus elementToFoc <$> reduced t
+  withNewFocus t =
+    reduce $ fmap fst $ focus (\(_, tc) -> isUnmovable tc || isBoth tc) t
   hasBothIndividually tiler = if any (isUnmovable . snd) tiler
     then asum $ fmap (getMovable . snd) tiler
     else Nothing
@@ -221,8 +220,8 @@ focusWindow window root =
 -- their names. This function gets that info, although we use a liberal
 -- definition of virtual desktop.
 getDesktopState :: Tiler -> ([Text], Int)
-getDesktopState (Horiz fl) = (pack . show <$> [1 .. flLength fl], i)
-  where i = findNeFocIndex fl
+getDesktopState (Horiz fl) = (pack . show <$> [1 .. length fl], i)
+  where i = view (#focEnds % _1) fl
 getDesktopState _ = (["None"], 0)
 
 -- |Renders the tree to a string which can be displayed on the top border of
@@ -230,7 +229,7 @@ getDesktopState _ = (["None"], 0)
 getFocusList :: TilerF String -> String
 getFocusList (InputController s       ) = "*" ++ fromMaybe "" s
 getFocusList (Monitor         s       ) = "@" ++ fromMaybe "" s
-getFocusList (Horiz fl) = "Horiz|" ++ getItem (fst (pop (Right Focused) fl))
+getFocusList (Horiz fl) = "Horiz|" ++ getItem (view (endOf (Right Focused) % #element) fl)
 getFocusList (Floating        (NE t _)) = "Floating|" ++ extract t
 getFocusList (Reflect         t       ) = "Rotate|" ++ t
 getFocusList (FocusFull       t       ) = "Full|" ++ t

@@ -3,6 +3,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 
 module XEvents where
@@ -310,25 +311,25 @@ changeSize rotation m = \case
                                 -- LeftButton == RightButton on the previous window
                                 LeftButton  _ -> id
                                 None -> error "Yikes, this shouldn't be possible"
-                             ) $ findNeFocIndex fl
+                             ) $ view (endOf (Right Focused) % #location) fl
         
         bound = max (-windowSize)
-        (_, trueDelta)  = foldl' 
+        (_, trueDelta)  = foldlOf' visualOrder
           (\(i, minS) (Sized size _) -> if i == foc && foc < numWins
             then (i+1, min minS $ abs $ size - bound (size + delta))
             else if i == foc + 1 && foc > 0
             then (i+1, min minS $ abs $ size - bound (size - delta))
-            else (i+1, minS)) (1, 0.01) $ vOrder fl
+            else (i+1, minS)) (1, 0.01) fl
         propagate = 
-          fromVis fl . mapFold
+          mapAccumLOf visualOrder
           (\i (Sized size t) -> if i == foc && foc < numWins
-            then (i+1, Sized (bound (size + sign trueDelta)) t)
+            then (Sized (bound (size + sign trueDelta)) t, i+1)
             else if i == foc + 1 && foc > 0
-            then (i+1, Sized (bound (size - sign trueDelta)) t)
-            else (i+1, Sized (bound size) t))
+            then (Sized (bound (size - sign trueDelta)) t, i+1)
+            else (Sized (bound size) t, i+1))
           1
-          $ vOrder fl
-    in Horiz propagate
+          fl
+    in Horiz $ fst propagate
   Floating (NE (Top (Rect{..}, t)) ls) -> 
     let (dx, dy) = (if rotation then swap else id) $ bimap fromIntegral fromIntegral $ getButtonLoc m
     in Floating $ NE (case m of

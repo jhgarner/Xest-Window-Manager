@@ -31,8 +31,9 @@ module Standard
     , trd
     ) where
 
-import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
+import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector, catMaybes, mapMaybe, filter)
 import Data.Foldable as All (find)
+import Data.Witherable.Class as All
 
 import Polysemy.State
 import Polysemy
@@ -46,6 +47,7 @@ import Data.Fixed as All (mod')
 import Data.Kind (Type)
 import Data.Functor.Foldable.TH as All
 import NonEmpty as All
+import           Optics as All hiding ((:<), (<|), Index, cons, snoc, uncons, unsnoc)
 -- import Data.List.NonEmpty as All (NonEmpty(..), nonEmpty)
 import Data.Monoid as All (Alt(..), getAlt, getFirst)
 import Data.Coerce as All

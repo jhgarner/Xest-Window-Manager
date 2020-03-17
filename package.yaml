@@ -45,12 +45,15 @@ dependencies:
 - template-haskell
 - bifunctors
 - monad-loops
+- optics
+- witherable-class
 
 library:
   source-dirs: src
   ghc-options:
   - -Weverything
   - -Wno-implicit-prelude
+  - -Wno-missing-deriving-strategies
   - -Wno-missing-exported-signatures
   - -Wno-missing-import-lists
   - -Wno-missed-specialisations

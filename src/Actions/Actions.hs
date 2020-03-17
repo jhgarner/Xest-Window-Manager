@@ -2,6 +2,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE OverloadedLabels #-}
 
 
 {-|
@@ -194,9 +195,10 @@ changeIndex changeTo =
   modify $ applyInput $ fmap changer
 
  where
-  changer (Horiz fl) = Horiz
-    $ if flLength fl >= changeTo then focusVIndex (changeTo - 1) fl else fl
-  changer t = t
+   changer t@(Horiz fl) =
+     maybe t (\e -> Horiz $ modPointer (Right Focused) ((== e) . flNodeElement) fl)
+       $ preview (partsOf visualOrder % ix (changeTo - 1)) fl
+   changer t = t
 
 -- |Same as above but either adds or subtract one from the current index.
 moveDir
@@ -206,8 +208,12 @@ moveDir dir =
   modify $ applyInput $ fmap changer
 
  where
-  changer (Horiz fl) = Horiz $ focusDir dir fl
+  changer t@(Horiz fl) =
+    maybe t (\(e :: Int) -> Horiz $ modPointer (Right Focused) ((== e) . flNodeLocation) fl)
+       $ view (endOf (Right Focused) % #focus % dirLens) fl
   changer t          = t
+  dirLens :: Lens (Maybe Int, Maybe Int) (Maybe Int, Maybe Int) (Maybe Int) (Maybe Int)
+  dirLens = if dir == Front then _1 else _2
 
 -- |Move a tiler from the tree into a stack. Later, we can push
 -- from the stack back into the tree. This function accomplishes
@@ -247,7 +253,7 @@ insertTiler t =
 
  where
   toTiler focused = case t of
-    Horizontal -> Horiz $ makeFL (NE (Sized 0 focused) []) 0
+    Horizontal -> Horiz $ point (Sized 0 focused)
     Rotate     -> Reflect focused
     FullScreen -> FocusFull focused
     Hovering   -> Floating $ NE (Bottom focused) []
@@ -267,7 +273,7 @@ doSpecial =
       -- TODO rewrite this in a less bad way.
       -- maybe (error "We know it's not just an IC") (fromMaybe (error "Yikes") . fst . moveToIC i) $ removeIC i
       fromMaybe (error "We know it's not just an IC") $ removeIC
-        $ applyInput (\(Just (Horiz fl)) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController Nothing) fl) root
+        $ applyInput (\(Just (Horiz fl)) -> Just $ Horiz $ multiPush Back Focused (Sized 0 . Fix $ InputController Nothing) fl) root
     _                  -> root
 
   mkTop t@(Top    _) = t

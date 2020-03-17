@@ -40,6 +40,7 @@ refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX, Executor] r
 refresh = do
     printMe "\n\nRefreshing\n"
     put @(Maybe ()) Nothing
+
     -- Fix the Monitor if the Input Controller moved in a weird way
     modify @Tiler fixMonitor
 
@@ -97,14 +98,12 @@ placeWindow screenSize root =
         -- percentage of the total space available to the Horiz. If you have a
         -- better way to represent that, I would happily change.
         Horiz fl ->
-          let numWins = fromIntegral $ flLength fl
+          let numWins = fromIntegral $ length fl
               location i lSize size = Slide (Rect (newX i lSize) 0 (1 / numWins + size) 1) trans
               newX i lSize = 1.0 / numWins * i + lSize
-              realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
+              realfl = traceShow fl $ fst $ mapAccumLOf visualOrder (\lSize (Sized modS t) -> ((lSize, modS, t), lSize + modS)) 0 fl
 
-           in Horiz $ fromVis realfl $ map (\(index, (lSize, size, t)) -> Sized size (location index lSize size, depth + 1, t))
-                    $ zip [0 ..]
-                    $ vOrder realfl
+           in traceShow realfl $ Horiz $ fst $ mapAccumLOf visualOrder (\index (lSize, size, t) -> (Sized size (location index lSize size, depth + 1, t), index+1)) 0 realfl
 
         -- Floating windows sit on top of a background window. There are some
         -- problems here. TODO How can I make sure windows never get drawn off
