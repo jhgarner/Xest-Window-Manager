@@ -230,11 +230,18 @@ pushTiler = do
   popped <- get @[SubTiler]
 
   case popped of
-    (t : ts) -> do
+    (uncleanT : ts) -> do
       put ts
-      -- TODO These coercions are probably a sign that I should change something
-      modify $ applyInput $ coerce $ \tiler -> fmap (add t) tiler <|> Just (coerce t)
+      case cleanTiler $ coerce uncleanT of
+        Just t ->
+          -- TODO These coercions are probably a sign that I should change something
+          modify $ applyInput $ coerce $ \tiler -> fmap (add t) tiler <|> Just (coerce t)
+        Nothing -> return ()
     [] -> return ()
+    where cleanTiler :: Tiler -> Maybe SubTiler
+          cleanTiler = cata $ \case 
+            InputControllerOrMonitor _ t -> join t
+            t -> coerce $ reduce t
 
 -- |Insert a tiler after the Input Controller.
 -- Note that this is not called when a new window is created.

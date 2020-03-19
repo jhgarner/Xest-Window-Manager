@@ -19,6 +19,7 @@ import           Graphics.X11.Xlib.Color
 import qualified SDL
 import qualified SDL.Font as Font
 import Base.Helpers
+import System.IO (hPutStrLn, stderr)
 
 -- |Handle any color stuff
 data Colorer m a where
@@ -28,14 +29,9 @@ data Colorer m a where
   BufferSwap :: SDL.Window -> Colorer m ()
 makeSem ''Colorer
 
-withFont :: Members '[Embed IO, Input Conf] r => InterpreterFor (Input Font.Font) r
-withFont = runInputSem $ do
-  font <- inputs fontLocation
-  embed @IO $ Font.load font 18
-
 -- |More IO
-runColorer :: Members '[Input Conf, Embed IO, Input Display] r => Sem (Colorer ': Input Font.Font ': r) a -> Sem r a
-runColorer = withFont . (interpret $ \case
+runColorer :: Members '[Input Font.Font, Embed IO, Input Display] r => Sem (Colorer ': r) a -> Sem r a
+runColorer = (interpret $ \case
   GetColor color -> do
     display <- input @Display
     let colorMap = defaultColormap display (defaultScreen display)

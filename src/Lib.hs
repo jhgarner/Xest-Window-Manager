@@ -61,6 +61,7 @@ startWM = do
           then readConfig display . pack $ homeDir ++ "/.config/xest/config.dhall"
           else readConfig display . pack $ homeDir ++ "/.config/xest/config." ++ unpack displayNumber ++ ".dhall"
   let startingMode = initialMode c
+  font <- Font.load (fontLocation c) 18
 
   -- X orders windows like a tree.
   -- This gets the root of said tree.
@@ -138,13 +139,14 @@ startWM = do
 
   -- Normally, Xlib will crash on any error. Calling this function 
   -- asks Xlib to print recoverable errors instead of crashing on them.
-  setDefaultErrorHandler
+  -- setDefaultErrorHandler
+  xSetErrorHandler
 
   -- Focus the root window so we can receive our keybindings.
   setInputFocus display root revertToNone currentTime
 
   -- Execute the main loop. Will never return unless Xest exits
-  doAll screens c startingMode display root (forever mainLoop)
+  doAll screens c startingMode display root font (forever mainLoop)
     >> say "Exiting"
 
 

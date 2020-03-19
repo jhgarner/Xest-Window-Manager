@@ -44,30 +44,10 @@ import           Tiler.TilerTypes
 import           Tiler.ParentChild
 import           Config
 import           Actions.ActionTypes
+import qualified SDL.Font as Font
 
 
 type LostWindow = Map Window [ParentChild]
-
--- There's a lot of effects here. This type has them all!
--- type DoAll r
---   =  ( Members
---         ( States
---             '[Tiler, KeyStatus, Mode, Set Window, [SubTiler], MouseButtons, Maybe
---               Font.Font, Bool, Map Window XRect, Maybe (), Conf, ActiveScreen, Screens, LostWindow]
---         )
---         r
---     , Members
---         ( Inputs
---             '[Conf, Window, Borders, Display, XRect, (Int32, Int32), MouseButtons, [ XineramaScreenInfo
---             ], Screens, [XRect], NewBorders]
---         )
---         r
---     , Members
---         '[Mover, Property, Minimizer, Executor, GlobalX, Colorer, EventFlags, Embed
---           IO]
---         r
---     )
---   => Sem r ()
 
 -- Want to do everything in IO? Use this!
 doAll
@@ -76,9 +56,10 @@ doAll
   -> Mode
   -> Display
   -> Window
+  -> Font.Font
   -> _ -- The super long Sem list which GHC can figure out on its own
   -> IO ()
-doAll t c m d w =
+doAll t c m d w f =
   void
     . runM
     . runStates
@@ -103,7 +84,8 @@ doAll t c m d w =
         ::: currentTime
         ::: HNil
         )
-    . runInputs (w ::: d ::: HNil)
+    . runInputs (w ::: d ::: f ::: HNil)
+    . stateToInput @Conf
     . stateToInput @Screens
     . smartBorders
     . runNewBorders
@@ -111,7 +93,6 @@ doAll t c m d w =
     . listOfScreens
     . indexedState
     . runInputScreen
-    . stateToInput @Conf
     . runGetButtons
     . runGetPointer
     . runExecutor
