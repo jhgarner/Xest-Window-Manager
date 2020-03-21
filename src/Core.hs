@@ -49,7 +49,8 @@ refresh = do
     -- restack all of the windows
     topWindows <- makeTopWindows
     bottomWindows <- getBottomWindows
-    render >>= traverse_ (restack . \wins -> topWindows ++ bottomWindows ++ wins)
+    middleWins <- render
+    restack $ topWindows ++ bottomWindows ++ fmap getParent middleWins
 
     -- tell X to focus whatever we're focusing
     xFocus
@@ -148,7 +149,7 @@ render
      , Members (States [Tiler, Mode, [SubTiler]]) r
      , Members [Mover, Minimizer, Colorer, GlobalX] r
      )
-  => Sem r [[Window]]
+  => Sem r [ParentChild]
 render = do
   screens <- input @Screens
 
@@ -163,20 +164,12 @@ render = do
   minimized <- get @[SubTiler]
   traverse_ (snd . cata (draw Nothing) . fmap (first $ bimap round round . toScreenCoord) . placeWindow mempty . unfix) minimized
 
-  return winOrder
+  return $ join winOrder
 
        -- The main part of this function.
- where draw :: Maybe Borders -> Base (Cofree TilerF (XRect, Int)) ([Window], Sem _ ()) -> ([Window], Sem _ ())
-       -- Windows without any height or width become invisible.
-       draw _ ((Rect _ _ _ 0, _) :<~ Wrap (ParentChild win _)) = ([], minimize win)
-       draw _ ((Rect _ _ 0 _, _) :<~ Wrap (ParentChild win _)) = ([], minimize win)
-
-       -- Otherwise, the windows get moved and unminimized.
-       draw _ ((Rect {..}, _) :<~ Wrap (ParentChild win win')) = ([win], do
-           restore win
-           restore win'
-           changeLocation win $ Rect x y (abs w) (abs h)
-           changeLocation win' $ Rect 0 0 (abs w) (abs h))
+ where draw :: Maybe Borders -> Base (Cofree TilerF (XRect, Int)) ([ParentChild], Sem _ ()) -> ([ParentChild], Sem _ ())
+       draw _ ((Rect {..}, _) :<~ Wrap pc) = ([pc],
+           changeLocation pc $ Rect x y (abs w) (abs h))
        
        -- The InputController places the SDL window borders around the focused
        -- Tiler if you're in a mode that wants borders.
@@ -253,17 +246,15 @@ writePath = do
 
 -- |Focus the window our Tilers are focusing
 xFocus
-  :: Members [State Tiler, Minimizer, Input Window, State Time] r
+  :: Members [State Tiler, Mover, Input Window, State Time] r
   => Sem r ()
 xFocus = do
   root <- get @Tiler
   rWin <- input @Window
-  let w = fromMaybe (rWin, rWin) $ extract $ ana @(Beam _) makeList root
-  restore $ fst w
-  restore $ snd w
-  setFocus $ snd w
+  let w = fromMaybe (ParentChild rWin rWin) $ extract $ ana @(Beam _) makeList root
+  setFocus w
  where
-  makeList (Wrap (ParentChild w w'))              = EndF $ Just (w, w')
+  makeList (Wrap pc)              = EndF $ Just pc
   makeList (InputControllerOrMonitor _ (Just (Fix t))) = ContinueF t
   makeList (InputControllerOrMonitor _ Nothing) = EndF Nothing
   makeList t = ContinueF (unfix $ getFocused t)
@@ -284,7 +275,6 @@ initEwmh root upper = do
   nswc <- getAtom False "_NET_SUPPORTING_WM_CHECK"
   nwname <- getAtom False "_NET_WM_NAME"
   utf8 <- getAtom False "UTF8_STRING"
-  xestName <- getAtom False "xest"
   supp <- mapM
     (getAtom False)
     [ "_NET_NUMBER_OF_DESKTOPS"

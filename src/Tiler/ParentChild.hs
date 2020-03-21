@@ -6,7 +6,7 @@ import           Data.Eq.Deriving
 import           Graphics.X11.Types
 
 -- |A child parent relationship between two windows.
-data ParentChild = ParentChild Window Window
+data ParentChild = ParentChild {getParent :: Window, getChild :: Window}
   deriving Show
 
 -- |Is some window in the family?

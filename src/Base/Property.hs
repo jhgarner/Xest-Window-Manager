@@ -52,7 +52,7 @@ data Property m a where
                -> Property m String -- ^ The window's class
 
   -- |Technically not a property but it kind of fits...
-  GetChild :: Window -- ^ The parent
+  GetChildX :: Window -- ^ The parent
            -> Property m (Maybe Window) -- ^ The child
   IsOverrideRedirect :: Window
                      -> Property m Bool
@@ -109,7 +109,7 @@ runProperty = interpret $ \case
   IsOverrideRedirect win ->
     input >>= \d -> embed $ wa_override_redirect <$> getWindowAttributes d win
 
-  GetChild win -> do
+  GetChildX win -> do
     display <- input @Display
     -- For some reason, xQueryTree hasn't been abstracted at all
     embed @IO $ alloca

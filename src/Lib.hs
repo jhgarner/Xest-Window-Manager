@@ -17,11 +17,14 @@ import           Core
 import           Data.Bits
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Display
+import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
-import           SDL hiding (get, Window, Display, trace)
+import           Graphics.X11.Xinerama
+import           SDL hiding (get, Window, Display, trace, Mode)
+import qualified SDL
 import qualified SDL.Font as Font
 import           Base.DoAll
 import           Tiler.Tiler
@@ -147,12 +150,9 @@ startWM = do
 
   -- Execute the main loop. Will never return unless Xest exits
   doAll screens c startingMode display root font (forever mainLoop)
-    >> say "Exiting"
 
 
 -- | Performs the main logic. Does it all!
--- Is this uncommented signature better than the DoAll one?
--- mainLoop :: DoAll r
 mainLoop :: Sem _ ()
 mainLoop = do
   -- These debug lines have saved me countless times.
@@ -199,7 +199,7 @@ mainLoop = do
       -- Why the if statement? Well we want to focus the root window
       -- if no other windows are currently focused.
       if | ev_event_type == enterNotify -> newFocus ev_window
-         | ev_window == root -> input @RootWindow >>= newFocus
+         | ev_window == root -> newFocus root
          | otherwise -> return ()
     -- Button in this case means mouse button. Used to trigger click to focus.
     ButtonEvent {..} ->
@@ -218,6 +218,7 @@ mainLoop = do
       let isSet = (== Just 1) $ headMay ev_data
       messageType <- fromAtom ev_message_type
       messageC <- traverse (fromAtom . fromIntegral) ev_data
+      -- parent <- getParent ev_window
       printMe $ "\nGot message: " ++ messageType ++ " " ++ show messageC ++ " " ++ show isSet ++ "\n"
 
       when (wm_state == ev_message_type) $
@@ -227,7 +228,7 @@ mainLoop = do
              -- Why change the location? Well Chrome seems to expect
              -- that we restore it to it's original size. By making it
              -- small, we force it to draw in the new size.
-             else changeLocation ev_window $ Rect 1 1 1 1
+             else changeLocation (ParentChild ev_window ev_window) $ Rect 1 1 1 1
           put $ Just ()
 
     -- 21 == reparent event. If a window decides to reparent itself,

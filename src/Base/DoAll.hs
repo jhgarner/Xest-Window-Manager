@@ -69,7 +69,6 @@ doAll t c m d w f =
         ::: t
         ::: [] @SubTiler
         ::: None
-        ::: Nothing
         ::: False
         ::: M.empty @String
         ::: M.empty @Atom @[Int]

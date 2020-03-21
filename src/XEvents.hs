@@ -47,7 +47,7 @@ deriving instance Show SizeHints
 
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer, Screens]) r
-       => Members [EventFlags, GlobalX, Property, Executor, Minimizer] r
+       => Members [EventFlags, GlobalX, Property, Executor, Mover, Minimizer] r
        => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time]) r
        => ParentChild
        -> Sem r ()
@@ -113,11 +113,16 @@ killed :: Members (States [Tiler, LocCache, Maybe ()]) r
        -> Sem r ()
 killed window = do
   -- Find the parent in the tree and kill it.
-  (findParent window <$> get) >>= traverse_ (kill True >=> const (put $ Just ()))
-  -- Remove the window from the tree.
-  modify @Tiler $ ripOut window
+  parentM <- findParent window <$> get
+  case parentM of
+    Just parent -> do
+      kill True parent
+      put (Just ())
+    Nothing -> return ()
   -- Remove the window from our cache
   modify @LocCache $ M.delete window
+  -- Remove the window from the tree.
+  modify @Tiler $ ripOut window
 
 -- |A window is either dying slowly or has been minimized.
 unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe ()]) r
@@ -173,7 +178,7 @@ rootChange = do
 
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
-newFocus :: Members '[Input Screens, Property, Minimizer, Input Pointer] r
+newFocus :: Members '[Input Screens, Property, Mover, Input Pointer] r
          => Members (States [Tiler, Maybe (), ActiveScreen, Screens, Time]) r
          => Window
          -> Sem r ()
@@ -186,11 +191,15 @@ newFocus window = do
   -- The root might be none if the newly focused window doesn't exist
   case mNewRoot of
     Just newRoot -> do
-      realWin <- getChild window
-      traverse_ setFocus realWin
+      realWinM <- getChildX window
+      case realWinM of
+        Just realWin -> setFocus $ ParentChild window realWin
+        Nothing -> setFocus $ ParentChild window window
       put @Tiler newRoot
       put $ Just ()
-    Nothing -> setFocus window
+    Nothing -> do
+      setFocus $ ParentChild window window
+      put $ Just ()
 
 
 -- |On key press, execute some actions
