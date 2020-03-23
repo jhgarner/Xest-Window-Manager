@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE Strict #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Base.DoAll
   ( module Base.Helpers
@@ -45,7 +46,6 @@ import           Tiler.ParentChild
 import           Config
 import           Actions.ActionTypes
 import           System.IO (appendFile)
-import           Colog.Polysemy.Effect
 import           Colog.Core
 import qualified SDL.Font as Font
 
@@ -54,7 +54,8 @@ type LostWindow = Map Window [ParentChild]
 
 -- Want to do everything in IO? Use this!
 doAll
-  :: Screens
+  :: IORef [String]
+  -> Screens
   -> Conf
   -> Mode
   -> Display
@@ -62,11 +63,11 @@ doAll
   -> Font.Font
   -> _ -- The super long Sem list which GHC can figure out on its own
   -> IO ()
-doAll t c m d w f =
+doAll ioref t c m d w f =
   void
     . runM
-    . runState False
-    . runState ([] @String)
+    . stateToIO False
+    . runStateIORef ioref
     . runLogActionSem logger
     . runStateLogged (m, "Mode")
     . runStateLogged (S.empty @Window, "Minimized set")
@@ -106,13 +107,11 @@ doAll t c m d w f =
  where
   logger :: Members '[State Bool, State [String], Embed IO] r => LogAction (Sem r) String
   logger = LogAction $ \msg -> do
-    shouldLog <- get @Bool
     modify @[String] $ (:) msg
     modify @[String] $ take 100
+    shouldLog <- get @Bool
     when shouldLog $
       embed @IO $ appendFile "/tmp/xest.log" (msg ++ "\n")
-
-
 
   -- Get the screens from Xinerama
   runInputScreen

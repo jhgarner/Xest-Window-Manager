@@ -17,21 +17,17 @@ import           Core
 import           Data.Bits
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Display
-import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
-import           Graphics.X11.Xinerama
 import           SDL hiding (get, Window, Display, trace, Mode)
-import qualified SDL
 import qualified SDL.Font as Font
 import           Base.DoAll
 import           Tiler.Tiler
 import qualified System.Environment as Env
 import qualified Data.Map                      as M
 import XEvents
-import System.IO (appendFile)
 import Actions.ActionTypes
 import Actions.Actions
 
@@ -150,7 +146,13 @@ startWM = do
   setInputFocus display root revertToNone currentTime
 
   -- Execute the main loop. Will never return unless Xest exits
-  doAll screens c startingMode display root font (forever mainLoop)
+  -- The finally makes sure we write the last 100 log messages on exit to the
+  -- err file.
+  logHistory <- newIORef []
+  finally (doAll logHistory screens c startingMode display root font (forever mainLoop)) do
+    lastLog <- unlines <$> readIORef logHistory
+    writeFile "/tmp/xest.err" (fromString $ lastLog ++ "\n")
+
 
 
 -- | Performs the main logic. Does it all!

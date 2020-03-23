@@ -90,3 +90,4 @@ instance Monoid a => Monoid (Sem r a) where
 
 -- |Just makes it more clear when you say Input RootWindow.
 type RootWindow = Window
+

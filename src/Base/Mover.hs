@@ -121,7 +121,6 @@ runMover = interpret $ \case
     wm_protocols <- getAtom False "WM_PROTOCOLS"
     protocols <- embed @IO $ getWMProtocols d c
     Rect _ _ width height <- gets (fromMaybe (Rect 0 0 0 0) . (M.!? c))
-    fc <- get @FocusedCache
     unlessM ((== FocusedCache c) <$> get @FocusedCache) $ do
       when ((width /= 0 && height /= 0) || rootWin == c) $ do
         hints <- embed @IO $ getWMHints d c
