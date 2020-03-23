@@ -3,6 +3,8 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE Strict #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Base.Helpers where
 
@@ -13,6 +15,7 @@ import           Polysemy.Input
 import           Data.Kind
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
+import           Colog.Polysemy
 
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -28,14 +31,14 @@ type family TypeMap (f :: a -> b) (xs :: [a]) where
     TypeMap _ '[]       = '[]
     TypeMap f (x ': xs) = f x ': TypeMap f xs
 
-type family TypeConcat (a :: [t]) (b :: [t]) where
-    TypeConcat '[] b = b
-    TypeConcat (a ': as) b = a ': TypeConcat as b
+type family (++) (a :: [t]) (b :: [t]) where
+  (++) '[] b = b
+  (++) (a ': as) b = a ': (as ++ b)
 
 runSeveral
     :: (forall r' k x. k -> Sem (e k ': r') x -> Sem r' x)
     -> HList t
-    -> Sem (TypeConcat (TypeMap e t) r) a
+    -> Sem ((TypeMap e t) ++ r) a
     -> Sem r a
 runSeveral f (a ::: as) = runSeveral f as . f a
 runSeveral _ HNil       = id
@@ -51,15 +54,27 @@ runSeveral _ HNil       = id
 -- |A type level function which takes a list of Types and turns them into
 -- inputs.
 type Inputs (a :: [Type]) = TypeMap Input a
-runInputs :: HList t -> Sem (TypeConcat (Inputs t) r) a -> Sem r a
+runInputs :: HList t -> Sem ((Inputs t) ++ r) a -> Sem r a
 -- |Runs an HList of values as if they were values for a Reader.
 runInputs = runSeveral runInputConst
+
 
 -- |Same as above but for State.
 type States (a :: [Type]) = TypeMap State a
 -- |Same as above but for State. Throws away the state that would be returned
-runStates :: HList t -> Sem (TypeConcat (States t) r) a -> Sem r a
+runStates :: HList t -> Sem ((States t) ++ r) a -> Sem r a
 runStates = runSeveral evalState
+
+runStateLogged :: forall r s a. (Show s, Member (Log String) r) => (s, Text) -> Sem ((State s) ': r) a -> Sem r a
+runStateLogged (s, t) = evalState s . logState (unpack t)
+  where 
+        logState :: Member (Log String) r' => String -> Sem (State s ': r') x -> Sem (State s ': r') x
+        logState name = intercept $ \case
+          Put a -> do
+            oldValue <- get
+            log ("[State] " ++ name ++ "\n\t[From] " ++ show oldValue ++ "\n\t[to] " ++ show a) >> put a
+          Get -> get
+
 
 -- |Pretty much everything needs effects when being run. This type alias makes
 -- that easiear to type.
@@ -67,40 +82,6 @@ type Interpret e r a = Members [Embed IO, Input Display] r => Sem (e ': r) a -> 
 
 inputs :: Member (Input i) r => (i -> a) -> Sem r a
 inputs f = f <$> input
-
--- * Effects
---
--- $WhyEffects
---
--- Xest makes use of the "Polysemy" package. Polysemy uses a ton of fairly
--- advanced Haskell features so it can sometimes look a little scary. Why
--- then do we use it?
---
---   * Effect systems like Polysemy make it easier to apply the principle
---   of least privilage to the code. For example, we can have a function
---   which can resize windows but would fail to compile if they tried to
---   change any other properties on the window.
---
---   * Effect systems make it easy to swap out the implementation details
---   without having to touch the code that uses the effects.
---
---   * Polysemy will have no performance cost once GHC 8.10 is released.
-
--- * Properties
-
--- * Event Flags
-
--- * Minimizer
-
--- * Mover
-
--- * Executor
-
--- * Colorer
-
--- * Global X
-
-
 
 instance Semigroup a => Semigroup (Sem r a) where
   (<>) = liftA2 (<>)

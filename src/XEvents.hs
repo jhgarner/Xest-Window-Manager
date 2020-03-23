@@ -26,7 +26,7 @@ import Config
 import Actions.ActionTypes
 
 -- |Called when we want to reparent a window
-reparentWin :: Members '[EventFlags, GlobalX, Executor] r
+reparentWin :: Members '[EventFlags, GlobalX, Log String] r
        => Window
        -> Sem r ParentChild
 reparentWin window = do
@@ -35,7 +35,7 @@ reparentWin window = do
   -- where crossing events weren't reported correctly. All of those
   -- bugs went away when reparenting was added.
   newWin <- newWindow window
-  printMe $ "\n\n window: " ++ show window ++ " with parent " ++ show newWin ++ "\n\n"
+  log $ "[ReparentWin] " ++ show window ++ " with parent " ++ show newWin
 
   -- Think of the new parent as an extension of the root window.
   -- Just like on the root window, we need to register some events
@@ -47,7 +47,7 @@ deriving instance Show SizeHints
 
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer, Screens]) r
-       => Members [EventFlags, GlobalX, Property, Executor, Mover, Minimizer] r
+       => Members [EventFlags, GlobalX, Property, Log String, Mover, Minimizer] r
        => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time]) r
        => ParentChild
        -> Sem r ()
@@ -60,17 +60,18 @@ mapWin pc@(ParentChild newWin window) = do
   case if transient == Just window then Nothing else transient of
     Just parent -> do
       root <- get @Tiler
-      sizes@SizeHints{..} <- getSizeHints window
+      SizeHints{..} <- getSizeHints window
       let idealSize = fromMaybe (500, 500) sh_min_size
       let tilerParent = Wrap $ ParentChild parent parent
           (worked, newRoot) = usingFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
           (workedAlt, altNewRoot) = makeFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
-      printMe $ "Checking transient " ++ show transient ++ " with window " ++ show window ++ " with parent " ++ show newWin ++ "\nWith newRoot = " ++ show newRoot ++ "\n and worked = " ++ show worked ++ " and altRoot = " ++ show altNewRoot ++ "\n and altWorked " ++ show workedAlt ++ " and sizes " ++ show sizes ++ "\n\n"
+      log $ "[MapWin] Found a transient window!"
       if
           | worked -> put @Tiler newRoot >> focusPC
           | workedAlt -> put @Tiler altNewRoot >> focusPC
           | otherwise -> modify @LostWindow (insertWith (++) parent [pc]) >> minimize newWin
     Nothing -> do
+      log "[MapWin] Mapping a window"
       -- This adds the new window to whatever tiler comes after inputController
       -- If you've zoomed the inputController in, you get nesting as a result
       modify $ applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
@@ -238,11 +239,8 @@ keyDown keycode eventType
   | otherwise = do
     put $ Just ()
     currentKS <- get @KeyStatus
-    printMe $ "\n\ncurrentKS: " ++ show currentKS ++ "\n"
     let (newKS_, actions) = fold $ para doRelease currentKS
     newKS_
-    newKS <- get @KeyStatus
-    printMe $ "\n\nnewKS: " ++ show newKS ++ "\n"
     return actions
       where doRelease :: Member (State KeyStatus) r
                       => KeyStatusF (KeyStatus, Maybe (Sem r (), [Action]))

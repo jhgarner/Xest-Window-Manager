@@ -44,6 +44,9 @@ import           Tiler.TilerTypes
 import           Tiler.ParentChild
 import           Config
 import           Actions.ActionTypes
+import           System.IO (appendFile)
+import           Colog.Polysemy.Effect
+import           Colog.Core
 import qualified SDL.Font as Font
 
 
@@ -62,27 +65,26 @@ doAll
 doAll t c m d w f =
   void
     . runM
-    . runStates
-        (   m
-        ::: S.empty @RootWindow
-        ::: Default
-        ::: t
-        ::: [] @SubTiler
-        ::: None
-        ::: False
-        ::: M.empty @String
-        ::: M.empty @Atom @[Int]
-        ::: FocusedCache 0
-        ::: M.empty @SDL.Window
-        ::: M.empty @Window @XRect
-        ::: M.empty @Window @[ParentChild]
-        ::: [] @Window
-        ::: Just ()
-        ::: c
-        ::: (0 :: ActiveScreen)
-        ::: currentTime
-        ::: HNil
-        )
+    . runState False
+    . runState ([] @String)
+    . runLogActionSem logger
+    . runStateLogged (m, "Mode")
+    . runStateLogged (S.empty @Window, "Minimized set")
+    . runStateLogged (Default, "KeyStatus")
+    . runStateLogged (t, "Screens")
+    . runStateLogged ([] @SubTiler, "Popped Tilers")
+    . runStateLogged (None, "Mouse Button")
+    . runStateLogged (M.empty @String, "name->Atom")
+    . runStateLogged (M.empty @Atom @[Int], "Atom->value")
+    . runStateLogged (FocusedCache 0, "Focused window")
+    . runStateLogged (M.empty @SDL.Window, "SDL->location")
+    . runStateLogged (M.empty @Window @XRect, "Window->location")
+    . runStateLogged (M.empty @Window @[ParentChild], "Window->transients")
+    . runStateLogged ([] @Window, "Window stack")
+    . runStateLogged (Just (), "Redraw Flag")
+    . runStateLogged (c, "Config")
+    . runStateLogged ((0 :: ActiveScreen), "Active screen")
+    . runStateLogged (currentTime, "Time")
     . runInputs (w ::: d ::: f ::: HNil)
     . stateToInput @Conf
     . stateToInput @Screens
@@ -102,6 +104,14 @@ doAll t c m d w f =
     . runMover
     . runColorer
  where
+  logger :: Members '[State Bool, State [String], Embed IO] r => LogAction (Sem r) String
+  logger = LogAction $ \msg -> do
+    shouldLog <- get @Bool
+    modify @[String] $ (:) msg
+    modify @[String] $ take 100
+    when shouldLog $
+      embed @IO $ appendFile "/tmp/xest.log" (msg ++ "\n")
+
 
 
   -- Get the screens from Xinerama

@@ -31,8 +31,9 @@ module Standard
     , trd
     ) where
 
-import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector)
+import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector, log)
 import Data.Foldable as All (find)
+import           Colog.Polysemy as All
 
 import Polysemy.State
 import Polysemy

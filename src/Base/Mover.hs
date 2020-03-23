@@ -122,20 +122,16 @@ runMover = interpret $ \case
     protocols <- embed @IO $ getWMProtocols d c
     Rect _ _ width height <- gets (fromMaybe (Rect 0 0 0 0) . (M.!? c))
     fc <- get @FocusedCache
-    printMe $ show c ++ " with " ++ show protocols ++ " and " ++ show rootWin ++ " " ++ show fc ++ " "
     unlessM ((== FocusedCache c) <$> get @FocusedCache) $ do
-      printMe "In the unless! "
       when ((width /= 0 && height /= 0) || rootWin == c) $ do
         hints <- embed @IO $ getWMHints d c
         if wm_take_focus `elem` protocols && not (wmh_input hints)
           then do
-            printMe "Using wm_sender\n"
             embed @IO $ allocaXEvent $ \pe -> do
               setEventType pe clientMessage
               setClientMessageEvent pe c wm_protocols 32 wm_take_focus time
               sendEvent d c False noEventMask pe
           else do
-            printMe "Using standard\n"
             restore p
             restore c
             embed @IO $ setInputFocus d c revertToNone currentTime

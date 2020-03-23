@@ -31,6 +31,7 @@ import           Tiler.Tiler
 import qualified System.Environment as Env
 import qualified Data.Map                      as M
 import XEvents
+import System.IO (appendFile)
 import Actions.ActionTypes
 import Actions.Actions
 
@@ -153,14 +154,15 @@ startWM = do
 
 
 -- | Performs the main logic. Does it all!
+-- NOTE: Because I'm using a wildcard, mainLoop tends to completely blow up on
+-- any kind of type error. If that happens and you can't figure out what is
+-- actually wrong, you need to figure out the type of doAll and paste that in
+-- here. Once you've finished debugging, you can replace it with the _ again or
+-- find a better way to do this.
 mainLoop :: Sem _ ()
 mainLoop = do
   -- These debug lines have saved me countless times.
-  printMe "\n\n========================"
-  printMe "Tiler state at beginning of loop:\n"
-
-  get @ActiveScreen >>= \as -> printMe $ show as ++ " is the active screen \n"
-  get @Screens >>= \as -> printMe $ show as ++ " \n\n"
+  log "\n\n========================"
 
   -- Check how many events are in the queue and whether someone
   -- has asked us to replace the windows.
@@ -175,7 +177,7 @@ mainLoop = do
   -- Here we have the bulk of the program. Most of the events given to us
   -- by the server are just handed off to something in the XEvents file.
   -- A handful of them have slightly more complicated logic.
-  runInputConst currentScreen $ getXEvent >>= (\x -> printMe ("evaluating event: " ++ show x) >> return x) >>= \case
+  runInputConst currentScreen $ getXEvent >>= (\x -> log ("[Event] " ++ show x) >> return x) >>= \case
     -- Called when a new window is created by someone
     MapRequestEvent {..} ->
       -- If we think the window is currently managed, unmap it first.
@@ -219,7 +221,7 @@ mainLoop = do
       messageType <- fromAtom ev_message_type
       messageC <- traverse (fromAtom . fromIntegral) ev_data
       -- parent <- getParent ev_window
-      printMe $ "\nGot message: " ++ messageType ++ " " ++ show messageC ++ " " ++ show isSet ++ "\n"
+      log $ "[ClientMessage] " ++ messageType ++ "\n\t[MessageData]" ++ show messageC ++ "\n\t[IsSet]" ++ show isSet
 
       when (wm_state == ev_message_type) $
         when (fromIntegral full_screen `elem` ev_data) $ do
@@ -235,13 +237,13 @@ mainLoop = do
     -- it's practically unmapped and dead.
     AnyEvent {ev_event_type = 21, ev_window = window} -> killed window
 
-    _ -> void $ printMe "Got unknown event"
+    _ -> void $ log "Got unknown event"
 
   where
     -- Here we have executors for the various actions a user might
     -- have in their config. These go to Actions/Actions.hs
     executeActions :: Action -> Sem _ ()
-    executeActions action = printMe ("Action: " ++ show action) >> case action of
+    executeActions action = log ("[Action] " ++ show action) >> case action of
       RunCommand command -> execute command
       ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
       HideWindow wName -> getWindowByClass wName >>= mapM_ minimize

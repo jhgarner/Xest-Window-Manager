@@ -45,6 +45,8 @@ dependencies:
 - template-haskell
 - bifunctors
 - monad-loops
+- co-log-core
+- co-log-polysemy
 
 library:
   source-dirs: src

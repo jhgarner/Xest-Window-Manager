@@ -14,7 +14,6 @@ import qualified System.Environment as Env
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
-import           System.IO
 import           Graphics.X11.Xlib.Types
 import           System.Process
 import Config
@@ -26,8 +25,6 @@ data Executor m a where
   Execute :: String -> Executor m ()
   -- |Toggle logging
   ToggleLogs :: Executor m ()
-  -- |Prints in a controlled way
-  PrintMe :: String -> Executor m ()
   -- |Prints in a controlled way
   ReloadConf :: Executor m ()
 makeSem ''Executor
@@ -43,8 +40,6 @@ runExecutor = interpret $ \case
       embed @IO $ Standard.writeFile "/tmp/xest.log" ""
     modify not
 
-  -- PrintMe s -> say $ pack s
-  PrintMe s -> whenM (get @Bool) $ embed @IO $ appendFile "/tmp/xest.log" s
   ReloadConf -> do
     display <- input @Display
     (homeDir, displayNumber) <- embed @IO $ do

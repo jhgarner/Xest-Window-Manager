@@ -33,12 +33,12 @@ import qualified SDL (Window)
 -- called every literal frame; Xest doesn't have to do anything if it's
 -- children want to change their contents. Xest only gets involved when they
 -- need to move.
-refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX, Executor] r
+refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX, Log String] r
         => Members (Inputs [Window, Screens, Borders, (Int32, Int32)]) r
         => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time]) r
         => Sem r ()
 refresh = do
-    printMe "\n\nRefreshing\n"
+    log "[Starting Refresh]"
     put @(Maybe ()) Nothing
     -- Fix the Monitor if the Input Controller moved in a weird way
     modify @Tiler fixMonitor
@@ -49,11 +49,15 @@ refresh = do
     -- restack all of the windows
     topWindows <- makeTopWindows
     bottomWindows <- getBottomWindows
+    log "[Rendering]"
     middleWins <- render
+    log "[Done Rendering]"
     restack $ topWindows ++ bottomWindows ++ fmap getParent middleWins
 
     -- tell X to focus whatever we're focusing
+    log "[Focusing]"
     xFocus
+    log "[Done Focusing]"
 
 
     -- Do some EWMH stuff
@@ -61,7 +65,7 @@ refresh = do
     writeActiveWindow
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
     clearQueue
-    printMe "\n\nDone refreshing\n"
+    log "[Done Refreshing]"
 
 
 -- | Places a tiler somewhere on the screen without actually placing it. The

@@ -287,7 +287,7 @@ doSpecial =
 
 -- |Kill the active window
 killActive
-  :: Members '[State Tiler, State Tiler, GlobalX, Executor, State (Maybe ())] r
+  :: Members '[State Tiler, State Tiler, GlobalX, Log String, State (Maybe ())] r
   => Sem r ()
 killActive = do
   root <- get @Tiler
@@ -302,12 +302,11 @@ killActive = do
       -- a nice message. Otherwise, disconnect the client application.
       shouldKill <- kill False child
 
-      printMe $ "Killing " ++ show child ++ " and " ++ show parent ++ " and got " ++ show shouldKill ++ "\n"
+      log $ "[KillActive] " ++ show child ++ " and " ++ show parent ++ " and got " ++ show shouldKill ++ "\n"
       -- If we had to disconnect the client, we won't (TODO is that true) get a Destroyed window event.
       -- This does what Destroy window would do.
       return $ fmap (, parent) shouldKill
     Nothing -> return Nothing
-  printMe $ "about to do something... " ++ show l ++ "\n"
   case l of
     Nothing               -> put Nothing
     Just (killed, parent) -> do
