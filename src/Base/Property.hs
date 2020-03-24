@@ -107,7 +107,8 @@ runProperty = interpret $ \case
     input >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return n
 
   IsOverrideRedirect win ->
-    input >>= \d -> embed $ wa_override_redirect <$> getWindowAttributes d win
+    input >>= \d -> embed $
+      either (const False) wa_override_redirect <$> tryAny (getWindowAttributes d win)
 
   GetChildX win -> do
     display <- input @Display

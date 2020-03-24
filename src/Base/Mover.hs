@@ -92,22 +92,23 @@ runMover = interpret $ \case
   ConfigureWin ConfigureRequestEvent {..} -> do
     d <- input
     tiler <- get @Tiler
-    WindowAttributes {..} <- embed @IO $ getWindowAttributes d ev_window
-    let wc = WindowChanges ev_x
-                          ev_y
-                          ev_width
-                          ev_height
-                          ev_border_width
-                          ev_above
-                          ev_detail
-    if findWindow ev_window tiler
-       then
-         embed @IO $ allocaXEvent $ \pe -> do
-           setEventType pe configureNotify
-           setConfigureEvent pe ev_window ev_window wa_x wa_y wa_width wa_height wa_border_width none False
-           sendEvent d ev_window False noEventMask pe
-       else
-         embed @IO $ configureWindow d ev_window ev_value_mask wc
+    void . embed @IO $ tryAny do
+      WindowAttributes {..} <- getWindowAttributes d ev_window
+      let wc = WindowChanges ev_x
+                            ev_y
+                            ev_width
+                            ev_height
+                            ev_border_width
+                            ev_above
+                            ev_detail
+      if findWindow ev_window tiler
+        then
+          allocaXEvent $ \pe -> do
+            setEventType pe configureNotify
+            setConfigureEvent pe ev_window ev_window wa_x wa_y wa_width wa_height wa_border_width none False
+            sendEvent d ev_window False noEventMask pe
+        else
+          configureWindow d ev_window ev_value_mask wc
 
   ConfigureWin _ -> error "Don't call Configure Window with other events"
 

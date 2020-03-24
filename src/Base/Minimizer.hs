@@ -39,8 +39,8 @@ runMinimizer = interpret $ \case
   Minimize win -> do
     d <- input
     -- We only want to minimize if it hasn't already been minimized
-    WindowAttributes { wa_map_state = mapped } <- embed
-      $ getWindowAttributes d win
+    mapped <- embed
+      $ either (const waIsUnmapped) wa_map_state <$> tryAny (getWindowAttributes d win)
     when (mapped /= waIsUnmapped) $ do
       modify $ S.insert win
       embed @IO $ unmapWindow d win
@@ -52,8 +52,8 @@ runMinimizer = interpret $ \case
   Restore win -> do
     d <- input
     -- Only restore if it needs to be restored
-    WindowAttributes { wa_map_state = mapped } <- embed
-      $ getWindowAttributes d win
+    mapped <- embed
+      $ either (const waIsViewable) wa_map_state <$> tryAny (getWindowAttributes d win)
     when (mapped == waIsUnmapped) $ do
       modify $ S.delete win
       embed @IO $ mapWindow d win

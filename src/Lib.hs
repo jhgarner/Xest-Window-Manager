@@ -149,9 +149,10 @@ startWM = do
   -- The finally makes sure we write the last 100 log messages on exit to the
   -- err file.
   logHistory <- newIORef []
-  finally (doAll logHistory screens c startingMode display root font (forever mainLoop)) do
-    lastLog <- unlines <$> readIORef logHistory
-    writeFile "/tmp/xest.err" (fromString $ lastLog ++ "\n")
+  catch (doAll logHistory screens c startingMode display root font (forever mainLoop)) \(e :: SomeException) -> do
+    lastLog <- unlines . reverse <$> readIORef logHistory
+    let header = "Xest crashed with the exception: " ++ show e ++ "\n"
+    writeFile "/tmp/xest.err" (fromString $ header ++ lastLog ++ "\n")
 
 
 
