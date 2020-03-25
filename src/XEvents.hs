@@ -91,10 +91,11 @@ mapWin pc@(ParentChild newWin window) = do
   where 
     usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
     usingFloating (newW, newH) t newTiler = coerce . cata (\case
-      oldT@(Floating fl) ->
-        if Bottom (False, t) `elem` fl
-          then (True, Floating $ Top (Rect 0 0 newW newH, newTiler) +: fmap (fmap snd) fl)
-          else (any fst oldT, Fix $ fmap snd oldT)
+      oldT@(Many (Floating fl) mods) ->
+        let bottom = fst $ pop (Left Front) fl
+         in if (False, t) == extract bottom
+              then (True, Many (Floating $ push Back Focused (WithRect (Rect 0 0 newW newH) newTiler) $ fmap (fmap snd) fl) mods)
+              else (any fst oldT, Fix $ fmap snd oldT)
       oldT -> (any fst oldT, Fix $ fmap snd oldT))
 
     makeFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
@@ -102,7 +103,7 @@ mapWin pc@(ParentChild newWin window) = do
       let oldT = fmap snd oldTAndB
           wasFound = any fst oldTAndB
        in if oldT == unfix t
-            then (True, Floating $ NE (Top (Rect 0 0 newW newH, newTiler)) [Bottom $ Fix oldT])
+            then (True, Many (Floating $ makeFL (NE (point $ Fix oldT) [WithRect (Rect 0 0 newW newH) newTiler]) 1) NoMods)
             else (wasFound, Fix oldT))
     focusPC = restore newWin >> restore window >> newFocus newWin
 
@@ -179,7 +180,7 @@ rootChange = do
 
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
-newFocus :: Members '[Input Screens, Property, Mover, Input Pointer] r
+newFocus :: Members '[Input Screens, Property, Mover, Input Pointer, Log String] r
          => Members (States [Tiler, Maybe (), ActiveScreen, Screens, Time]) r
          => Window
          -> Sem r ()
@@ -289,7 +290,7 @@ motion = do
 
  where numRotations :: TilerF Bool -> Bool
        numRotations (InputControllerOrMonitor _ a) = fromMaybe False a
-       numRotations (Reflect a) = not a
+       -- numRotations (Reflect a) = not a
        numRotations (Wrap _) = False
        numRotations b = getFocused b
 
@@ -301,10 +302,14 @@ motion = do
 
 -- |Helper function for motion.
 -- TODO This function probably belongs in Tiler.
--- TODO This function is awful.
+-- TODO This function is really hard to follow.
+-- Why represent horizontal sizes this way? The idea is that the Size is the
+-- percent of another Tiler it takes up. 0 means it's at the original size
+-- while 1 means it's twice as big. In theory, this continues to hold when you
+-- add or remove additional Tilers.
 changeSize :: Bool -> MouseButtons -> Tiler -> Tiler
-changeSize _ None = id
-changeSize rotation m = \case
+changeSize _ None t = t
+changeSize rotation m (Many mh mods) = flip Many mods case mh of
   Horiz fl ->
     -- TODO The logic in here is terrible to follow...
     -- What's the right way to write this?
@@ -321,12 +326,14 @@ changeSize rotation m = \case
         
         bound = max (-windowSize)
         (_, trueDelta)  = foldl' 
+          -- TODO Yikes.
           (\(i, minS) (Sized size _) -> if i == foc && foc < numWins
             then (i+1, min minS $ abs $ size - bound (size + delta))
             else if i == foc + 1 && foc > 0
             then (i+1, min minS $ abs $ size - bound (size - delta))
             else (i+1, minS)) (1, 0.01) $ vOrder fl
         propagate = 
+          -- TODO Yikes part 2
           fromVis fl . mapFold
           (\i (Sized size t) -> if i == foc && foc < numWins
             then (i+1, Sized (bound (size + sign trueDelta)) t)
@@ -336,13 +343,14 @@ changeSize rotation m = \case
           1
           $ vOrder fl
     in Horiz propagate
-  Floating (NE (Top (Rect{..}, t)) ls) -> 
+  Floating fl ->
     let (dx, dy) = (if rotation then swap else id) $ bimap fromIntegral fromIntegral $ getButtonLoc m
-    in Floating $ NE (case m of
-      RightButton _ -> Top (Rect x y (w + dx) (h + dy), t)
-      LeftButton _ -> Top (Rect (x+dx) (y+dy) w h, t)
-      None -> error "Yikes, this shouldn't be possible!") ls
-  t -> t
+    in Floating $ mapOne (Right Focused) (\(WithRect Rect{..} t) ->
+      case m of
+        RightButton _ -> WithRect (Rect x y (w + dx) (h + dy)) t
+        LeftButton _ -> WithRect (Rect (x+dx) (y+dy) w h) t
+        None -> error "Yikes, this shouldn't be possible!") fl
+changeSize _ _ t = t
 
 makeFullscreen :: Members '[State Tiler, Minimizer, Property] r
                => Window

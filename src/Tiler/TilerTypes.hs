@@ -20,45 +20,26 @@
 module Tiler.TilerTypes where
 
 import           Standard
-import           Graphics.X11.Types
-import           FocusList
 import           Data.Functor.Foldable (embed)
-import           Dhall (Interpret)
-import           Tiler.Sized
 import           Tiler.ParentChild
-import           Tiler.BottomOrTop
+import           Tiler.ManyHelpers
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
 import           Data.Kind
 import           TH
+
+
 
 -- | The tree nodes which make up the bulk of the program. Each
 -- constructor provides a way of composing windows. The a type variable is
 -- there so we can use recursion schemes on this data type. Every use of a can
 -- be thought of as a branch in the tree.
 data TilerF a =
-    -- |Tiles its elements horizontally while keeping track of which were last
-    -- focused. In addition, each element has an associated size. 0 means the
-    -- element requests no extra space. Any other number means the element
-    -- requests that much more space as a percentage of the total amount of
-    -- space.
-    HorizF (FocusedList (Sized a))
-    -- |Floats multiple elements on top of a background element. The background
-    -- element takes up all of the space it can. The foreground elements take up
-    -- the space given by some rectangle. Those foreground elements can float
-    -- anywhere on the screen, even outside of the parent's allocated space.
-  | FloatingF (NonEmpty (BottomOrTop a))
-    -- |The name in code is very misleading. Instead of reflecting, this Tiler
-    -- rotates its child 90 degrees by swapping the x and y coordinates. TODO The
-    -- name is bad because rotate is already taken by the Action. Ideally, the
-    -- Action Insertable datatype would be a subset of the TilerF data type. I
-    -- think that requires open sum types which would be a big project change.
-  | ReflectF a
-    -- |FocusFull takes its child and finds the focused child in that. Whatever
-    -- was found takes up all of its allocated space. If an Input Controller or
-    -- Monitor or in front of FocusFull, nothing happens. When combined with
-    -- Horiz or Floating, you get one way to emulate workspaces.
-  | FocusFullF a
+    -- |Holds many elements. The instance of ManyHolder and the chosen Mods
+    -- decides how this one works. The ManyHolder options are to tile
+    -- horizontally or floating. The mods let you rotate the tiling (aka make a
+    -- vertical tiler) or make the focused Tiler full screen.
+    ManyF (ManyHolder a) ManyMods
     -- |The leaf of our Tiler tree. A WrapF holds a window (specifically a window
     -- and its parent) and does nothing else.
   | WrapF ParentChild
@@ -71,7 +52,7 @@ data TilerF a =
     -- rendered. Just like InputController, Monitor can be empty.
   | MonitorF (Maybe a)
 
-  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+  deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
 deriveShow1 ''TilerF
 deriveEq1 ''TilerF
 
@@ -136,8 +117,8 @@ inputControllerOrMonitor (InputController a) = Just (InputController, a)
 inputControllerOrMonitor (Monitor a) = Just (Monitor, a)
 inputControllerOrMonitor _ = Nothing
 
-{-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, InputControllerOrMonitor :: TilerF #-}
-{-# COMPLETE Horiz, Floating, Reflect, FocusFull, Wrap, Monitor, InputController :: TilerF #-}
+{-# COMPLETE Many, Wrap, InputControllerOrMonitor :: TilerF #-}
+{-# COMPLETE Many, Wrap, Monitor, InputController :: TilerF #-}
 
 -- |The pattern used to match the function from above.
 pattern InputControllerOrMonitor :: forall a b.

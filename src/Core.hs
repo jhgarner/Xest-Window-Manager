@@ -85,41 +85,33 @@ placeWindow screenSize root =
         -- Wraps are super simple.
         Wrap win -> Wrap win
 
-        -- Reflects are straightforward. Increase the depth by 1 and add a spin
-        -- transformation. It's worth noting that Reflect is 100% the wrong
-        -- word for what is actually happening. Unfortunately, Rotate is
-        -- already taken by the Config stuff.
-        Reflect t -> Reflect (Spin trans, depth + 1, t)
-
-        -- A FocusFull looks in its child and extracts the focused element.
-        -- Everything but the focused element is ignored. This gives you one
-        -- way to implement workspaces.
-        FocusFull (Fix t) ->
-          modFocused ((trans, depth + 2,) . trd) $ fmap (StartingPoint mempty, depth + 1,) t
-
         -- Do some math to figure out how to place the various windows. The
         -- main problem is that each element of a Horiz is resizable using a
         -- percentage of the total space available to the Horiz. If you have a
         -- better way to represent that, I would happily change.
-        Horiz fl ->
-          let numWins = fromIntegral $ flLength fl
-              location i lSize size = Slide (Rect (newX i lSize) 0 (1 / numWins + size) 1) trans
-              newX i lSize = 1.0 / numWins * i + lSize
-              realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
+        Many mh mods -> flip Many mods
+          case (mods, mh) of
+            (Full, _) ->
+              withFl' (fmap (\t -> (StartingPoint $ Rect 0 0 0 0, depth + 1, t)) mh) $ mapOne (Right Focused) (fmap (\(_, d, t) -> (trans, d, t)))
+            (_, Horiz fl) ->
+              let numWins = fromIntegral $ flLength fl
+                  wrapTrans = if mods == Rotate then Spin trans else trans
+                  location i lSize size = Slide (Rect (newX i lSize) 0 (1 / numWins + size) 1) wrapTrans
+                  newX i lSize = 1.0 / numWins * i + lSize
+                  realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
 
-           in Horiz $ fromVis realfl $ map (\(index, (lSize, size, t)) -> Sized size (location index lSize size, depth + 1, t))
-                    $ zip [0 ..]
-                    $ vOrder realfl
+              in Horiz $ fromVis realfl $ map (\(index, (lSize, size, t)) -> Sized size (location index lSize size, depth + 1, t))
+                        $ zip [0 ..]
+                        $ vOrder realfl
 
-        -- Floating windows sit on top of a background window. There are some
-        -- problems here. TODO How can I make sure windows never get drawn off
-        -- the screen?
-        Floating ls ->
-           Floating $ map (\case
-                Top (rr@Rect {..}, t) ->
-                  let starting@(Rect realX realY realW realH) = getStartingPoint trans
-                   in Top (rr, (Slide (Rect ((x - realX) / realW) ((y - realY) / realH) (w / realW) (h / realH)) $ StartingPoint starting, depth + 1, t))
-                Bottom t -> Bottom (trans, depth + 1, t)) ls
+            (_, Floating ls) ->
+              let allFloating = flip fmap ls $ \case
+                    WithRect rr@Rect {..} t ->
+                      let wrapTrans = if mods == Rotate then Spin trans else trans
+                          starting@(Rect realX realY realW realH) = getStartingPoint wrapTrans
+                      in WithRect rr (Slide (Rect ((x - realX) / realW) ((y - realY) / realH) (w / realW) (h / realH)) $ StartingPoint starting, depth + 1, t)
+                  withBottom = mapOne (Left Front) (\(WithRect r (_, d, t)) -> WithRect r (trans, d, t)) allFloating
+               in Floating withBottom
 
         -- Input controllers don't really do anything.
         InputController t ->
@@ -151,7 +143,7 @@ getWindowByClass wName = do
 render
   :: ( Members (Inputs [Pointer, Screens]) r
      , Members (States [Tiler, Mode, [SubTiler]]) r
-     , Members [Mover, Minimizer, Colorer, GlobalX] r
+     , Members [Mover, Minimizer, Colorer, GlobalX, Log String] r
      )
   => Sem r [ParentChild]
 render = do
@@ -214,14 +206,13 @@ render = do
            )
 
        -- Draw the background with the floating windows on top.
-       draw _ (_ :<~ Floating ls) = 
-          (tops ++ bottoms, mapM_ (snd . getEither) ls)
-              where tops = foldl' onlyTops [] ls
-                    onlyTops acc (Top (_, (ws, _))) = ws ++ acc
-                    onlyTops acc _ = acc
-                    bottoms = foldl' onlyBottoms [] ls
-                    onlyBottoms acc (Bottom (ws, _)) = acc ++ ws
-                    onlyBottoms acc _ = acc
+       draw _ (_ :<~ Many mh _) =
+         case mh of
+           Floating fl ->
+             let (bottom, tops) = pop (Left Front) $ fmap (fst . extract) fl
+              in (join $ maybe [] (toList . fOrder) tops ++ [bottom], log (show tops) >> mapM_ (snd . extract) fl)
+           Horiz fl ->
+             (join $ toList $ fOrder $ fmap (fst . extract) fl, mapM_ (snd . extract) fl)
 
        -- Everything else just needs to draw it's children
        draw _ (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)

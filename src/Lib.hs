@@ -259,14 +259,20 @@ mainLoop = do
       ZoomMonitorToInput -> zoomMonitorToInput
       ZoomInputToMonitor -> zoomInputToMonitor
       ChangeModeTo mode -> changeModeTo mode
-      Move dir -> moveDir dir
-      ChangeNamed name -> maybe (return ()) changeIndex $ readMay name
+      Move dir -> changeMany $ moveDir dir
+      ChangeNamed name -> maybe (return ()) (changeMany . changeIndex) $ readMay name
       PopTiler -> popTiler
       PushTiler -> pushTiler
-      Insert t -> insertTiler t
-      MakeSpecial -> doSpecial
+      Insert -> insertTiler
+      MoveToFront -> changeMany moveToFront
+      MakeEmpty -> makeEmptySpot
       KillActive -> killActive
       ExitNow -> absurd <$> exit
       ToggleLogging -> toggleLogs
+      ChangeToHorizontal -> changeMany toHoriz
+      ChangeToFloating -> changeMany toFloating
+      SetRotate -> changeMods Rotate
+      SetFull -> changeMods Full
+      SetNoMod -> changeMods NoMods
       
 

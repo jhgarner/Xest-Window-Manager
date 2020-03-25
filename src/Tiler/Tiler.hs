@@ -36,11 +36,8 @@ import           Data.Functor.Foldable          ( embed )
 -- | Add a new Tiler wherever it would make the most sense to the user. For
 -- example, it's placed at the back for Horiz.
 add :: SubTiler -> Tiler -> Tiler
-add w (Horiz    fl) = Horiz $ push Back Focused (Sized 0 w) fl
--- TODO I could try to make the Rectangle float with whatever size the window
--- is asking for, but that requires doing IO. Is it worth it?
-add w (Floating ls) = Floating $ Top (Rect 0 0 300 300, w) +: ls
-add w t             = Horiz $ makeFL (NE (Sized 0 $ Fix t) [Sized 0 w]) 0
+add w (Many mh mods) = Many (withFl' mh (push Back Focused (point w))) mods
+add w t = Many (Horiz (makeFL (NE (Sized 0 $ Fix t) [Sized 0 w]) 0)) NoMods
 
 
 -- | Remove a Window if it exists in the tree.
@@ -57,36 +54,19 @@ ripOut toDelete = project . fromMaybe (error "No root!") . cata isEqual
 
 -- | Removes empty Tilers
 reduce :: TilerF (Maybe SubTiler) -> Maybe Tiler
--- Yo dog, I head you like fmaps
--- on a serious note, these two cases are super unreadable TODO
-reduce (Horiz fl) =
-  fmap Horiz
-    $   fmap (fmap $ fromMaybe (error "Impossible"))
-    <$> flFilter (not . null . getItem) fl
-reduce (Floating ls) = newTiler
- where
-  newTiler =
-    Floating . fmap (fmap $ fromMaybe (error "Impossible")) <$> newFront
-  newFront = filterNe (not . null . getEither) ls
+reduce (Many fl mods) =
+  (\newMh -> Many newMh mods) <$> (withFl fl (flMapMaybe sequence))
 reduce (InputControllerOrMonitor c t) = Just . c $ join t
-reduce (Reflect   t                 ) = fmap Reflect t
-reduce (FocusFull t                 ) = fmap FocusFull t
-reduce (Wrap      w                 ) = Just $ Wrap w
+reduce (Wrap w) = Just $ Wrap w
 
 
 -- | A combination of top and pop if you're coming from c++.
 -- fst . popWindow is like top and snd . popWindow is like pop
-popWindow
-  :: Show a => Either Direction Focus -> TilerF a -> (a, Maybe (TilerF a))
-
-popWindow howToPop (Horiz    fl) = getItem *** fmap Horiz $ pop howToPop fl
-
-popWindow howToPop (Floating ls) = second (fmap Floating) $ case howToPop of
-  Right Unfocused -> (getEither $ last ls, init ls)
-  _               -> (getEither $ head ls, tail ls)
-
-popWindow _ (Reflect   t) = (t, Nothing)
-popWindow _ (FocusFull t) = (t, Nothing)
+popWindow :: Show a
+          => Either Direction Focus -> TilerF a -> (a, Maybe (TilerF a))
+popWindow howToPop (Many mh mods) = (newElem, fmap (\newMh -> Many newMh mods) newMhM )
+  where newElem = foldFl mh $ extract . fst . pop howToPop
+        newMhM = withFl mh $ snd . pop howToPop
 
 popWindow e t =
   error $ "Attempted to pop the unpopable" ++ show e ++ " " ++ show t
@@ -121,21 +101,15 @@ onInput f root = f $ extract $ ana @(Beam _) findIC $ coerce root
 -- | Kind of like applyInput but instead of searching for the InputController,
 -- it just applies the function to whatever is focused by an individual Tiler.
 modFocused :: (a -> a) -> TilerF a -> TilerF a
-modFocused f (Horiz fl) = Horiz $ mapOne (Right Focused) (fmap f) fl
-modFocused f (   Floating  (NE a as)         ) = Floating $ NE (fmap f a) as
-modFocused f (   Reflect   t                 ) = Reflect $ f t
-modFocused f (   FocusFull t                 ) = FocusFull $ f t
+modFocused f (Many mh mods) = Many (withFl' mh $ mapOne (Right Focused) (fmap f)) mods
 modFocused _ wp@(Wrap      _                 ) = wp
 modFocused f t@( InputControllerOrMonitor _ _) = fmap f t
 
 
 -- | Change the focus of a Tiler
 focus :: SubTiler -> Tiler -> Tiler
-focus newF (  Horiz           fl) = Horiz $ focusElem (Sized 0 newF) fl
-focus newF (Floating ls) = Floating $ moveF 0 ((== newF) . getEither) ls
+focus newF (Many mh mods) = Many (withFl'Eq mh $ focusElem (point newF)) mods
 focus _    t@(Wrap            _ ) = t
-focus _    t@(Reflect         _ ) = t
-focus _    t@(FocusFull       _ ) = t
 focus _    t@(InputController _ ) = t
 focus _    t@(Monitor         _ ) = t
 
@@ -221,8 +195,8 @@ focusWindow window root =
 -- their names. This function gets that info, although we use a liberal
 -- definition of virtual desktop.
 getDesktopState :: Tiler -> ([Text], Int)
-getDesktopState (Horiz fl) = (pack . show <$> [1 .. flLength fl], i)
-  where i = findNeFocIndex fl
+getDesktopState (Many mh _) = (tshow @Int <$> [1 .. (foldFl mh flLength)], i)
+  where i = foldFl mh findNeFocIndex
 getDesktopState _ = (["None"], 0)
 
 -- |Renders the tree to a string which can be displayed on the top border of
@@ -230,10 +204,7 @@ getDesktopState _ = (["None"], 0)
 getFocusList :: TilerF String -> String
 getFocusList (InputController s       ) = "*" ++ fromMaybe "" s
 getFocusList (Monitor         s       ) = "@" ++ fromMaybe "" s
-getFocusList (Horiz fl) = "Horiz|" ++ getItem (fst (pop (Right Focused) fl))
-getFocusList (Floating        (NE t _)) = "Floating|" ++ extract t
-getFocusList (Reflect         t       ) = "Rotate|" ++ t
-getFocusList (FocusFull       t       ) = "Full|" ++ t
+getFocusList (Many mh _) = "Horiz|" ++ foldFl mh (extract . fst . pop (Right Focused))
 getFocusList (Wrap            _       ) = "Window"
 
 -- |Given a child, can we find the parent in our tree?
@@ -274,10 +245,7 @@ fixMonitor root = if cata isInPath root
     Monitor         _ -> True
     Wrap            _ -> False
     InputController t -> fromMaybe False t
-    FocusFull       t -> t
-    Reflect         t -> t
-    t@(Horiz    _)    -> getFocused t
-    t@(Floating _)    -> getFocused t
+    t@(Many _ _)    -> getFocused t
   insertMonitor = cata $ \case
     Monitor t -> join t
     InputController t ->

@@ -49,7 +49,7 @@ append :: NonEmpty a -> [a] -> NonEmpty a
 append (NE a as) bs = NE a $ as ++ bs
 
 remove :: Eq a => a -> NonEmpty a -> Maybe (NonEmpty a)
-remove b (NE a as)= mkNE $ filter (/= b) $ a : as
+remove b (NE a as) = mkNE $ filter (/= b) $ a : as
 
 removeI :: Int -> NonEmpty a -> Maybe (NonEmpty a)
 removeI i (NE a as) = mkNE . map snd . filter ((/= i) . fst) . zip [0 ..] $ a : as
@@ -63,6 +63,9 @@ findNeI b (NE a as) = fromMaybe (error "Not in List") $ elemIndex b $ a : as
 
 filterNe :: (a -> Bool) -> NonEmpty a -> Maybe (NonEmpty a)
 filterNe p (NE a as) = mkNE $ filter p $ a : as
+
+mapMaybeNe :: (a -> Maybe b) -> NonEmpty a -> Maybe (NonEmpty b)
+mapMaybeNe f (NE a as) = mkNE $ mapMaybe f $ a : as
 
 move :: Eq a => Int -> a -> NonEmpty a -> NonEmpty a
 move i b (NE a as) = fromMaybe (error "move died") 

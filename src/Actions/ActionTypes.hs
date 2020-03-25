@@ -6,16 +6,9 @@ import           Standard
 import           Dhall (Interpret)
 import           FocusList
 
-data Insertable
-  = Horizontal
-  | Hovering
-  | Rotate
-  | FullScreen
-  deriving (Generic, Show, Eq, Interpret)
-
 -- | Actions/events to be performed
 data Action
-  = Insert Insertable
+  = Insert
   | ChangeNamed String
   | Move Direction
   | RunCommand String
@@ -32,10 +25,16 @@ data Action
   | ZoomInputToMonitor
   | PopTiler
   | PushTiler
-  | MakeSpecial
+  | MakeEmpty
+  | MoveToFront
   | KillActive
   | ExitNow
   | ToggleLogging
+  | ChangeToHorizontal
+  | ChangeToFloating
+  | SetRotate
+  | SetFull
+  | SetNoMod
   deriving (Show, Generic, Interpret)
 
 -- | Modes similar to modes in vim

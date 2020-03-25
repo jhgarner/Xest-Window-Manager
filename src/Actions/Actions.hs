@@ -69,9 +69,7 @@ zoomDirInputSkip trans action = do
   -- The number of jumps to make.
   numToSkip = cata $ \case 
     Nil                    -> 1
-    Cons (Horiz     _) _ -> 1
-    Cons (Floating  _) _ -> 1
-    Cons (FocusFull _) _ -> 1
+    Cons (Many _ _) _ -> 1
     Cons (Monitor   _) i -> i + 1
     Cons _             i -> i + 1
 
@@ -184,30 +182,56 @@ changeModeTo newM = do
     Temp NotMod oldKS oldMode kc ea -> New oldKS oldMode kc ea
     ks -> ks
 
-
--- |If the current Tiler can hold multiple children, change which one
--- is focused. Typically bound to the number keys.
-changeIndex
+-- |Make a change to a Many Tiler if it comes after the InputController.
+changeMany
   :: Member (State Tiler) r
-  => Int -> Sem r ()
-changeIndex changeTo =
-  modify $ applyInput $ fmap changer
+  => (ManyHolder SubTiler -> ManyHolder SubTiler)
+  -> Sem r ()
+changeMany f =
+  modify $ applyInput $ fmap \case
+    Many mh mods -> Many (f mh) mods
+    t -> t
 
- where
-  changer (Horiz fl) = Horiz
-    $ if flLength fl >= changeTo then focusVIndex (changeTo - 1) fl else fl
-  changer t = t
+changeIndex :: Int -> ManyHolder SubTiler -> ManyHolder SubTiler
+changeIndex changeTo mh =
+  if foldFl mh flLength >= changeTo
+     then withFl' mh $ focusVIndex (changeTo - 1)
+     else mh
 
 -- |Same as above but either adds or subtract one from the current index.
-moveDir
-  :: Member (State Tiler) r
-  => Direction -> Sem r ()
-moveDir dir =
-  modify $ applyInput $ fmap changer
+moveDir :: Direction -> ManyHolder SubTiler -> ManyHolder SubTiler
+moveDir dir mh = withFl' mh $ focusDir dir
 
+moveToFront :: ManyHolder SubTiler -> ManyHolder SubTiler
+moveToFront mh = withFl' mh $ visualFIndex 0
+
+changeMods :: Member (State Tiler) r
+           => ManyMods
+           -> Sem r ()
+changeMods newMod =
+  modify $ applyInput $ fmap \case
+    Many mh _ -> Many mh newMod
+    t -> t
+
+-- |Move the input controller to create a new, empty item.
+makeEmptySpot
+  :: Member (State Tiler) r
+  => Sem r ()
+makeEmptySpot =
+  modify @Tiler $ \root -> onInput (coerce $ maybe root (makeSpecial root)) root
  where
-  changer (Horiz fl) = Horiz $ focusDir dir fl
-  changer t          = t
+  makeSpecial :: Tiler -> Tiler -> Tiler
+  makeSpecial root t = case t of
+    Many _ _ ->
+      -- TODO rewrite this in a less bad way.
+      fromMaybe (error "We know it's not just an IC") $ removeIC
+        $ applyInput (\(Just (Many mh mods)) -> Just $ Many (withFl' mh $ push Back Focused (point $ InputController Nothing)) mods) root
+    _ -> root
+
+  removeIC = cata $ \case 
+    InputController (Just t@(Just (Many _ _))) -> t
+    t -> reduce $ coerce t
+
 
 -- |Move a tiler from the tree into a stack. Later, we can push
 -- from the stack back into the tree. This function accomplishes
@@ -248,42 +272,12 @@ pushTiler = do
 -- That would be the pushOrAdd function.
 insertTiler
   :: Member (State Tiler) r
-  => Insertable -> Sem r ()
-insertTiler t =
+  => Sem r ()
+insertTiler =
   modify @Tiler $ applyInput (fmap toTiler)
 
  where
-  toTiler focused = case t of
-    Horizontal -> Horiz $ makeFL (NE (Sized 0 focused) []) 0
-    Rotate     -> Reflect focused
-    FullScreen -> FocusFull focused
-    Hovering   -> Floating $ NE (Bottom focused) []
-
--- |Perform some special action based on the focused tiler
-doSpecial
-  :: Member (State Tiler) r
-  => Sem r ()
-doSpecial =
-  modify @Tiler $ \root -> onInput (coerce $ maybe root (makeSpecial root)) root
- where
-  makeSpecial :: Tiler -> Tiler -> Tiler
-  makeSpecial root t = case t of
-    Floating (NE l ls) ->
-      applyInput (\_ -> Just $ Floating $ NE (mkBottom l) $ fmap mkTop ls) root
-    Horiz _ ->
-      -- TODO rewrite this in a less bad way.
-      -- maybe (error "We know it's not just an IC") (fromMaybe (error "Yikes") . fst . moveToIC i) $ removeIC i
-      fromMaybe (error "We know it's not just an IC") $ removeIC
-        $ applyInput (\(Just (Horiz fl)) -> Just $ Horiz $ push Back Focused (Sized 0 . Fix $ InputController Nothing) fl) root
-    _                  -> root
-
-  mkTop t@(Top    _) = t
-  mkTop (  Bottom t) = Top (Rect 0 0 300 300, t)
-  mkBottom = Bottom . extract
-
-  removeIC = cata $ \case 
-    InputController (Just t@(Just (Horiz _))) -> t
-    t -> reduce $ coerce t
+  toTiler focused = Many (Horiz $ makeFL (NE (point focused) []) 0) NoMods
 
 -- |Kill the active window
 killActive

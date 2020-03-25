@@ -67,7 +67,7 @@ makeSimpleBase name className tfName toName fromName = do
               , AppT (AppT EqualityT $ VarT aType)
                 $ AppT (ConT tfName) (VarT bType)
               ]
-            $ foldl' mkArrowType (VarT bType)
+            $ foldr mkArrowType (VarT bType)
             $ fmap snd types
     -- Equivalent to:
     -- pattern NewerName :: <patSigRHS>
@@ -99,7 +99,7 @@ makeSimpleBase name className tfName toName fromName = do
 
   newDec _ _ = error "Unable to build for this type"
   mkArrowType :: Type -> Type -> Type
-  mkArrowType t1 t2 = AppT (AppT ArrowT t2) t1
+  mkArrowType t1 t2 = AppT (AppT ArrowT t1) t2
   applyAll :: Exp -> [Name] -> Exp
   applyAll = foldl' (\en n -> AppE en $ VarE n)
   typeListToBinds :: [a] -> Q [Name]

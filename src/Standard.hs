@@ -102,27 +102,19 @@ data Transformation = Slide Rect Transformation | Spin Transformation | Starting
 makeBaseFunctor ''Transformation
 
 -- |Actually does the computations to create a new rectangle.
-applyTrans :: Transformation -> Rect
-applyTrans = cata $ \case
-  SlideF (Rect dx dy dw dh) Rect {..} ->
-    Rect (x + dx * w) (y + dy * h) (w * dw) (h * dh)
-  SpinF Rect {..} -> Rect y x h w
-  StartingPointF r -> r
-
--- |Tells you if a transformation would result in rotating 90 degrees.
-isRotated :: Transformation -> Bool
-isRotated = cata $ \case
-  SpinF b -> not b
-  StartingPointF _ -> False
-  SlideF _ b -> b
+applyTrans :: Transformation -> (Bool, Rect)
+applyTrans = cata \case
+  SlideF (Rect dx dy dw dh) (False, Rect {..}) ->
+    (False, Rect (x + dx * w) (y + dy * h) (w * dw) (h * dh))
+  SlideF (Rect dx dy dw dh) (True, Rect {..}) ->
+    (False, Rect (x + dy * w) (y + dx * h) (w * dh) (h * dw))
+  SpinF (_, Rect {..}) -> (True, Rect x y w h)
+  StartingPointF r -> (False, r)
 
 -- |Combines the above 2 functions to turn a transformation into something
 -- you can give to Xlib.
 toScreenCoord :: Transformation -> Rect
-toScreenCoord t
-  | isRotated t = Rect y x h w
-  | otherwise = r
-  where r@Rect {..} = applyTrans t
+toScreenCoord t = snd $ applyTrans t
 
 -- |Extracts the original untransformed rectangle.
 getStartingPoint :: Transformation -> Rect

@@ -15,7 +15,7 @@ module FocusList
   , Focus(..)
   , push
   , pop
-  , flFilter
+  , flMapMaybe
   , flLength
   , vOrder
   , fOrder
@@ -23,6 +23,8 @@ module FocusList
   , focusElem
   , focusIndex
   , focusVIndex
+  , visualIndex
+  , visualFIndex
   , findNeFocIndex
   , makeFL
   , focusDir
@@ -43,7 +45,7 @@ import           Dhall (Interpret)
 
 -- |Meant to represent the Head and Last on the list when sorted in focus order
 data Focus = Focused | Unfocused
-  deriving (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Show)
 
 -- |Meant to represent the Head and Last on the list when sorted in visual order
 data Direction = Front | Back
@@ -94,21 +96,21 @@ pop (Right isFocused) FL { visualOrder = vo, focusOrder = fo, actualData = ad }
             tailFo <- otherF fo
             filteredVo <- remove (elemF fo) vo
             filteredAd <- removeI (elemF fo) ad
-            return FL { visualOrder = filteredVo
+            return $ reduce (elemF fo) FL { visualOrder = filteredVo
                       , focusOrder  = tailFo
                       , actualData  = filteredAd
                       }
 
 pop (Left direction) FL { visualOrder = vo, focusOrder = fo, actualData = ad } 
-  = case direction of 
+  = case direction of
       Front -> popLogic head tail
       Back -> popLogic last init
-  where popLogic elemV otherV = 
+  where popLogic elemV otherV =
           (findNe (elemV vo) ad,) $ do
             tailVo <- otherV vo
-            filteredFo<- remove (elemV vo) fo
+            filteredFo <- remove (elemV vo) fo
             filteredAd <- removeI (elemV vo) ad
-            return FL { visualOrder = tailVo
+            return $ reduce (elemV vo) FL { visualOrder = tailVo
                       , focusOrder  = filteredFo
                       , actualData  = filteredAd
                       }
@@ -135,19 +137,20 @@ mapOne orderAndEnd f fl@FL { focusOrder = fo, visualOrder = vo, actualData = ad 
     where mapEnd tarfindNeI = map (\(i, a) -> if i == tarfindNeI then f a else a) $ zip [0 ..] ad
 
 -- | Filter a focused list. Unfortunately, filter isn't a typeclass anywhere
-flFilter :: (a -> Bool) -> FocusedList a -> Maybe (FocusedList a)
-flFilter predicate FL { actualData = ad, visualOrder = vo, focusOrder = fo } =
-  fmap (\unwrapped -> foldl' (flip reduce) unwrapped gone) newFL
+-- TODO This looks suspiciously like traverse...
+flMapMaybe :: (a -> Maybe b) -> FocusedList a -> Maybe (FocusedList b)
+flMapMaybe predicate FL { actualData = ad, visualOrder = vo, focusOrder = fo } =
+  fmap (\unwrapped -> foldl' (flip reduce) unwrapped $ sortBy (comparing Down) gone) newFL
   where
     newFL = do
-      newAd <- filterNe predicate ad
+      newAd <- mapMaybeNe predicate ad
       newVo <- foldM removeFrom vo gone
       newFo <- foldM removeFrom fo gone
       return FL { actualData  = newAd
                 , visualOrder = newVo
                 , focusOrder  = newFo
                 }
-    gone = foldl' (\acc (i, a) -> if predicate a then acc else i : acc) []
+    gone = foldl' (\acc (i, a) -> if isJust $ predicate a then acc else i : acc) []
       $ zip [0 ..] ad
     removeFrom = flip remove
 
@@ -172,8 +175,17 @@ focusIndex i fl@FL { focusOrder = fo } = fl
   }
   where newFo = move 0 i fo
 
+visualIndex :: Int -> FocusedList a -> FocusedList a
+visualIndex i fl@FL { visualOrder = fo } = fl
+  { visualOrder = if length fo > i then newFo else fo
+  }
+  where newFo = move 0 i fo
+
 focusVIndex :: Int -> FocusedList a -> FocusedList a
 focusVIndex i fl@FL {visualOrder = vo } = focusIndex (findNe i vo) fl
+
+visualFIndex :: Int -> FocusedList a -> FocusedList a
+visualFIndex i fl@FL {focusOrder = fo } = visualIndex (findNe i fo) fl
 
 findNeFocIndex :: FocusedList a -> Int
 findNeFocIndex FL {..} = findNeI (head focusOrder) visualOrder

@@ -47,6 +47,7 @@ dependencies:
 - monad-loops
 - co-log-core
 - co-log-polysemy
+- lens
 
 library:
   source-dirs: src
@@ -90,6 +91,7 @@ library:
     - DeriveFoldable
     - DeriveTraversable
     - DeriveGeneric
+    - DerivingStrategies
 
 executables:
   xest-exe:
