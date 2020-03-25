@@ -104,6 +104,15 @@ placeWindow screenSize root =
                         $ zip [0 ..]
                         $ vOrder realfl
 
+            (_, TwoCols colSize fl) ->
+              let numWins = fromIntegral $ flLength fl - 1
+                  wrapTrans = if mods == Rotate then Spin trans else trans
+                  location i = Slide (Rect colSize (1.0 / numWins * i) (1-colSize) (1.0 / numWins)) wrapTrans
+                  bigLoc = Slide (Rect 0 0 (colSize) 1) wrapTrans
+                  allRight = fromVis fl $ fmap (\(i, Identity t) -> Identity (location i, depth+1, t)) $ zip [-1 ..] (vOrder fl)
+
+               in TwoCols colSize $ mapOne (Left Front) (\(Identity (_, d, t)) -> Identity (bigLoc, d, t)) allRight
+
             (_, Floating ls) ->
               let allFloating = flip fmap ls $ \case
                     WithRect rr@Rect {..} t ->
@@ -211,8 +220,8 @@ render = do
            Floating fl ->
              let (bottom, tops) = pop (Left Front) $ fmap (fst . extract) fl
               in (join $ maybe [] (toList . fOrder) tops ++ [bottom], log (show tops) >> mapM_ (snd . extract) fl)
-           Horiz fl ->
-             (join $ toList $ fOrder $ fmap (fst . extract) fl, mapM_ (snd . extract) fl)
+           _ ->
+             (foldFl mh $ join . toList . fOrder . fmap (fst . extract), foldFl mh $ mapM_ (snd . extract))
 
        -- Everything else just needs to draw it's children
        draw _ (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)

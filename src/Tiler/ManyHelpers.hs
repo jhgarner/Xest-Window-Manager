@@ -15,6 +15,7 @@ import           Tiler.Sized
 data ManyHolder a where
   Horiz :: FocusedList (Sized a) -> ManyHolder a
   Floating :: FocusedList (WithRect a) -> ManyHolder a
+  TwoCols :: Double -> FocusedList (Identity a) -> ManyHolder a
   deriving stock (Foldable, Functor, Traversable, Show, Eq)
 deriveShow1 ''ManyHolder
 deriveEq1 ''ManyHolder
@@ -28,6 +29,7 @@ withFl :: (Functor m)
        -> m (ManyHolder b)
 withFl (Horiz fl) f = Horiz <$> f fl
 withFl (Floating fl) f = Floating <$> f fl
+withFl (TwoCols d fl) f = TwoCols d <$> f fl
 
 
 -- |Nearly identical to withFl, but specialized for Identity to cut down on boilerplate.
@@ -51,6 +53,7 @@ withFl'Eq :: Eq a
        -> ManyHolder b
 withFl'Eq (Horiz fl) f = Horiz $ f fl
 withFl'Eq (Floating fl) f = Floating $ f fl
+withFl'Eq (TwoCols d fl) f = TwoCols d $ f fl
 
 -- |Like the above except you can do whatever you want to the FocusedList. The
 -- downside is you can't recreate the ManyHolder afterwards.
@@ -62,16 +65,25 @@ foldFl :: ManyHolder a
         -> b
 foldFl (Horiz fl) f = f fl
 foldFl (Floating fl) f = f fl
+foldFl (TwoCols _ fl) f = f fl
 
 -- |Converts a holder of Floating things into one of horizontal things.
 toFloating :: ManyHolder a -> ManyHolder a
 toFloating (Horiz fl) = Floating $ fmap (point . extract) fl
+toFloating (TwoCols _ fl) = Floating $ fmap (point . extract) fl
 toFloating mh@(Floating _) = mh
 
 -- |Like the above but in reverse.
 toHoriz :: ManyHolder a -> ManyHolder a
 toHoriz (Floating fl) = Horiz $ fmap (point . extract) fl
+toHoriz (TwoCols _ fl) = Horiz $ fmap (point . extract) fl
 toHoriz mh@(Horiz _) = mh
+
+-- |Like the above but in reverse.
+toTwoCols :: ManyHolder a -> ManyHolder a
+toTwoCols (Floating fl) = TwoCols 0.6 $ fmap (point . extract) fl
+toTwoCols (Horiz fl) = TwoCols 0.6 $ fmap (point . extract) fl
+toTwoCols mh@(TwoCols _ _) = mh
 
 
 -- |Mods can be applied to any ManyHolder type.

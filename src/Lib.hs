@@ -271,6 +271,7 @@ mainLoop = do
       ToggleLogging -> toggleLogs
       ChangeToHorizontal -> changeMany toHoriz
       ChangeToFloating -> changeMany toFloating
+      ChangeToTwoCols -> changeMany toTwoCols
       SetRotate -> changeMods Rotate
       SetFull -> changeMods Full
       SetNoMod -> changeMods NoMods

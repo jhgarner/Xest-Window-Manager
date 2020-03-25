@@ -18,7 +18,8 @@ module Tiler.Tiler
   , module Tiler.ParentChild
   , module Tiler.TreeCombo
   , module Tiler.Sized
-  , module Tiler.BottomOrTop
+  , module Tiler.WithRect
+  , module Tiler.ManyHelpers
   )
 where
 
@@ -28,7 +29,8 @@ import           Tiler.TilerTypes
 import           Tiler.ParentChild
 import           Tiler.TreeCombo
 import           Tiler.Sized
-import           Tiler.BottomOrTop
+import           Tiler.WithRect
+import           Tiler.ManyHelpers
 import           FocusList
 import           Data.Functor.Foldable          ( embed )
 

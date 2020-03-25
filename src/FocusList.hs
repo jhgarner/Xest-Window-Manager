@@ -71,6 +71,7 @@ instance Zip FocusedList where
   zipWith f fl@FL { actualData = ad } FL { actualData = add } =
     fl { actualData = zipWith f ad add }
 
+
 -- Begin the actual code
 
 -- | Pushes something to different ends

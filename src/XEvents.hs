@@ -350,6 +350,10 @@ changeSize rotation m (Many mh mods) = flip Many mods case mh of
         RightButton _ -> WithRect (Rect x y (w + dx) (h + dy)) t
         LeftButton _ -> WithRect (Rect (x+dx) (y+dy) w h) t
         None -> error "Yikes, this shouldn't be possible!") fl
+  -- TODO I have no idea how this function works anymore. Once I rewrite it,
+  -- I'll add this implementation.
+  TwoCols colSize fl -> TwoCols colSize fl
+
 changeSize _ _ t = t
 
 makeFullscreen :: Members '[State Tiler, Minimizer, Property] r

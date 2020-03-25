@@ -32,6 +32,7 @@ data Action
   | ToggleLogging
   | ChangeToHorizontal
   | ChangeToFloating
+  | ChangeToTwoCols
   | SetRotate
   | SetFull
   | SetNoMod
