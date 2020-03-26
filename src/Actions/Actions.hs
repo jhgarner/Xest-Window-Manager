@@ -218,14 +218,25 @@ makeEmptySpot
   :: Member (State Tiler) r
   => Sem r ()
 makeEmptySpot =
-  modify @Tiler $ \root -> onInput (coerce $ maybe root (makeSpecial root)) root
+  modify @Tiler $ \root -> onInput (coerce $ maybe root (makeEmptySpot' root)) root
  where
-  makeSpecial :: Tiler -> Tiler -> Tiler
-  makeSpecial root t = case t of
-    Many _ _ ->
-      -- TODO rewrite this in a less bad way.
+  makeEmptySpot' :: Tiler -> Tiler -> Tiler
+  makeEmptySpot' root t = case t of
+    Many (Horiz _) _ ->
+      -- TODO I don't like the fromMaybe
       fromMaybe (error "We know it's not just an IC") $ removeIC
-        $ applyInput (\(Just (Many mh mods)) -> Just $ Many (withFl' mh $ push Back Focused (point $ InputController Nothing)) mods) root
+        $ applyInput (\(Just (Many (Horiz fl) mods)) ->
+          let ogSize = fromIntegral $ flLength fl
+              newSize = ogSize + 1
+              growPercent = ogSize / newSize
+
+              newFl = fmap (\(Sized s a) -> Sized (s * growPercent) a) fl
+              newestFl = push Back Focused (Sized (1 / newSize) $ InputController Nothing) newFl
+           in Just $ Many (Horiz newestFl) mods) root
+    Many _ _ ->
+      fromMaybe (error "We know it's not just an IC") $ removeIC
+        $ applyInput (\(Just (Many mh mods)) ->
+          Just $ Many (withFl' mh $ push Back Focused (point $ InputController Nothing)) mods) root
     _ -> root
 
   removeIC = cata $ \case 
@@ -277,7 +288,7 @@ insertTiler =
   modify @Tiler $ applyInput (fmap toTiler)
 
  where
-  toTiler focused = Many (Horiz $ makeFL (NE (point focused) []) 0) NoMods
+  toTiler focused = Many (Horiz $ makeFL (NE (Sized 1 focused) []) 0) NoMods
 
 -- |Kill the active window
 killActive

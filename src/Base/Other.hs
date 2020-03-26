@@ -41,12 +41,14 @@ runGetButtons = runInputSem $ do
   d <- input @Display
   root <- input @RootWindow
   embed @IO $ do 
-    (_, _, _, _, _, _, _, b) <- queryPointer d root
+    (_, _, _, px, py, _, _, b) <- queryPointer d root
+    let x = fromIntegral px
+    let y = fromIntegral py
 
     allowEvents d asyncPointer currentTime
     return $ case b of
-            _ | b .&. button1Mask /= 0-> LeftButton (0, 0)
-              | b .&. button3Mask /= 0-> RightButton (0, 0)
+            _ | b .&. button1Mask /= 0-> LeftButton (x, y)
+              | b .&. button3Mask /= 0-> RightButton (x, y)
               | otherwise -> None
 
 runGetScreens :: Members [Input Display, Embed IO] r
@@ -92,10 +94,10 @@ indexedState = interpret $ \case
       
 data MouseButtons = LeftButton (Int, Int) | RightButton (Int, Int) | None
   deriving Show
-getButtonLoc :: MouseButtons -> (Int, Int)
-getButtonLoc (LeftButton l) = l
-getButtonLoc (RightButton l) = l
-getButtonLoc _ = error "Tried to get a button when none exist"
+getButtonLoc :: MouseButtons -> Maybe (Int, Int)
+getButtonLoc (LeftButton l) = Just l
+getButtonLoc (RightButton l) = Just l
+getButtonLoc _ = Nothing
 
 type Screens = Map Int Screen'
 type ActiveScreen = Int

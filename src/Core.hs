@@ -94,15 +94,10 @@ placeWindow screenSize root =
             (Full, _) ->
               withFl' (fmap (\t -> (StartingPoint $ Rect 0 0 0 0, depth + 1, t)) mh) $ mapOne (Right Focused) (fmap (\(_, d, t) -> (trans, d, t)))
             (_, Horiz fl) ->
-              let numWins = fromIntegral $ flLength fl
-                  wrapTrans = if mods == Rotate then Spin trans else trans
-                  location i lSize size = Slide (Rect (newX i lSize) 0 (1 / numWins + size) 1) wrapTrans
-                  newX i lSize = 1.0 / numWins * i + lSize
-                  realfl = fromVis fl . mapFold (\lSize (Sized modS t) -> (lSize + modS, (lSize, modS, t))) 0 $ vOrder fl
+              let wrapTrans = if mods == Rotate then Spin trans else trans
+                  placed lSize size t = Sized size (Slide (Rect lSize 0 size 1) wrapTrans, depth+1, t)
 
-              in Horiz $ fromVis realfl $ map (\(index, (lSize, size, t)) -> Sized size (location index lSize size, depth + 1, t))
-                        $ zip [0 ..]
-                        $ vOrder realfl
+              in Horiz $ fromVis fl . mapFold (\lSize (Sized s t) -> (lSize + s, placed lSize s t)) 0 $ vOrder fl
 
             (_, TwoCols colSize fl) ->
               let numWins = fromIntegral $ flLength fl - 1
@@ -145,8 +140,8 @@ getWindowByClass
   -> Sem r [Window]
 getWindowByClass wName = do
   childrenList <- getTree
-  filterM findWindow childrenList
-  where findWindow win = (== wName) <$> getClassName win
+  filterM findWindow' childrenList
+  where findWindow' win = (== wName) <$> getClassName win
 
 -- |Moves windows around based on where they are in the tiler.
 render

@@ -14,6 +14,8 @@ import Text.Show.Deriving
 import Data.ChunkedZip
 import Data.List as All (elemIndex)
 import GHC.Exts
+import Control.Lens.At
+import Control.Lens hiding (index)
 
 data NonEmpty a = NE a [a]
   deriving (Show, Eq, Functor, Foldable, Traversable, Generic)
@@ -84,6 +86,10 @@ mkMany n = fromMaybe (error "can't make 0 elements") . mkNE . replicate n
 reverseNe :: NonEmpty a -> NonEmpty a
 reverseNe (NE a as) = NE newA newAs
   where (newA : newAs) = reverse $ a : as
+
+updateIx :: (a -> a) -> Int -> NonEmpty a -> NonEmpty a
+updateIx f 0 (NE a as) = NE (f a) as
+updateIx f n (NE a as) = NE a $ over (ix (n-1)) f as
 
 infixr 7 +:
 (+:) :: a -> NonEmpty a -> NonEmpty a

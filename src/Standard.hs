@@ -29,11 +29,13 @@ module Standard
     , toScreenCoord
     , getStartingPoint
     , trd
+    , fromEither
     ) where
 
-import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector, log)
+import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector, log, fromEither)
 import Data.Foldable as All (find)
 import           Colog.Polysemy as All
+import Data.Monoid as All (Sum(..))
 
 import Polysemy.State
 import Polysemy
@@ -211,3 +213,7 @@ deferred = either (const []) reverse . cata undefer'
 -- |Like fst and snd but for the third element.
 trd :: (a, b, c) -> c
 trd (_, _, c) = c
+
+fromEither :: Either a a -> a
+fromEither (Left a) = a
+fromEither (Right a) = a

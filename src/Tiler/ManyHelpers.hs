@@ -75,8 +75,10 @@ toFloating mh@(Floating _) = mh
 
 -- |Like the above but in reverse.
 toHoriz :: ManyHolder a -> ManyHolder a
-toHoriz (Floating fl) = Horiz $ fmap (point . extract) fl
-toHoriz (TwoCols _ fl) = Horiz $ fmap (point . extract) fl
+toHoriz (Floating fl) = Horiz $ fmap (Sized (1/len) . extract) fl
+  where len = fromIntegral $ flLength fl
+toHoriz (TwoCols _ fl) = Horiz $ fmap (Sized (1/len) . extract) fl
+  where len = fromIntegral $ flLength fl
 toHoriz mh@(Horiz _) = mh
 
 -- |Like the above but in reverse.

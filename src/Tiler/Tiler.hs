@@ -38,8 +38,17 @@ import           Data.Functor.Foldable          ( embed )
 -- | Add a new Tiler wherever it would make the most sense to the user. For
 -- example, it's placed at the back for Horiz.
 add :: SubTiler -> Tiler -> Tiler
+add w (Many (Horiz fl) mods) =
+  let ogSize = fromIntegral $ flLength fl
+      newFl = push Back Focused (Sized (1 / ogSize) w) fl
+      growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 newFl
+
+      newestFl = fmap (\(Sized s a) -> Sized (s * growPercent) a) newFl
+
+   in Many (Horiz newestFl) mods
+
 add w (Many mh mods) = Many (withFl' mh (push Back Focused (point w))) mods
-add w t = Many (Horiz (makeFL (NE (Sized 0 $ Fix t) [Sized 0 w]) 0)) NoMods
+add w t = Many (Horiz (makeFL (NE (Sized 0.5 $ Fix t) [Sized 0.5 w]) 0)) NoMods
 
 
 -- | Remove a Window if it exists in the tree.
@@ -56,8 +65,15 @@ ripOut toDelete = project . fromMaybe (error "No root!") . cata isEqual
 
 -- | Removes empty Tilers
 reduce :: TilerF (Maybe SubTiler) -> Maybe Tiler
-reduce (Many fl mods) =
-  (\newMh -> Many newMh mods) <$> (withFl fl (flMapMaybe sequence))
+reduce (Many (Horiz fl) mods) = do
+  newFl <- flMapMaybe sequence fl
+  -- We need to multiply by a growth percentage to get the new sizes.
+  let growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 fl
+      newestFl = fmap (\(Sized s a) -> Sized (s * growPercent) a) newFl
+  return $ Many (Horiz newestFl) mods
+reduce (Many fl mods) = do
+  newFl <- withFl fl (flMapMaybe sequence)
+  return $ Many newFl mods
 reduce (InputControllerOrMonitor c t) = Just . c $ join t
 reduce (Wrap w) = Just $ Wrap w
 
@@ -66,6 +82,12 @@ reduce (Wrap w) = Just $ Wrap w
 -- fst . popWindow is like top and snd . popWindow is like pop
 popWindow :: Show a
           => Either Direction Focus -> TilerF a -> (a, Maybe (TilerF a))
+popWindow howToPop (Many (Horiz fl) mods) = (newElem, newMany)
+  where (Sized _ newElem, newFlM) = pop howToPop fl
+        newMany = do
+          newFl <- newFlM
+          let growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 fl
+          return $ Many (Horiz $ fmap (\(Sized s a) -> Sized (s * growPercent) a) newFl) mods
 popWindow howToPop (Many mh mods) = (newElem, fmap (\newMh -> Many newMh mods) newMhM )
   where newElem = foldFl mh $ extract . fst . pop howToPop
         newMhM = withFl mh $ snd . pop howToPop

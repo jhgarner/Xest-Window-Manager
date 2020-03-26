@@ -264,41 +264,26 @@ keyDown keycode eventType
 
 -- |When the user moves the mouse in resize mode, this events are triggered.
 motion :: Members '[Property, Minimizer] r
-       => Members (Inputs [Screens, Pointer, MouseButtons]) r
+       => Members (Inputs [XRect, Pointer, MouseButtons]) r
        => Members (States [Tiler, MouseButtons, Maybe ()]) r
        => Sem r ()
 motion = do
   -- First, let's find the current screen and its dimensions.
-  pointer@(xPointer, yPointer) <- bimap fromIntegral fromIntegral <$> input @Pointer
-  dPointer <- get @MouseButtons <&> \case
-    LeftButton (x', y') -> LeftButton (xPointer - x', yPointer - y')
-    RightButton (x', y') -> RightButton (xPointer - x', yPointer - y')
-    None -> None
-  
-  -- Are we rotated?
-  rotated <- cata numRotations <$> get @Tiler
-
-  -- Move the tiler based on the mouse movement
-  modify
-    $ applyInput $ fmap $ coerce (changeSize rotated dPointer)
+  Rect _ _ screenW screenH <- input @XRect
+  realButtonState <- input @MouseButtons
+  lastButtonState <- get @MouseButtons
+  case (getButtonLoc realButtonState, getButtonLoc lastButtonState) of
+    (Just (xNow, yNow), Just (xLast, yLast)) -> do
+      let direction = case realButtonState of
+                        LeftButton _ -> Left
+                        RightButton _ -> Right
+          change = direction (xNow - xLast, yNow - yLast)
+       in modify $ applyInput $ fmap $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
+    (_, _) -> return ()
 
   input @MouseButtons >>= put
 
-  -- We know what button is pressed, now we need to update the location
-  updateMouseLoc pointer
   put $ Just ()
-
- where numRotations :: TilerF Bool -> Bool
-       numRotations (InputControllerOrMonitor _ a) = fromMaybe False a
-       -- numRotations (Reflect a) = not a
-       numRotations (Wrap _) = False
-       numRotations b = getFocused b
-
-       updateMouseLoc :: Member (State MouseButtons) r => (Int, Int) -> Sem r ()
-       updateMouseLoc (newX, newY) = modify @MouseButtons $ \case
-           LeftButton _ -> LeftButton (newX, newY)
-           RightButton _ -> RightButton (newX, newY)
-           None -> None
 
 -- |Helper function for motion.
 -- TODO This function probably belongs in Tiler.
@@ -307,52 +292,47 @@ motion = do
 -- percent of another Tiler it takes up. 0 means it's at the original size
 -- while 1 means it's twice as big. In theory, this continues to hold when you
 -- add or remove additional Tilers.
-changeSize :: Bool -> MouseButtons -> Tiler -> Tiler
-changeSize _ None t = t
-changeSize rotation m (Many mh mods) = flip Many mods case mh of
-  Horiz fl ->
-    -- TODO The logic in here is terrible to follow...
-    -- What's the right way to write this?
-    let numWins = fromIntegral $ length fl
-        delta = (if rotation then snd else fst) $ bimap fromIntegral fromIntegral $ getButtonLoc m
-        windowSize = 1 / numWins
-        sign = if delta < 0 then (-) 0 else id
-        foc = fromIntegral $ (case m of
-                                RightButton _ -> (+1)
-                                -- LeftButton == RightButton on the previous window
-                                LeftButton  _ -> id
-                                None -> error "Yikes, this shouldn't be possible"
-                             ) $ findNeFocIndex fl
-        
-        bound = max (-windowSize)
-        (_, trueDelta)  = foldl' 
-          -- TODO Yikes.
-          (\(i, minS) (Sized size _) -> if i == foc && foc < numWins
-            then (i+1, min minS $ abs $ size - bound (size + delta))
-            else if i == foc + 1 && foc > 0
-            then (i+1, min minS $ abs $ size - bound (size - delta))
-            else (i+1, minS)) (1, 0.01) $ vOrder fl
-        propagate = 
-          -- TODO Yikes part 2
-          fromVis fl . mapFold
-          (\i (Sized size t) -> if i == foc && foc < numWins
-            then (i+1, Sized (bound (size + sign trueDelta)) t)
-            else if i == foc + 1 && foc > 0
-            then (i+1, Sized (bound (size - sign trueDelta)) t)
-            else (i+1, Sized (bound size) t))
-          1
-          $ vOrder fl
-    in Horiz propagate
-  Floating fl ->
-    let (dx, dy) = (if rotation then swap else id) $ bimap fromIntegral fromIntegral $ getButtonLoc m
-    in Floating $ mapOne (Right Focused) (\(WithRect Rect{..} t) ->
-      case m of
-        RightButton _ -> WithRect (Rect x y (w + dx) (h + dy)) t
-        LeftButton _ -> WithRect (Rect (x+dx) (y+dy) w h) t
-        None -> error "Yikes, this shouldn't be possible!") fl
-  -- TODO I have no idea how this function works anymore. Once I rewrite it,
-  -- I'll add this implementation.
-  TwoCols colSize fl -> TwoCols colSize fl
+changeSize :: Either (Int, Int) (Int, Int) -> (Int, Int) -> Tiler -> Tiler
+changeSize mouseLoc screen (Many mh mods) =
+  flip Many mods case mh of
+    Horiz fl ->
+      -- I think the trick to reading this one is to start with the "in" then
+      -- work your way up into the "let" bindings.
+      let direction = fromIntegral . if mods == Rotate then snd else fst
+          delta = direction $ fromEither mouseLoc
+          screenSize = direction screen
+          deltaPercent = delta / screenSize
+          focLoc = fromIntegral $
+            (case mouseLoc of
+               Right _ -> id
+               Left  _ -> (\n -> n-1)
+            ) $ findNeFocIndex fl
+          vList = vOrder fl
+          maxChange = getSize $ findNe (focLoc+1) vList
+          currentSize = getSize $ findNe focLoc vList
+          bounded = max (0.01-currentSize) $ min maxChange deltaPercent
+          withFocChange = updateIx (\(Sized s a) -> Sized (s + bounded) a) focLoc vList
+          withPredChange = updateIx (\(Sized s a) -> Sized (s - bounded) a) (focLoc+1) withFocChange
+          
+      in if focLoc > -1 && focLoc < flLength fl - 1
+            then Horiz $ fromVis fl withPredChange
+            else Horiz fl
+
+    Floating fl ->
+      let (dx, dy) = bimap fromIntegral fromIntegral $ fromEither mouseLoc
+      in Floating $ mapOne (Right Focused) (\(WithRect Rect{..} t) ->
+        case mouseLoc of
+          Right _ -> WithRect (Rect x y (w + dx) (h + dy)) t
+          Left _ -> WithRect (Rect (x+dx) (y+dy) w h) t
+          ) fl
+
+    TwoCols colSize fl ->
+      let direction = fromIntegral . if mods == Rotate then snd else fst
+          delta = direction $ fromEither mouseLoc
+          screenSize = direction screen
+          deltaPercent = delta / screenSize
+          newColSize = max 0 $ min 1 $ colSize + deltaPercent
+       in TwoCols newColSize fl
 
 changeSize _ _ t = t
 
