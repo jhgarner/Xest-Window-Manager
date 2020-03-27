@@ -287,11 +287,6 @@ motion = do
 
 -- |Helper function for motion.
 -- TODO This function probably belongs in Tiler.
--- TODO This function is really hard to follow.
--- Why represent horizontal sizes this way? The idea is that the Size is the
--- percent of another Tiler it takes up. 0 means it's at the original size
--- while 1 means it's twice as big. In theory, this continues to hold when you
--- add or remove additional Tilers.
 changeSize :: Either (Int, Int) (Int, Int) -> (Int, Int) -> Tiler -> Tiler
 changeSize mouseLoc screen (Many mh mods) =
   flip Many mods case mh of

@@ -228,7 +228,19 @@ getDesktopState _ = (["None"], 0)
 getFocusList :: TilerF String -> String
 getFocusList (InputController s       ) = "*" ++ fromMaybe "" s
 getFocusList (Monitor         s       ) = "@" ++ fromMaybe "" s
-getFocusList (Many mh _) = "Horiz|" ++ foldFl mh (extract . fst . pop (Right Focused))
+getFocusList (Many mh mods) =
+  "|" ++ modType ++ manyType ++ "-" ++ size ++ "-" ++ i ++ "|" ++ child
+  where manyType = case mh of
+                     Horiz _ -> "H"
+                     Floating _ -> "F"
+                     TwoCols _ _ -> "T"
+        modType = case mods of
+                    Rotate -> "r-"
+                    Full -> "f-"
+                    NoMods -> ""
+        child = foldFl mh $ extract . fst . pop (Right Focused)
+        size = foldFl mh $ show . flLength
+        i = foldFl mh $ show . findNeFocIndex
 getFocusList (Wrap            _       ) = "Window"
 
 -- |Given a child, can we find the parent in our tree?
