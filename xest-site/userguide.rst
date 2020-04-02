@@ -3,26 +3,41 @@ title: User guide
 date: 2015-1-1
 ---
 
+Post Install
+============
+
+Xest will crash if it can't find a config file in your home directory. If you
+installed the Arch package, you should be able to copy the contents of the "/etc/xest/config/
+folder into "~/.config/xest/config/". Once you do that, you will need to edit
+the config files. "config.dhall" is kind of messy right now, but it should have
+most of what you need. Just make sure to change any hard-coded strings for your
+system. Most likely you'll need to change the terminal from "kitty/termite" to
+something else. You also probably need to change the startup file and font
+locations. The "startup.sh" will also need some changes. Add whatever you want
+to run on boot and remove the things that you don't have. Use "&" to make sure
+it doesn't get hung up on any lines that spawn long running commands.
+
 Using Xest
 =============
 
-The following assumes you're using the default config.dhall and have fixed up
-the startup.sh file to your liking.
+The following key bindings assumes you're using the default config.dhall (after
+performing the post install instructions).
 
 Modes and Keys
 --------------
 
 Once you've launched Xest, you should see your desktop wallpaper and not much
 else. Begin by pressing the Super/Windows key. A pink border should have
-appeared around your desktop. This signifies that you are in normal mode.
+appeared around your desktop. This border signifies that you are in normal mode.
+The color and position of the border tell you where you are in Xest's tree. You
+can also look at the text on the border to get an idea for where you are. The
+"@" sign tells you where the monitor is and the "*" tells you where the input
+controller is. Those will be explained more below.
 
-If you have Termite installed, pressing t while in normal mode will launch that
-program. Likewise, pressing d while in normal mode brings up Rofi. If you don't
-have either of those installed, you should edit the config.dhall file and
-replace those names with something else.
+Pressing "t" should launch your terminal while "d" should launch your launcher.
 
 At some point, you probably want to leave normal mode. You can do that using the
-escape key. Pressing 3 keys every time you want to launch a program seems kind
+escape key. Pressing 3 keys (windows, d, escape) every time you want to launch a program seems kind
 of long. Although this mode based system has it's advantages on longer commands,
 it tends to be less efficient when you just want to perform one action.
 
@@ -35,22 +50,22 @@ to be temporary. If you let go of the mode key before pressing another, Xest
 assumes you want to remain in the new mode.
 
 Basically, this is an extremely long winded way to say you can press "Super+d"
-like you would in i3 to launch rofi/dmenu. Any key press in Xest supports
-temporary and permanent modes.
+like you would in i3 to launch rofi/dmenu or "Super+t" to launch the terminal.
+Any key press in Xest supports temporary and permanent modes.
 
-One of the cool extensions to this is the NormalS mode in the default config.
+One of the cool implications of this is the NormalS mode in the default config.
 In Xest, binding the "I" key is the exact same as binding the "i" key. This
 might seem like a problem, until you realize that Shift is just another key that
 can be bound. The NormalS mode is triggered when you press the Shift key while
 in Normal mode. Because of how temporary modes work, this essentially emulates
 being able to bind both "I" and "i".
 
-If you've already got a solid grasp on how Xest's modes work, you might be
-confused by something. If NormalS is just a mode, what happens if I press and
-release the Shift key without hitting anything else. In that case, you enter
+If NormalS is just a mode, what happens if I press and
+release the Shift key without hitting anything else? In that case, you enter
 NormalS mode permanently and can hit a string of capital letters with ease. You
 can move back to Normal mode by pressing escape. To get back into Insert mode,
-hit escape again.
+hit escape again. None of this is hard-coded into Xest. You can find all of this
+logic in the config.dhall file.
 
 Keys in Xest can be bound to things called actions. This will be covered more in
 the configuring Xest section.
@@ -69,7 +84,7 @@ inserting Tilers into the tree.
 If you're every confused about what the tree looks like, just enter Normal mode.
 On the top most border, a textual representation of the tree is provided. The
 text shows you the path from the root of the tree all the way to the currently
-focused leaf.
+focused window.
 
 Here are some of the Tilers:
 
@@ -79,40 +94,35 @@ Wrap
 A Wrap Tiler represents a leaf on the tree. It simple wraps a normal window and
 has no children.
 
-Horizontal
+Many
 ^^^^^^^^^^
 
-A Horizontal Tiler has a list of children and shows them to you horizontally.
-Although they take up equal amounts of space by default, you can use the Resize
-mode to adjust that with the mouse. A Horizontal Tiler is automatically created
-if you create a new window while focusing on a Wrap.
+Many is a complicated Tiler and holds a lot of power. It's called Many because
+it can hold many children. By default, each child is tiled horizontally like in
+i3. If you want to have 1 background Tiler with the rest floating on top, you
+can tell Many to change to a "floating" style. If you want a 2 column approach
+like Xmonad uses, you can switch to the "twoCols" style. You can also rotate
+everything using the "rotate" modifier. This turns the "horizontally" style into a
+vertical one and the "twoCols" style into something that might be called
+"twoRows". Finally, you can set the "full" modifier to make the currently focused
+child take up all of the space.
 
-Rotate
-^^^^^^
+How do you create grids of windows? The children to any Tiler are other Tilers.
+If you nest Many multiple times, you can create arbitrarily complex layouts. If
+you nest Many with the "full" modifier set, you can get something like nested
+workspaces.
 
-A rotate Tiler tells it's children that the X and Y axes are swapped. Rotate
-only takes a single child, but the change affects all of the children of that
-child as well. If you put a Horizontal Tiler as the child of a Rotate Tiler, you
-will create what looks like a Vertical Tiler. Note that Vertical Tilers don't
-actually exist and don't have any special code. They are simply the result of
-composing two Tilers together.
-
-Full Screen
-^^^^^^^^^^
-
-A Full Screen Tiler takes the focused element of it's one child and renders that
-without any of the unfocused children. If you put a Horizontal Tiler as the
-child of a Full Screen Tiler, you get one way of emulating workspaces. If you
-put a Monitor or Input Controller as the child of a Full Screen Tiler, the Full
-Screen Tiler is essentially ignored while rendering.
-
+On the border, a Many Tiler is represented as
+"\|<modifier>-<style>-<#children>-<focusedChild>\|".
 
 Monitor
 ^^^^^^^
 
 This Tiler tells Xest when to start rendering on a given screen. By default, the
 Monitor is the root of the screen. You can zoom it inwards to minimize entire
-branches of the tree.
+branches of the tree. This is another way to create a form of workspaces.
+
+On the border, a Monitor is represented as "@".
 
 Input Controller
 ^^^^^^^^^^^^^^^^
@@ -123,31 +133,24 @@ whatever comes immediately after the Input Controller. Likewise, if you perform
 some action, it is applied to whatever is the Input Controller's immediate
 child. Like the Monitor, you can move the Input Controller around the screen.
 
-Floating
-^^^^^^^^
-
-In it's current state, this Tiler is kind of broken. When it worked better, it
-let you escape the confines of a Tiling Window Manager by having floating Tilers
-and a background Tiler.
-
+On the border, an Input Controller is represented as "*".
 
 Zooming
 -------
 
-Take a moment to imagine your typical Gnome/I3/Window workflow assuming you're
-making use of virtual desktops. In most of those options, you have some kind of
+Take a moment to imagine your typical Gnome/Windows workflow assuming you're
+making use of virtual desktops. In those options, you have some kind of
 task or overview mode to help you see the bigger picture. For example, in Gnome
-it looks like this:...  and in Windows it looks something like this. Pay
-particular attention to the little boxes showing you each virtual desktop. When
+it happens when you press the windows key. In Windows it happens when you press the virtual desktop button on the taskbar. When
 you enter this kind of view, it's almost like you're "zooming out" from the
 desktop you had been working in. Instead of looking at one desktop, you can now
-see several. Likewise, you can click on one of those desktops to "zoom in" on
-whatever you're working on.
+see several. Likewise, you can usually click on one of the desktops to zoom back in on
+whatever you were working on.
 
 This zooming concept is taken to the extreme in Xest as it's your primary way of
-moving around.  By making zooming explicit, we can get features like workspaces
-and maximization in one "simple" idea. In no time, you'll find your efficiency
-zooming past it's former self :)
+moving around. By making zooming explicit, we can get features like workspaces
+and window maximization in one "simple" idea. In no time, you'll find your efficiency
+zooming past its former self :)
 
 Zooming can be applied to either the Input Controller or the Monitor. Check out
 the list of actions when configuring Xest for more details.
@@ -156,11 +159,11 @@ Popping/Pushing
 ---------------
 
 Xest keeps a stack of popped tilers in it's memory.
-when you pop a window, it gets removed from the tree. You can add it back into
-the tree using the Push action, its inverse.
+When you pop a window, it gets removed from the tree. You can add it back into
+the tree using the Push action.
 
 Unlike other Window Managers, Xest doesn't have a dedicated Action for moving
-windows to other desktops or swapping orders. Instead, you have to use popping
+windows to other desktops. Instead, you have to use popping
 and pushing to accomplish that.
 
 One of the benefits to this is Xest can yank entire sections of your tree at
@@ -195,6 +198,17 @@ StartupScript
 A string containing a script to run in your shell. This is useful for starting
 things like Compton, Feh, Polybar, etc.
 
+InitialMode
+^^^^^^^^^^^^
+
+A single mode which will be used once you start up Xest.
+
+fontLocation
+^^^^^^^^^^^^
+
+The location of the font to use on the border. This is probably something in
+"/usr/share/fonts/...".
+
 KeyBindings
 ^^^^^^^^^^^
 
@@ -203,10 +217,7 @@ The weirdest field is the exitActions one. This field contains a list of actions
 that will be performed when the key is released assuming it didn't trigger a
 permanent mode change.
 
-InitialMode
-^^^^^^^^^^^^
-
-A single mode which will be used once you start up Xest.
+You can get most key names using the "xev" tool from your distro.
 
 
 Actions
@@ -216,11 +227,11 @@ Actions are performed when you press a key binding or change modes. You can
 perform multiple actions at any time. If an action is invalid, it should do
 nothing instead of crashing Xest.
 
-Insert (t: Tilers)
-^^^^^^^^^^^^^^^^^^
+Insert
+^^^^^^
 
-Adds the Tiler t right after the Input Controller. Whatever used to be the Input
-Controller's child will become the child of t.
+Adds a Many Tiler right after the Input Controller. Whatever used to be the Input
+Controller's child will become the child of the Many Tiler.
 
 RunCommand (s: Text)
 ^^^^^^^^^^^^^^^^^^^^
@@ -265,24 +276,66 @@ PushTiler
 
 The inverse of the above Action.
 
-MakeSpecial
+MakeEmpty
+^^^^^^^^^
+
+If a Many Tiler is the direct child of the Input Controller, this will create a
+new child for that Many Tiler and will place the Input Controller inside of it.
+If the Many Tiler has the full modifier set, this could be seen as creating a new workspace.
+
+MoveToFront
 ^^^^^^^^^^^
 
-Performs some special action depending on whatever comes after the Input
-Controller. On a Floating Tiler, it makes the currently focused Tiler the
-background. On a Horizontal Tiler, it adds a new, empty child.
+If a Many Tiler is the direct child of the Input Controller, this will move
+whatever the currently focused child is to the "front" of the Tiler. What the
+front means depends on the style and modifiers of the Tiler.
+
+ChangeToHorizontal
+^^^^^^^^^^^^^^^^^^
+
+If a Many Tiler is the direct child of the Input Controller, this will change to
+the horizontal style.
+
+ChangeToFloating
+^^^^^^^^^^^^^^^^
+
+If a Many Tiler is the direct child of the Input Controller, this will change to
+the floating style.
+
+ChangeToTwoCols
+^^^^^^^^^^^^^^^
+
+If a Many Tiler is the direct child of the Input Controller, this will change to
+the twoCols style.
+
+setRotate
+^^^^^^^^^
+
+If a Many Tiler is the direct child of the Input Controller, this will change to
+the rotate modifier.
+
+setFull
+^^^^^^^^^
+
+If a Many Tiler is the direct child of the Input Controller, this will change to
+the full screen modifier.
+
+setNoMod
+^^^^^^^^^
+
+If a Many Tiler is the direct child of the Input Controller, this will remove
+whatever the current modifier is.
 
 ChangeNamed (n: Text)
 ^^^^^^^^^^^^^^^^^^^^^
 
-Change to a different child. Currently, this is only supported for Horizontal
-and Floating and the only valid names are numbers.
+Change to a different child. Currently, the only valid names are numbers.
 
-Move (d: Bool)
+Move (d: Direction)
 ^^^^^^^^^^^^^^
 
-Changes children either forwards or backwards depending on the Boolean value
-passed to it. Only used by Horizontal and Floating.
+Changes children either forwards or backwards depending on the value
+passed to it.
 
 KillActive
 ^^^^^^^^^^
@@ -290,15 +343,15 @@ KillActive
 Kills the currently focused window.
 
 ExitNow
-^^^^
+^^^^^^^
 
-Exits from Xest without trying to kill anything first. If you trigger this on
-accident, you will likely lose work.
+Exits from Xest without trying to kill anything nicely first. If you trigger
+this on accident, you will likely lose work.
 
 ToggleLogging
 ^^^^^^^^^^^^^
 
-Each call to this action toggles whether logging happens in the /tmp/xest.txt
+Each call to this action toggles whether logging happens in the /tmp/xest.log
 file. By default, it is off. Each time you turn it on, the file is overwritten.
 
 ZoomMonitorToInput
@@ -306,9 +359,7 @@ ZoomMonitorToInput
 
 Moves the Monitor so that it is right behind the Input Controller.
 
-ZoomInInputSkip/ZoomOutInputSkip
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ZoomInputToMonitor
+^^^^^^^^^^^^^^^^^^
 
-Smart zoomers that try to jump over useless things like Rotate Tilers. Since
-creating these, I've become a lot less sure on their semantics. As a result, you
-might prefer the non skipping versions for now.
+Moves the Input Controller so that it is right in front of the Monitor.
