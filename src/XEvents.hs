@@ -47,11 +47,12 @@ deriving instance Show SizeHints
 
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer, Screens]) r
-       => Members [EventFlags, GlobalX, Property, Log String, Mover, Minimizer] r
+       => Members [EventFlags, GlobalX, Property, Log String] r
        => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time]) r
        => ParentChild
        -> Sem r ()
 mapWin pc@(ParentChild newWin window) = do
+  log "[MapWin] Mapping a window"
   transient <- getTransientFor window
 
   let tWin :: SubTiler = Wrap $ ParentChild newWin window
@@ -59,23 +60,22 @@ mapWin pc@(ParentChild newWin window) = do
   -- If a window wants to be transient for itself, just make it a normal window
   case if transient == Just window then Nothing else transient of
     Just parent -> do
+      log $ "[MapWin] Found a transient window!"
       root <- get @Tiler
       SizeHints{..} <- getSizeHints window
       let idealSize = fromMaybe (500, 500) sh_min_size
       let tilerParent = Wrap $ ParentChild parent parent
           (worked, newRoot) = usingFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
           (workedAlt, altNewRoot) = makeFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
-      log $ "[MapWin] Found a transient window!"
       if
-          | worked -> put @Tiler newRoot >> focusPC
-          | workedAlt -> put @Tiler altNewRoot >> focusPC
-          | otherwise -> modify @LostWindow (insertWith (++) parent [pc]) >> minimize newWin
+          | worked -> put @Tiler newRoot >> newFocus newWin
+          | workedAlt -> put @Tiler altNewRoot >> newFocus newWin
+          | otherwise -> modify @LostWindow (insertWith (++) parent [pc])
     Nothing -> do
-      log "[MapWin] Mapping a window"
       -- This adds the new window to whatever tiler comes after inputController
       -- If you've zoomed the inputController in, you get nesting as a result
       modify $ applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
-      focusPC
+      newFocus newWin
       wm_state <- getAtom False "_NET_WM_STATE"
       full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
       isFullScreen <- maybe False (== full_screen) . headMay <$> getProperty 32 wm_state window
@@ -105,7 +105,6 @@ mapWin pc@(ParentChild newWin window) = do
        in if oldT == unfix t
             then (True, Many (Floating $ makeFL (NE (point $ Fix oldT) [WithRect (Rect 0 0 newW newH) newTiler]) 1) NoMods)
             else (wasFound, Fix oldT))
-    focusPC = restore newWin >> restore window >> newFocus newWin
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
@@ -147,7 +146,7 @@ unmapWin window = do
 
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
-rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders, Mover] r
+rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders] r
            => Members (States [Tiler, Maybe (), Screens, ActiveScreen, [SubTiler]]) r
            => Sem r ()
 rootChange = do
@@ -173,39 +172,25 @@ rootChange = do
 
   -- Put all of the dead monitors into the minimized window stack
   traverse_ ((fold . fmap (modify @[SubTiler] . (:))) . screenTree) $ difference oldScreens newScreens
-  -- Delete all of the border windows
-  traverse_ ((\(a, b, c, d) -> traverse_ destroySDLWindow [a, b, c, d]) . screenBorders) $ difference oldScreens newScreens
   put $ Just ()
   
 
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
-newFocus :: Members '[Input Screens, Property, Mover, Input Pointer, Log String] r
+newFocus :: Members '[Input Screens, Property, Input Pointer, Log String] r
          => Members (States [Tiler, Maybe (), ActiveScreen, Screens, Time]) r
          => Window
          -> Sem r ()
 newFocus window = do
   -- Change our tree so the focused window is the one we're hovering over
-  mNewRoot <- 
-    focusWindow window <$> get @Tiler
+  -- It will get focused next time we redraw
+  modify @Tiler \tiler -> fromMaybe tiler $ focusWindow window tiler
   setScreenFromMouse
-
-  -- The root might be none if the newly focused window doesn't exist
-  case mNewRoot of
-    Just newRoot -> do
-      realWinM <- getChildX window
-      case realWinM of
-        Just realWin -> setFocus $ ParentChild window realWin
-        Nothing -> setFocus $ ParentChild window window
-      put @Tiler newRoot
-      put $ Just ()
-    Nothing -> do
-      setFocus $ ParentChild window window
-      put $ Just ()
+  put $ Just ()
 
 
 -- |On key press, execute some actions
-keyDown :: Members '[Property, Minimizer, Executor] r
+keyDown :: Members '[Property, Executor] r
        => Members (Inputs [Conf, Pointer, MouseButtons]) r
        => Members (States [Tiler, Mode, KeyStatus, Maybe ()]) r
        => KeyCode
@@ -263,7 +248,7 @@ keyDown keycode eventType
               DefaultF -> Nothing
 
 -- |When the user moves the mouse in resize mode, this events are triggered.
-motion :: Members '[Property, Minimizer] r
+motion :: Members '[Property] r
        => Members (Inputs [XRect, Pointer, MouseButtons]) r
        => Members (States [Tiler, MouseButtons, Maybe ()]) r
        => Sem r ()
@@ -331,7 +316,7 @@ changeSize mouseLoc screen (Many mh mods) =
 
 changeSize _ _ t = t
 
-makeFullscreen :: Members '[State Tiler, Minimizer, Property] r
+makeFullscreen :: Members '[State Tiler, Property] r
                => Window
                -> Sem r ()
 makeFullscreen window = do

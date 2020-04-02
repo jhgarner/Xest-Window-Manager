@@ -61,4 +61,4 @@ runMinimizer = interpret $ \case
       win_state :: [Int] <- getProperty 32 wm_state win
       unless (null win_state)
         $ putProperty 32 wm_state win wm_state [1, fromIntegral none]
-    embed $ sync d False
+    -- embed $ sync d False

@@ -33,7 +33,7 @@ import qualified SDL (Window)
 -- called every literal frame; Xest doesn't have to do anything if it's
 -- children want to change their contents. Xest only gets involved when they
 -- need to move.
-refresh :: Members [Mover, Minimizer, Property, Colorer, GlobalX, Log String] r
+refresh :: Members [Mover, Property, Colorer, GlobalX, Log String] r
         => Members (Inputs [Window, Screens, Borders, (Int32, Int32)]) r
         => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time]) r
         => Sem r ()
@@ -48,11 +48,14 @@ refresh = do
 
     -- restack all of the windows
     topWindows <- makeTopWindows
-    bottomWindows <- getBottomWindows
+    log $ "[TOP WINDOWS] " ++ show topWindows
+    -- bottomWindows <- getBottomWindows
     log "[Rendering]"
     middleWins <- render
+    restack $ topWindows ++ fmap getParent middleWins
+    allBorders <- inputs @Screens $ fmap (screenBorders . snd) . mapToList
+    forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
     log "[Done Rendering]"
-    restack $ topWindows ++ bottomWindows ++ fmap getParent middleWins
 
     -- tell X to focus whatever we're focusing
     log "[Focusing]"
@@ -64,7 +67,7 @@ refresh = do
     setClientList
     writeActiveWindow
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
-    clearQueue
+    -- clearQueue
     log "[Done Refreshing]"
 
 
@@ -147,7 +150,7 @@ getWindowByClass wName = do
 render
   :: ( Members (Inputs [Pointer, Screens]) r
      , Members (States [Tiler, Mode, [SubTiler]]) r
-     , Members [Mover, Minimizer, Colorer, GlobalX, Log String] r
+     , Members [Mover, Colorer, GlobalX, Log String] r
      )
   => Sem r [ParentChild]
 render = do
@@ -157,7 +160,7 @@ render = do
 
   -- Draw the tiler we've been given. winOrder will be used by restackWindows
   -- while io coantains the io action which moves the windows.
-  let (winOrder, io) = unzip . toList $ fmap (\(location, border) -> cata (draw $ Just border) $ fmap (first $ bimap round round . toScreenCoord) location) locations
+  let (winOrder, io) = unzip . toList $ fmap (\(location, border) -> cata (draw $ Just border) $ fmap (first $ bimap floor ceiling . toScreenCoord) location) locations
   sequence_ io
 
   -- Hide all of the popped tilers
@@ -205,8 +208,6 @@ render = do
                       changeLocationS r $ Rect 10000 0 0 0
                       traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
                       gets @Tiler Fix >>= drawText u . cata getFocusList
-                      
-                traverse_ bufferSwap winList
            )
 
        -- Draw the background with the floating windows on top.
@@ -309,7 +310,7 @@ writeWorkspaces (names, i) = do
 -- |Some windows (like Polybar) want to be on top of everything else
 -- This function finds those windows and returns them in a list.
 makeTopWindows
-  :: (Members '[Property, GlobalX, Mover] r)
+  :: (Members '[Property, GlobalX, Mover, Log String] r)
   => Sem r [Window]
 makeTopWindows = do
   -- Get a list of all windows
@@ -320,28 +321,14 @@ makeTopWindows = do
     nws <- getAtom False "_NET_WM_STATE"
     prop <- getProperty @_ @Atom 32 nws win
     nwsa <- getAtom False "_NET_WM_STATE_ABOVE"
+    name <- getClassName win
+    log $ "[NAMES] " ++ name ++ " and " ++ show (name == "xest-exe")
+    -- let name = "t"
     return $ case prop of
-      [] -> []
-      states ->
-        [win | nwsa `elem` states]
+               [] -> [win | name == "xest-exe"]
+               states -> [win | nwsa `elem` states]
   return $ join higherWins
 
--- |Like makeTopWindows but the opposite.
-getBottomWindows
-  :: (Members '[Property, GlobalX, Mover] r)
-  => Sem r [Window]
-getBottomWindows = do
-  -- Get a list of all windows
-  wins <- getTree
-  lowerWindows <- for wins $ \win -> do
-    -- EWMH defines how to do this.
-    -- Check out their spec if you're curious.
-    prop <- getProperty @_ @Word8 8 wM_NAME win
-    return $ case prop of
-      [] -> []
-      states ->
-        [win | (== "fakeWindowDontManage") $ fmap (chr . fromIntegral) states]
-  return $ join lowerWindows
 
 -- |Writes all of the clients we're managing for others to see.
 setClientList :: (Members '[State Tiler, Input Window, Property] r)

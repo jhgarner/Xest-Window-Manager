@@ -30,6 +30,7 @@ import qualified Data.Map                      as M
 import XEvents
 import Actions.ActionTypes
 import Actions.Actions
+import qualified Control.Exception as E
 
 -- | Starting point of the program. This function should never return
 startWM :: IO ()
@@ -139,8 +140,8 @@ startWM = do
 
   -- Normally, Xlib will crash on any error. Calling this function 
   -- asks Xlib to print recoverable errors instead of crashing on them.
-  -- setDefaultErrorHandler
-  xSetErrorHandler
+  setDefaultErrorHandler
+  -- xSetErrorHandler
 
   -- Focus the root window so we can receive our keybindings.
   setInputFocus display root revertToNone currentTime
@@ -149,7 +150,7 @@ startWM = do
   -- The finally makes sure we write the last 100 log messages on exit to the
   -- err file.
   logHistory <- newIORef []
-  catch (doAll logHistory screens c startingMode display root font (forever mainLoop)) \(e :: SomeException) -> do
+  E.catch (doAll logHistory screens c startingMode display root font (forever mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
     let header = "Xest crashed with the exception: " ++ show e ++ "\n"
     writeFile "/tmp/xest.err" (fromString $ header ++ lastLog ++ "\n")
@@ -222,19 +223,21 @@ mainLoop = do
       full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
       let isSet = (== Just 1) $ headMay ev_data
       messageType <- fromAtom ev_message_type
-      messageC <- traverse (fromAtom . fromIntegral) ev_data
-      -- parent <- getParent ev_window
-      log $ "[ClientMessage] " ++ messageType ++ "\n\t[MessageData]" ++ show messageC ++ "\n\t[IsSet]" ++ show isSet
+
+      -- messageC <- traverse (fromAtom . fromIntegral) ev_data
+      log $ "[ClientMessage] " ++ messageType ++ "\n\t[MessageData]" ++ show ev_data
 
       when (wm_state == ev_message_type) $
         when (fromIntegral full_screen `elem` ev_data) $ do
           if isSet
              then makeFullscreen ev_window >> newFocus ev_window
-             -- Why change the location? Well Chrome seems to expect
-             -- that we restore it to it's original size. By making it
-             -- small, we force it to draw in the new size.
+             -- Why change the location? Well Chrome seems to expect that we
+             -- restore it to it's original size. By making it small then
+             -- changing back to the full size, we force it to render
+             -- correctly.
              else changeLocation (ParentChild ev_window ev_window) $ Rect 1 1 1 1
           put $ Just ()
+
 
     -- 21 == reparent event. If a window decides to reparent itself,
     -- it's practically unmapped and dead.

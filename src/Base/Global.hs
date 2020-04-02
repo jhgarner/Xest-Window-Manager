@@ -86,12 +86,7 @@ runGlobalX = interpret $ \case
       0 0 400 200 0
       (blackPixel d defScr)
       (blackPixel d defScr)
-    embed $ mapWindow d xwin
     embed $ reparentWindow d w xwin 0 0
-    -- embed $ grabButton d (button1 .|. button2 .|. button3) anyModifier xwin True 
-    -- embed $ grabButton d anyButton anyModifier xwin True 
-    --             (buttonPressMask .|. buttonReleaseMask) 
-    --             grabModeSync grabModeSync none none
     return xwin
 
   MoveToRoot w -> do

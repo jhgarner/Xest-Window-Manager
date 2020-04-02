@@ -36,7 +36,6 @@ data Mover m a where
   Restack :: [Window] -> Mover m ()
   -- |A super light wrapper around actually configuring stuff
   ConfigureWin :: Event -> Mover m ()
-  DestroySDLWindow :: SDL.Window -> Mover m ()
   SetFocus :: ParentChild -> Mover m ()
 makeSem ''Mover
 
@@ -79,13 +78,16 @@ runMover = interpret $ \case
     unlessM ((== Just r) . (M.!? win) <$> get) $ do
       embed @IO $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
       SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
-    embed @IO $ SDL.raiseWindow win
     modify $ M.insert win r
 
   Restack wins -> do
     unlessM ((== wins) <$> get) $ do
       d <- input
-      void . embed $ restackWindows d wins
+      -- The sync here fixes a race condition between SDL and Xest.
+      -- We need the SDL bufferSwap function to run after the restack.
+      -- Otherwise, SDL won't draw the parts of the border which are
+      -- temporarily under another window.
+      void . embed $ restackWindows d wins >> sync d False
     put wins
 
 
@@ -111,8 +113,6 @@ runMover = interpret $ \case
           configureWindow d ev_window ev_value_mask wc
 
   ConfigureWin _ -> error "Don't call Configure Window with other events"
-
-  DestroySDLWindow window -> embed @IO $ SDL.destroyWindow window
 
   SetFocus (ParentChild p c) -> input @Display >>= \d -> do
     root <- get @Tiler
@@ -158,10 +158,7 @@ runMover = interpret $ \case
 runMoverFake :: Sem (Mover ': r) a -> Sem r a
 runMoverFake = interpret $ \case
   ChangeLocation _ _ -> return ()
-
   ChangeLocationS _ _ -> return ()
-
   Restack _ -> return ()
   ConfigureWin _ -> return ()
-  DestroySDLWindow _ -> return ()
   SetFocus _ -> return ()

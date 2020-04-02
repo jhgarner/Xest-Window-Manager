@@ -24,6 +24,7 @@ import qualified SDL.Raw.Video as Raw
 import           Foreign.C.String
 import Base.Helpers
 import Tiler.TilerTypes
+import System.Mem.Weak
 
 -- * Fake Inputs
 
@@ -62,11 +63,12 @@ newtype NewBorders = NewBorders Borders
 runNewBorders :: Member (Embed IO) r
               => Sem (Input NewBorders ': r) a -> Sem r a
 runNewBorders = runInputSem $ do
-  wins <- embed @IO (replicateM 4 $
-    SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288))
+  windows <- embed @IO $ replicateM 4 $ SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
   -- TODO this way of handling borders is a little sketchy...
-  let [lWin, dWin, uWin, rWin] = wins
-  return $ NewBorders (lWin, dWin, uWin, rWin)
+  let [lWin, dWin, uWin, rWin] = windows
+  let nb = NewBorders (lWin, dWin, uWin, rWin)
+  embed @IO $ addFinalizer nb $ forM_ windows SDL.destroyWindow >> putStrLn "Finalized"
+  return nb
 
 -- |Gets the pointer location
 runGetPointer :: Members (Inputs [RootWindow, Display]) r 

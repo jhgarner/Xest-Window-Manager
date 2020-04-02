@@ -23,6 +23,7 @@ import           Foreign.Storable
 import qualified Data.Map                      as M
 import Base.Helpers
 import Base.Executor
+import qualified Control.Exception as E
 
 
 -- |X11 defines properties as a dictionary like object from Atoms and windows
