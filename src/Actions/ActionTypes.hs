@@ -16,9 +16,7 @@ data Action
   | ShowWindow String
   | HideWindow String
   | ZoomInInput
-  | ZoomInInputSkip
   | ZoomOutInput
-  | ZoomOutInputSkip
   | ZoomInMonitor
   | ZoomOutMonitor
   | ZoomMonitorToInput

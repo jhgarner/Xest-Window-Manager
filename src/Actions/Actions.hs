@@ -34,45 +34,6 @@ import Actions.ActionTypes
 -- put this in the zoomDirInputSkip where block...
 type DeferedPath = DeferedListF Tiler Tiler
 
--- | This "smart" zoom function skips past the useless Tilers that would only slow you down.
--- Instead of zooming in or out one layer at a time, this function skips over the Tilers you probably
--- don't want to stop at. Note the use of probably. You should still bind the non smart versions as backup
--- in case you really do want to zoom into something boring.
-zoomDirInputSkip
-  :: Members (States '[Tiler]) r
-  => (forall a . DeferedList a -> [a]) -- ^ Generally used to decide which side of the deffered list we're interested in
-  -> Sem r () -- ^ The action to perform for every interesting Tiler in our path
-  -> Sem r ()
-zoomDirInputSkip trans action = do
-  root <- get @Tiler
-
-  replicateM_
-    ( numToSkip -- Turns a list of Tilers into a number of things to skip
-    . trans -- transforms our deffered list into a real one
-    $ getPath root) -- Creates a deffered list based on the current focussed path
-
-    action -- The second parameter to replicateM_
-
- where
-    -- Turns a tree into a path of focused elements.
-    -- The InputController marks where the path might want to be split
-  getPath
-    :: Tiler
-    -> DeferedList Tiler
-  getPath = apo $ \case
-    InputController t ->
-      DActiveF $ maybe (Left DNil) (Right . unfix) t
-    mt@(Monitor t) -> maybe DNilF (DConsF mt . Right . unfix) t
-    Wrap _ -> DNilF
-    t                -> DConsF t . Right . unfix $ getFocused t
-
-  -- The number of jumps to make.
-  numToSkip = cata $ \case 
-    Nil                    -> 1
-    Cons (Many _ _) _ -> 1
-    Cons (Monitor   _) i -> i + 1
-    Cons _             i -> i + 1
-
 -- | Zooms inwards, AKA away from the root. This function operates on
 -- the Input Controller, not the Monitor. This means that although the layout
 -- usually won't change, you will change the Tiler that will receive actions
@@ -88,8 +49,7 @@ zoomInInput =
     t -> Fix t
 
 
--- |Nearly identical to zooming in the input controller. The only
--- differene is the Monitor needs to stay behind the input controller.
+-- |Nearly identical to zooming in the input controller.
 zoomInMonitor
   :: Member (State Tiler) r
   => Sem r ()
@@ -101,7 +61,6 @@ zoomInMonitor =
 
 
 -- |Move the input controller towards the root
--- This is complicated if the monitor is right behind it
 zoomOutInput
   :: Member (State Tiler) r
   => Sem r ()
@@ -117,8 +76,6 @@ zoomOutInput =
                            else reduce $ fmap snd t)
 
  where
-  -- Is something the controller? Instead of returning a boolean, we return
-  -- a function used to construct a controller.
   isController (Fix (InputController _)) = True
   isController _ = False
 
@@ -133,7 +90,7 @@ zoomMonitorToInput =
     Monitor childT -> join childT
     t -> coerce $ reduce t)
 
--- |A smart zoomer which moves the monitor to wherever the input controller is.
+-- |A smart zoomer which moves the input contrell to wherever the monitor is.
 zoomInputToMonitor
   :: Member (State Tiler) r
   =>  Sem r ()
@@ -144,7 +101,7 @@ zoomInputToMonitor =
     InputController childT -> join childT
     t -> coerce $ reduce t)
 
--- |Very similar to zoomOutInput but less confusing to implement.
+-- |Very similar to zoomOutInput.
 zoomOutMonitor
   :: Member (State Tiler) r
   => Sem r ()
@@ -162,7 +119,7 @@ zoomOutMonitor =
   where isMonitor (Fix (Monitor _)) = True
         isMonitor _           = False
 
--- |changes a mode. For example, I have the windows key configured to change
+-- |changes a mode. For example, I usually configure the windows key to change
 -- from Insert mode to Normal mode.
 changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] r => Mode -> Sem r ()
 changeModeTo newM = do

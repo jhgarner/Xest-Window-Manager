@@ -254,9 +254,7 @@ mainLoop = do
       ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
       HideWindow wName -> getWindowByClass wName >>= mapM_ minimize
       ZoomInInput -> zoomInInput
-      ZoomInInputSkip -> zoomDirInputSkip undefer zoomInInput
       ZoomOutInput -> zoomOutInput
-      ZoomOutInputSkip -> zoomDirInputSkip (fromMaybe [] . tailMay . deferred) zoomOutInput
       ZoomInMonitor -> zoomInMonitor
       ZoomOutMonitor -> zoomOutMonitor
       ZoomMonitorToInput -> zoomMonitorToInput
