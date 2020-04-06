@@ -25,7 +25,7 @@ For the research paper, maybe you have a workspace designated to finding
 sources in your web browser and a workspace with LibreOffice open.
 
 For the programming project, you might need a workspace with your browser open with documentation,
-a workspace with you text editor, and a workspace with a couple of terminals for
+a workspace with your text editor, and a workspace with a couple of terminals for
 compiling and testing.
 
 The question quickly becomes how to organize the two projects. Do you put the
