@@ -1,9 +1,12 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 
 {- |
@@ -108,7 +111,7 @@ getFocused = fst . popWindow (Right Focused)
 -- apply it to the first Tiler after the inputController.
 applyInput :: (Maybe SubTiler -> Maybe SubTiler) -> Tiler -> Tiler
 applyInput f = toFType . cata \case
-  InputController t -> InputController $ f t
+  InputController bords t -> InputController bords $ f t
   t                   -> coerce t
 
 -- |Kind of like applyInput but can be used to get arbitrary info out of
@@ -117,10 +120,9 @@ onInput :: (Maybe SubTiler -> a) -> Tiler -> a
 onInput f root = f $ extract $ ana @(Beam _) findIC $ coerce root
  where
   findIC :: SubTiler -> BeamF (Maybe SubTiler) SubTiler
-  findIC (InputController t       ) = EndF t
-  findIC (Monitor         Nothing ) = EndF Nothing
-  findIC (Monitor         (Just t)) = ContinueF t
-  findIC t                          = ContinueF $ getFocused $ coerce t
+  findIC (InputController _ t) = EndF t
+  findIC (Monitor _ t) = maybe (EndF Nothing) ContinueF t
+  findIC t = ContinueF $ getFocused $ coerce t
 
 -- | Kind of like applyInput but instead of searching for the InputController,
 -- it just applies the function to whatever is focused by an individual Tiler.
@@ -133,9 +135,8 @@ modFocused f t@( InputControllerOrMonitor _ _) = fmap f t
 -- | Change the focus of a Tiler
 focus :: SubTiler -> Tiler -> Tiler
 focus newF (Many mh mods) = Many (withFl'Eq mh $ focusElem (point newF)) mods
-focus _    t@(Wrap            _ ) = t
-focus _    t@(InputController _ ) = t
-focus _    t@(Monitor         _ ) = t
+focus _    t@(Wrap _) = t
+focus _    t@(InputControllerOrMonitor _ _) = t
 
 -- |Sometimes, we end up with a tree that's in an invalid state.
 -- Usually, we can fix that by finding the closest parent between
@@ -157,28 +158,33 @@ moveToClosestParent predicateUnmove predicateMove = coerce
   moveToClosestParent' t
     | predicateUnmove $ fmap fst t =
       -- We are looking at the unmovable part
-                                     case asum $ fmap (getMovable . snd) t of
+      case asum $ fmap (getMovable . snd) t of
         -- We haven't seen the movable part, so just set the Unmovable flag and be done
-      Nothing -> (withNewFocus t, Unmovable)
-      -- We already saw the movable part so add that in as this thing's parents
-      Just (reparentFunction, _) ->
-        (Just $ reparentFunction $ coerce $ withNewFocus t, Both)
-    | otherwise = case predicateMove $ fmap fst t of
-        -- Whatever we found, it's neither of the parts. It might be the parent though.
-      Nothing -> case hasBothIndividually t of
-          -- We found the parent! Let's make it the parent.
+        Nothing -> (withNewFocus t, Unmovable)
+        -- We already saw the movable part so add that in as this thing's parents
         Just (reparentFunction, _) ->
           (Just $ reparentFunction $ coerce $ withNewFocus t, Both)
-        -- This node is uneventful. Let's just make sure its focus is correct
-        Nothing -> (withNewFocus t, foldMap snd t)
-      -- We found the movable part!
-      Just functions@(_, unparented) -> if any (isUnmovable . snd) t
-                                          -- If it already contained the unmovable part, we're done!
-        then (withNewFocus t, Both)
-                                          -- Otherwise, let's remove it and set the right flag
-        else (unparented, Movable functions)
+
+    | otherwise =
+      case predicateMove $ fmap fst t of
+        -- Whatever we found, it's neither of the parts. It might be the parent though.
+        Nothing -> case hasBothIndividually t of
+          -- We found the parent! Let's make it the parent.
+          Just (reparentFunction, _) ->
+            (Just $ reparentFunction $ coerce $ withNewFocus t, Both)
+          -- This node is uneventful. Let's just make sure its focus is correct
+          Nothing -> (withNewFocus t, foldMap snd t)
+        -- We found the movable part!
+        Just functions@(_, unparented) ->
+          if any (isUnmovable . snd) t
+             -- If it already contained the unmovable part, we're done!
+             then (withNewFocus t, Both)
+             -- Otherwise, let's remove it and set the right flag
+             else (unparented, Movable functions)
+
   reduced :: TilerF (Maybe SubTiler, a) -> Maybe Tiler
   reduced t = reduce $ fmap fst t
+
   withNewFocus :: TilerF (Maybe SubTiler, TreeCombo) -> Maybe Tiler
   withNewFocus t = fromMaybe (reduced t) $ do
     elementToFoc <- find (\(_, tc) -> isUnmovable tc || isBoth tc) t >>= fst
@@ -188,32 +194,44 @@ moveToClosestParent predicateUnmove predicateMove = coerce
     else Nothing
 
 -- |Specialization of the above for moving an InputController towards a window
-moveToWindow :: Window -> Tiler -> (Maybe Tiler, Bool)
-moveToWindow window =
-  second isBoth . moveToClosestParent isWindow isInputController
+moveToWindow :: Window -> Tiler -> Maybe Tiler
+moveToWindow window root =
+  let (newRoot, b) = second isBoth $ moveToClosestParent isWindow isInputController root
+   in if b then newRoot else Nothing
  where
   isInputController :: TilerF (Maybe SubTiler) -> Maybe (Reparenter, Unparented)
-  isInputController (InputController (t :: Maybe (Maybe SubTiler))) =
-    Just (InputController, coerce $ join t)
+  isInputController (InputController  bords t) =
+    Just (InputController bords, coerce $ join t)
   isInputController _ = Nothing
   isWindow (Wrap parentChild) = inParentChild window parentChild
   isWindow _                  = False
 
 -- |Specialization of the above for moving a moniter towards the inputController
-moveToIC :: Tiler -> (Maybe Tiler, Bool)
-moveToIC = second isBoth . moveToClosestParent isInputController isMonitor
+moveToIC :: Tiler -> Maybe Tiler
+moveToIC root =
+  let (newRoot, b) = moveToClosestParent isInputController isMonitor root
+   in if isBoth b then newRoot else Nothing
  where
-  isMonitor (Monitor t) = Just (Monitor, coerce $ join t)
-  isMonitor _           = Nothing
-  isInputController (InputController _) = True
-  isInputController _                   = False
+  isMonitor (Monitor loc t) = Just (Monitor loc, coerce $ join t)
+  isMonitor _ = Nothing
+  isInputController (InputController _ _) = True
+  isInputController _ = False
 
 -- |Do both of the above in sequence. This is the function that's actually used elsewhere
 focusWindow :: Window -> Tiler -> Maybe Tiler
-focusWindow window root =
-  let (newRoot   , b1) = moveToWindow window root
-      (newestRoot, b2) = maybe (Nothing, False) moveToIC newRoot
-  in  if b1 && b2 then newestRoot else Nothing
+focusWindow window =
+  moveToIC <=< moveToWindow window
+
+-- |Specialization of the above for moving a moniter towards the inputController
+moveToMon :: Tiler -> Maybe Tiler
+moveToMon root =
+  let (newRoot, b) = second isBoth $ moveToClosestParent isMonitor isInput root
+   in if b then newRoot else Nothing
+ where
+  isInput (InputController bords t) = Just (InputController bords, coerce $ join t)
+  isInput _ = Nothing
+  isMonitor (Monitor _ _) = True
+  isMonitor _ = False
 
 -- |The EWMH says window managers can list the number of virtual desktops and
 -- their names. This function gets that info, although we use a liberal
@@ -226,8 +244,8 @@ getDesktopState _ = (["None"], 0)
 -- |Renders the tree to a string which can be displayed on the top border of
 -- Xest.
 getFocusList :: TilerF String -> String
-getFocusList (InputController s       ) = "*" ++ fromMaybe "" s
-getFocusList (Monitor         s       ) = "@" ++ fromMaybe "" s
+getFocusList (InputController _ s) = "*" ++ fromMaybe "" s
+getFocusList (Monitor _ s) = "@" ++ fromMaybe "" s
 getFocusList (Many mh mods) =
   "|" ++ modType ++ manyType ++ "-" ++ size ++ "-" ++ i ++ "|" ++ child
   where manyType = case mh of
@@ -268,27 +286,19 @@ whichScreen (mx, my) = getFirst . foldMap findOverlap
 -- |The monitor must always be in the focus path.
 -- If it's already there, this function does nothing.
 fixMonitor :: Tiler -> Tiler
-fixMonitor root = if cata isInPath root
-  then root
-  else maybe (error "Uh oh") unfix $ insertMonitor root
-     -- TODO Haskell's Complete pragma doesn't work when the cata is in isInPath.
-     -- Although the Complete pragma just doesn't work on 8.6.5.
-
-
- where
-  isInPath :: TilerF Bool -> Bool
-  isInPath = \case
-    Monitor         _ -> True
-    Wrap            _ -> False
-    InputController t -> fromMaybe False t
-    t@(Many _ _)    -> getFocused t
-  insertMonitor = cata $ \case
-    Monitor t -> join t
-    InputController t ->
-      Just $ Fix $ Monitor $ Just $ Fix $ InputController $ join t
-    t -> Fix <$> reduce t
+fixMonitor = fromMaybe (error "Can't be empty") . moveToIC
 
 findWindow :: Window -> Tiler -> Bool
 findWindow w = cata $ \case
       (Wrap w') -> inParentChild w w'
       t -> or t
+
+getBorders :: Tiler -> Borders
+getBorders = fromMaybe (error "No IC here!") . cata \case
+  InputController b _ -> Just b
+  t -> asum t
+
+getScreens :: Tiler -> XRect
+getScreens = fromMaybe (error "No IC here!") . cata \case
+  Monitor r _ -> Just r
+  t -> asum t

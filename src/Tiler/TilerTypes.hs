@@ -27,8 +27,11 @@ import           Text.Show.Deriving
 import           Data.Eq.Deriving
 import           Data.Kind
 import           TH
+import qualified SDL
 
 
+
+type Borders = (SDL.Window, SDL.Window, SDL.Window, SDL.Window)
 
 -- | The tree nodes which make up the bulk of the program. Each
 -- constructor provides a way of composing windows. The a type variable is
@@ -47,10 +50,12 @@ data TilerF a =
     -- when a new window gets created, it gets placed as a child of whatever
     -- comes immediately after the InputController. Unlike most other Tilers,
     -- this one can be empty.
-  | InputControllerF (Maybe a)
+  | InputControllerF Borders (Maybe a)
     -- |Monitor decides where to start rendering. Only children of Monitor get
-    -- rendered. Just like InputController, Monitor can be empty.
-  | MonitorF (Maybe a)
+    -- rendered. Just like InputController, Monitor can be empty. The list of
+    -- windows in Monitor are the list of "unmanaged" windows in that they
+    -- don't exist in the tree.
+  | MonitorF XRect (Maybe a)
 
   deriving stock (Eq, Show, Functor, Foldable, Traversable, Generic)
 deriveShow1 ''TilerF
@@ -113,8 +118,9 @@ makeSimpleBase ''TilerF ''TilerLike ''PolyA 'toFType 'fromFType
 -- |Used to match either an InputController of a Monitor. You should probably
 -- use the pattern instead.
 inputControllerOrMonitor :: TilerF a -> Maybe (Maybe b -> TilerF b, Maybe a)
-inputControllerOrMonitor (InputController a) = Just (InputController, a)
-inputControllerOrMonitor (Monitor a) = Just (Monitor, a)
+inputControllerOrMonitor (InputController bords a) =
+  Just (InputController bords, a)
+inputControllerOrMonitor (Monitor loc a) = Just (Monitor loc, a)
 inputControllerOrMonitor _ = Nothing
 
 {-# COMPLETE Many, Wrap, InputControllerOrMonitor :: TilerF #-}

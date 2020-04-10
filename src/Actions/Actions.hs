@@ -30,10 +30,6 @@ import Actions.ActionTypes
 -- Note that I am still finding what primitive set of operations create the right mix of power and
 -- intuition. If you have any ideas, definitely let me know.
 
--- | Helper type for the zoomDirInputSkip function. It would be cool if I could
--- put this in the zoomDirInputSkip where block...
-type DeferedPath = DeferedListF Tiler Tiler
-
 -- | Zooms inwards, AKA away from the root. This function operates on
 -- the Input Controller, not the Monitor. This means that although the layout
 -- usually won't change, you will change the Tiler that will receive actions
@@ -43,9 +39,9 @@ zoomInInput
   => Sem r ()
 zoomInInput =
   modify $ unfix . cata \case
-    t@(InputController (Just (Wrap _))) -> Fix t
-    InputController (Just (Monitor Nothing)) -> Monitor . Just $ InputController Nothing
-    InputController (Just (Fix t)) -> Fix $ modFocused (Fix . InputController . Just) t
+    t@(InputController _ (Just (Wrap _))) -> Fix t
+    InputController bords (Just (Monitor loc Nothing)) -> Monitor loc . Just $ InputController bords Nothing
+    InputController bords (Just (Fix t)) -> Fix $ modFocused (Fix . InputController bords . Just) t
     t -> Fix t
 
 
@@ -55,8 +51,8 @@ zoomInMonitor
   => Sem r ()
 zoomInMonitor =
   modify @Tiler $ unfix . cata \case
-    t@(Monitor (Just (Fix (Wrap _)))) -> Fix (t :: Tiler)
-    Monitor (Just (Fix t)) -> Fix $ modFocused (Fix . Monitor . Just) t
+    t@(Monitor _ (Just (Fix (Wrap _)))) -> Fix (t :: Tiler)
+    Monitor loc (Just (Fix t)) -> Fix $ modFocused (Fix . Monitor loc . Just) t
     t -> Fix t
 
 
@@ -66,58 +62,69 @@ zoomOutInput
   => Sem r ()
 zoomOutInput =
   -- The unless guards against zooming the controller out of existence
-  unlessM (isController <$> gets @Tiler Fix)
+  unlessM (isJust . isController <$> gets @Tiler Fix)
     $ modify @Tiler
     $ fromMaybe (error "e")
     . coerce (para $ \case
-        InputController t -> t >>= snd
-        t -> fmap Fix $ if any (isController . fst) t
-                           then Just . InputController . fmap Fix . reduce $ fmap snd t
-                           else reduce $ fmap snd t)
+        InputController _ t -> t >>= snd
+        t -> fmap Fix $ case asum $ fmap (isController . fst) t of
+                           Just makeIC -> Just . makeIC . fmap Fix . reduce $ fmap snd t
+                           Nothing -> reduce $ fmap snd t)
 
  where
-  isController (Fix (InputController _)) = True
-  isController _ = False
+  isController :: SubTiler -> Maybe (Maybe SubTiler -> Tiler)
+  isController (Fix (InputControllerF  bords _)) =
+    Just $ InputController bords
+  isController _ = Nothing
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomMonitorToInput
   :: Member (State Tiler) r
   =>  Sem r ()
-zoomMonitorToInput =
-  modify $ coerce . fromMaybe (error "Can't be empty") . cata (\case
-    InputController t ->
-      Just . Monitor . Just . InputController  $ join t
-    Monitor childT -> join childT
-    t -> coerce $ reduce t)
+zoomMonitorToInput = do
+  loc <- gets @Tiler $ fromMaybe (error "Lost Mon") . cata \case
+    Monitor loc _ -> Just loc
+    t -> asum t
+  modify $ coerce . fromMaybe (error "Can't be empty") . cata \case
+    InputController bords t ->
+      Just . Monitor loc . Just . InputController bords  $ join t
+    Monitor _ childT -> join childT
+    t -> coerce $ reduce t
 
 -- |A smart zoomer which moves the input contrell to wherever the monitor is.
 zoomInputToMonitor
   :: Member (State Tiler) r
   =>  Sem r ()
-zoomInputToMonitor =
-  modify $ coerce . fromMaybe (error "Can't be empty") . cata (\case
-    Monitor t ->
-      Just . Monitor . Just . InputController $ join t
-    InputController childT -> join childT
-    t -> coerce $ reduce t)
+zoomInputToMonitor = do
+  bords <- gets @Tiler $ fromMaybe (error "Lost Mon") . cata \case
+    InputController bords _ -> Just bords
+    t -> asum t
+  modify $ coerce . fromMaybe (error "Can't be empty") . cata \case
+    Monitor loc t ->
+      Just . InputController bords . Just . Monitor loc $ join t
+    Monitor _ childT -> join childT
+    t -> coerce $ reduce t
 
 -- |Very similar to zoomOutInput.
 zoomOutMonitor
   :: Member (State Tiler) r
   => Sem r ()
-zoomOutMonitor =
+zoomOutMonitor = do
   -- Don't want to zoom the monitor out of existence
-  unlessM (isMonitor . Fix <$> get @Tiler)
-    $ modify
+  unlessM (isJust . isMonitor <$> gets @Tiler Fix)
+    $ modify @Tiler
     $ fromMaybe (error "e")
     . coerce (para $ \case
-        Monitor t -> t >>= snd
-        t -> fmap Fix $ if any (isMonitor . fst) t
-                           then Just . Monitor . fmap Fix . reduce $ fmap snd t
-                           else reduce $ fmap snd t)
+        Monitor _ t -> t >>= snd
+        t -> fmap Fix $ case asum $ fmap (isMonitor . fst) t of
+                           Just makeIC -> Just . makeIC . fmap Fix . reduce $ fmap snd t
+                           Nothing -> reduce $ fmap snd t)
 
-  where isMonitor (Fix (Monitor _)) = True
-        isMonitor _           = False
+ where
+  isMonitor :: SubTiler -> Maybe (Maybe SubTiler -> Tiler)
+  isMonitor (Fix (Monitor loc _)) =
+    Just $ Monitor loc
+  isMonitor _ = Nothing
 
 -- |changes a mode. For example, I usually configure the windows key to change
 -- from Insert mode to Normal mode.
@@ -175,10 +182,12 @@ makeEmptySpot
   :: Member (State Tiler) r
   => Sem r ()
 makeEmptySpot =
-  modify @Tiler $ \root -> onInput (coerce $ maybe root (makeEmptySpot' root)) root
+  modify @Tiler $ \root ->
+    let newInput = flip InputController Nothing $ getIC root
+     in onInput (coerce $ maybe root (makeEmptySpot' newInput root)) root
  where
-  makeEmptySpot' :: Tiler -> Tiler -> Tiler
-  makeEmptySpot' root t = case t of
+  makeEmptySpot' :: SubTiler -> Tiler -> Tiler -> Tiler
+  makeEmptySpot' newInput root t = case t of
     Many (Horiz _) _ ->
       -- TODO I don't like the fromMaybe
       fromMaybe (error "We know it's not just an IC") $ removeIC
@@ -188,17 +197,21 @@ makeEmptySpot =
               growPercent = ogSize / newSize
 
               newFl = fmap (\(Sized s a) -> Sized (s * growPercent) a) fl
-              newestFl = push Back Focused (Sized (1 / newSize) $ InputController Nothing) newFl
+              newestFl = push Back Focused (Sized (1 / newSize) $ newInput) newFl
            in Just $ Many (Horiz newestFl) mods) root
     Many _ _ ->
       fromMaybe (error "We know it's not just an IC") $ removeIC
         $ applyInput (\(Just (Many mh mods)) ->
-          Just $ Many (withFl' mh $ push Back Focused (point $ InputController Nothing)) mods) root
+          Just $ Many (withFl' mh $ push Back Focused (point $ newInput)) mods) root
     _ -> root
 
   removeIC = cata $ \case 
-    InputController (Just t@(Just (Many _ _))) -> t
+    InputController _ (Just t@(Just (Many _ _))) -> t
     t -> reduce $ coerce t
+
+  getIC = fromMaybe (error "Lost IC") . cata \case
+    InputController bords _ -> Just bords
+    t -> asum t
 
 
 -- |Move a tiler from the tree into a stack. Later, we can push

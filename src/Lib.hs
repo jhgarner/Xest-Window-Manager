@@ -122,9 +122,9 @@ startWM = do
     $ evalState (M.empty @String @Atom)
     $ evalState (M.empty @Atom @[Int])
     $ evalState (M.empty @Window @XRect)
-    $ evalState (M.empty @Int @Screen')
+    $ evalState (M.empty @Int @Tiler)
     $ evalState ([] @SubTiler)
-    $ evalState @Tiler (InputController Nothing)
+    $ evalState @Tiler (InputController (error "Don't read this") Nothing)
     $ evalState Nothing
     $ evalState (0 :: Int)
     $ runGetScreens

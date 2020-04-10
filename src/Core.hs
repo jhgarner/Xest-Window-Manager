@@ -33,8 +33,8 @@ import qualified SDL (Window)
 -- called every literal frame; Xest doesn't have to do anything if it's
 -- children want to change their contents. Xest only gets involved when they
 -- need to move.
-refresh :: Members [Mover, Property, Colorer, GlobalX, Log String] r
-        => Members (Inputs [Window, Screens, Borders, (Int32, Int32)]) r
+refresh :: Members [Mover, Property, Colorer, GlobalX, Log String, Minimizer] r
+        => Members (Inputs [Window, Screens, Pointer]) r
         => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time]) r
         => Sem r ()
 refresh = do
@@ -49,11 +49,10 @@ refresh = do
     -- restack all of the windows
     topWindows <- makeTopWindows
     log $ "[TOP WINDOWS] " ++ show topWindows
-    -- bottomWindows <- getBottomWindows
     log "[Rendering]"
     middleWins <- render
     restack $ topWindows ++ fmap getParent middleWins
-    allBorders <- inputs @Screens $ fmap (screenBorders . snd) . mapToList
+    allBorders <- inputs @Screens $ fmap (getBorders . snd) . mapToList
     forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
     log "[Done Rendering]"
 
@@ -75,15 +74,14 @@ refresh = do
 -- Cofree thing just means every node in our Tiler tree also contains
 -- instructions for how it should be placed on the screen.
 placeWindow
-  :: Rect
-  -> Tiler
+  :: Tiler
   -> Cofree TilerF (Transformation, Int)
-placeWindow screenSize root =
+placeWindow root =
   ana buildUp (StartingPoint mempty, 0, Fix root)
 
     where
       -- The meat of the placeWindow function.
-      placeWindow' :: Transformation -> Int -> SubTiler -> TilerF (Transformation, Int, SubTiler)
+      placeWindow' :: Transformation -> Int -> SubTiler -> (TilerF (Transformation, Int, SubTiler))
       placeWindow' trans depth = \case
         -- Wraps are super simple.
         Wrap win -> Wrap win
@@ -115,19 +113,32 @@ placeWindow screenSize root =
               let allFloating = flip fmap ls $ \case
                     WithRect rr@Rect {..} t ->
                       let wrapTrans = if mods == Rotate then Spin trans else trans
-                          starting@(Rect realX realY realW realH) = getStartingPoint wrapTrans
-                      in WithRect rr (Slide (Rect ((x - realX) / realW) ((y - realY) / realH) (w / realW) (h / realH)) $ StartingPoint starting, depth + 1, t)
+                          starting@(Rect realX realY realW realH) = bimap fromIntegral fromIntegral $ getStartingPoint wrapTrans
+                      in WithRect rr (Slide (Rect ((x - realX) / realW) ((y - realY) / realH) (w / realW) (h / realH)) $ StartingPoint $ bimap floor ceiling starting, depth + 1, t)
                   withBottom = mapOne (Left Front) (\(WithRect r (_, d, t)) -> WithRect r (trans, d, t)) allFloating
                in Floating withBottom
 
         -- Input controllers don't really do anything.
-        InputController t ->
-          InputController $ fmap (trans, depth, ) t
+        InputController bords t ->
+          InputController bords $ fmap (trans, depth, ) t
 
         -- Monitors specify the starting point for the transformations that
         -- follow.
-        Monitor t ->
-          Monitor $ fmap (StartingPoint screenSize, depth, ) t
+        Monitor screenSize t ->
+          -- nwsp <- getAtom False "_NET_WM_STRUT_PARTIAL"
+          -- forM_ unman \win -> do
+          --   struts <- getProperty 32 nwsp $ getChild win
+          --   let 
+          --       newR =
+          --         case struts of
+          --           -- Yikes, this is a big line...
+          --           [left, right, top, bottom, leftStarty, leftEndy, rightStarty, rightEndy, topStartx, topEndx, bottomStartx, bottomEndx] ->
+          --             if
+          --                | left /= 0 && left >= x && left < x+w ->
+          --                  Rect (x+left) y (w-fromIntegral left) h
+          --                | right /= 0 && w-right >= x && w-right < x+w -> Rect x y (w-fromIntegral right) h
+          --                | top /= 0 -> Rect x (y+top) (w-fromIntegral right) h
+          Monitor screenSize $ fmap (StartingPoint screenSize, depth, ) t
 
       -- Runs the above function after shuffling the types around.
       buildUp :: (Transformation, Int, SubTiler) -> CofreeF TilerF (Transformation, Int) (Transformation, Int, SubTiler)
@@ -150,68 +161,67 @@ getWindowByClass wName = do
 render
   :: ( Members (Inputs [Pointer, Screens]) r
      , Members (States [Tiler, Mode, [SubTiler]]) r
-     , Members [Mover, Colorer, GlobalX, Log String] r
+     , Members [Mover, Colorer, GlobalX, Log String, Minimizer, Property] r
      )
   => Sem r [ParentChild]
 render = do
   screens <- input @Screens
 
-  let locations :: [(Cofree TilerF (Transformation, Int), Borders)] = toList $ fmap (\(Screen' rect t b) -> (placeWindow (bimap fromIntegral fromIntegral rect) t, b)) screens
+  let locations :: [(Cofree TilerF (XRect, Int))] =
+        toList $ fmap (fmap (first toScreenCoord) . placeWindow) screens
 
   -- Draw the tiler we've been given. winOrder will be used by restackWindows
   -- while io coantains the io action which moves the windows.
-  let (winOrder, io) = unzip . toList $ fmap (\(location, border) -> cata (draw $ Just border) $ fmap (first $ bimap floor ceiling . toScreenCoord) location) locations
+  let (winOrder, io) = unzip . toList $ fmap (cata draw) locations
   sequence_ io
 
   -- Hide all of the popped tilers
   minimized <- get @[SubTiler]
-  traverse_ (snd . cata (draw Nothing) . fmap (first $ bimap round round . toScreenCoord) . placeWindow mempty . unfix) minimized
+  traverse_ (snd . cata draw . fmap (first toScreenCoord) . placeWindow . unfix) minimized
 
   return $ join winOrder
 
        -- The main part of this function.
- where draw :: Maybe Borders -> Base (Cofree TilerF (XRect, Int)) ([ParentChild], Sem _ ()) -> ([ParentChild], Sem _ ())
-       draw _ ((Rect {..}, _) :<~ Wrap pc) = ([pc],
+ where draw :: Base (Cofree TilerF (XRect, Int)) ([ParentChild], Sem _ ()) -> ([ParentChild], Sem _ ())
+       draw ((Rect {..}, _) :<~ Wrap pc) = ([pc],
            changeLocation pc $ Rect x y (abs w) (abs h))
        
        -- The InputController places the SDL window borders around the focused
        -- Tiler if you're in a mode that wants borders.
-       draw maybeBorders ((Rect{..}, depth) :<~ InputController t) =
+       draw ((Rect{..}, depth) :<~ InputController (l, u, r, d) t) =
            (maybe [] fst t, do
               -- Do the movements requested by the children.
               mapM_ snd t
 
-              -- Extract the border windows
-              flip (maybe $ return ()) maybeBorders $ \(l, u, r, d) -> do
-                let winList :: [SDL.Window] = [l, u, r, d]
+              let winList :: [SDL.Window] = [l, u, r, d]
 
-                -- Calculate the color for our depth
-                -- Basically, add the golden ratio to the hue depending on how
-                -- deep we are.
-                let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
+              -- Calculate the color for our depth
+              -- Basically, add the golden ratio to the hue depending on how
+              -- deep we are.
+              let hue = 360.0 * ((0.5 + (fromIntegral (depth - 1) * 0.618033988749895)) `mod'` 1)
 
-                currentMode <- get
-                if hasBorders currentMode
-                  then do
-                      -- Draw them with the right color and position
-                      changeLocationS l $ Rect x y 2 h
-                      changeLocationS u $ Rect (x + 2) y (w-2) 20
-                      changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
-                      changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
+              currentMode <- get @Mode
+              if hasBorders currentMode
+                then do
+                    -- Draw them with the right color and position
+                    changeLocationS l $ Rect x y 2 h
+                    changeLocationS u $ Rect (x + 2) y (w-2) 20
+                    changeLocationS d $ Rect x (y+fromIntegral h-2) w 2
+                    changeLocationS r $ Rect (x+fromIntegral w-2) y 2 h
 
-                      traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
-                      gets @Tiler Fix >>= drawText u . cata getFocusList
-                  else do
-                      changeLocationS l $ Rect 10000 0 0 0
-                      changeLocationS u $ Rect 10000 0 0 0
-                      changeLocationS d $ Rect 10000 0 0 0
-                      changeLocationS r $ Rect 10000 0 0 0
-                      traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
-                      gets @Tiler Fix >>= drawText u . cata getFocusList
+                    traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
+                    gets @Tiler Fix >>= drawText u . cata getFocusList
+                else do
+                    changeLocationS l $ Rect 10000 0 0 0
+                    changeLocationS u $ Rect 10000 0 0 0
+                    changeLocationS d $ Rect 10000 0 0 0
+                    changeLocationS r $ Rect 10000 0 0 0
+                    traverse_ (`changeColor` hsvToRgb hue 0.5 0.9) winList
+                    gets @Tiler Fix >>= drawText u . cata getFocusList
            )
 
        -- Draw the background with the floating windows on top.
-       draw _ (_ :<~ Many mh _) =
+       draw (_ :<~ Many mh _) =
          case mh of
            Floating fl ->
              let (bottom, tops) = pop (Left Front) $ fmap (fst . extract) fl
@@ -220,7 +230,7 @@ render = do
              (foldFl mh $ join . toList . fOrder . fmap (fst . extract), foldFl mh $ mapM_ (snd . extract))
 
        -- Everything else just needs to draw it's children
-       draw _ (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)
+       draw (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)
 
        hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)
        hsvToRgb h s v = let c = v * s
@@ -237,10 +247,10 @@ render = do
 
           
 -- |Writes the path to the topmost border.
-writePath :: Members '[State Tiler, Input Borders, Colorer, Property] r 
+writePath :: Members '[State Tiler, Colorer, Property] r 
           => Sem r ()
 writePath = do
-  (_, u, _, _) <- input @Borders
+  (_, u, _, _) <- gets @Tiler getBorders
   root <- get @Tiler
   drawText u $ cata getFocusList $ Fix root
 
@@ -255,8 +265,7 @@ xFocus = do
   setFocus w
  where
   makeList (Wrap pc)              = EndF $ Just pc
-  makeList (InputControllerOrMonitor _ (Just (Fix t))) = ContinueF t
-  makeList (InputControllerOrMonitor _ Nothing) = EndF Nothing
+  makeList (InputControllerOrMonitor _ t) = maybe (EndF Nothing) (ContinueF . unfix) t
   makeList t = ContinueF (unfix $ getFocused t)
 
 -- |Set the current screen number based on pointer position.
@@ -265,7 +274,7 @@ setScreenFromMouse :: Members [Input Pointer, State ActiveScreen, State Screens]
 setScreenFromMouse = do
   pointer <- input @Pointer
   screens <- get @Screens
-  put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ zip [0..] $ toList $ fmap screenSize screens
+  put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ zip [0..] $ toList $ fmap getScreens screens
 
 -- |Add a bunch of properties to our root window to comply with EWMH
 initEwmh :: Member Property r
@@ -322,8 +331,6 @@ makeTopWindows = do
     prop <- getProperty @_ @Atom 32 nws win
     nwsa <- getAtom False "_NET_WM_STATE_ABOVE"
     name <- getClassName win
-    log $ "[NAMES] " ++ name ++ " and " ++ show (name == "xest-exe")
-    -- let name = "t"
     return $ case prop of
                [] -> [win | name == "xest-exe"]
                states -> [win | nwsa `elem` states]

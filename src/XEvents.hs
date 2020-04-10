@@ -26,22 +26,29 @@ import Config
 import Actions.ActionTypes
 
 -- |Called when we want to reparent a window
-reparentWin :: Members '[EventFlags, GlobalX, Log String] r
+reparentWin :: Members '[EventFlags, GlobalX, Log String, Property] r
        => Window
        -> Sem r ParentChild
 reparentWin window = do
-  -- Reparent the window inside of a new one.
-  -- Originally, Xest didn't do this but then a bunch of bugs came up
-  -- where crossing events weren't reported correctly. All of those
-  -- bugs went away when reparenting was added.
-  newWin <- newWindow window
-  log $ "[ReparentWin] " ++ show window ++ " with parent " ++ show newWin
+  -- Is this window a dock?
+  nwwtd <- getAtom False "_NET_WM_WINDOW_TYPE_DOCK"
+  nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
+  windowType <- getProperty 32 nwwt window
+  if elem nwwtd windowType
+     then return $ ParentChild window window
+     else do
+        -- Reparent the window inside of a new one.
+        -- Originally, Xest didn't do this but then a bunch of bugs came up
+        -- where crossing events weren't reported correctly. All of those
+        -- bugs went away when reparenting was added.
+        newWin <- newWindow window
+        log $ "[ReparentWin] " ++ show window ++ " with parent " ++ show newWin
 
-  -- Think of the new parent as an extension of the root window.
-  -- Just like on the root window, we need to register some events
-  -- on the parent.
-  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
-  return $ ParentChild newWin window
+        -- Think of the new parent as an extension of the root window.
+        -- Just like on the root window, we need to register some events
+        -- on the parent.
+        selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
+        return $ ParentChild newWin window
 
 deriving instance Show SizeHints
 
@@ -65,20 +72,32 @@ mapWin pc@(ParentChild newWin window) = do
       SizeHints{..} <- getSizeHints window
       let idealSize = fromMaybe (500, 500) sh_min_size
       let tilerParent = Wrap $ ParentChild parent parent
+          -- TODO Yikes lines
           (worked, newRoot) = usingFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
           (workedAlt, altNewRoot) = makeFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
       if
           | worked -> put @Tiler newRoot >> newFocus newWin
           | workedAlt -> put @Tiler altNewRoot >> newFocus newWin
           | otherwise -> modify @LostWindow (insertWith (++) parent [pc])
+
     Nothing -> do
-      -- This adds the new window to whatever tiler comes after inputController
-      -- If you've zoomed the inputController in, you get nesting as a result
+      -- Is this window a dock?
+      -- nwwtd <- getAtom False "_NET_WM_WINDOW_TYPE_DOCK"
+      -- nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
+      -- windowType <- getProperty 32 nwwt window
+      -- modify if elem nwwtd windowType
+      --           -- Add the child to the unmanaged section.
+      --           then addUnmanagedWindow pc
+      --           -- Add the new window as a child of InputController.
+      --           else applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
+
       modify $ applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
       newFocus newWin
+
+      -- Make the window full screen if needed
       wm_state <- getAtom False "_NET_WM_STATE"
       full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
-      isFullScreen <- maybe False (== full_screen) . headMay <$> getProperty 32 wm_state window
+      isFullScreen <- (== Just full_screen) . headMay <$> getProperty 32 wm_state window
       when isFullScreen $
         makeFullscreen window
 
@@ -153,16 +172,14 @@ rootChange = do
   -- Update the list of screens
   screenInfo <- input @[XineramaScreenInfo]
   oldScreens <- get @Screens
-  let defaultTiler = Monitor $ Just $ Fix $ InputController Nothing
   newScreens <-
         mapFromList <$>
           traverse (\(XineramaScreenInfo name x y w h) -> do
                 NewBorders newBorders <- input @NewBorders
+                -- TODO This line is long...
+                let defaultTiler = Monitor (Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)) $ Just $ Fix $ InputController newBorders Nothing
                 return ( fromIntegral name
-                  , Screen'
-                      (Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h))
-                      (findWithDefault defaultTiler (fromIntegral name) $ fmap screenTree oldScreens)
-                      newBorders
+                  , findWithDefault defaultTiler (fromIntegral name) $ oldScreens
                   )
               ) screenInfo
   put newScreens
@@ -171,7 +188,7 @@ rootChange = do
     if member activeScreen newScreens then activeScreen else headEx (keys newScreens)
 
   -- Put all of the dead monitors into the minimized window stack
-  traverse_ ((fold . fmap (modify @[SubTiler] . (:))) . screenTree) $ difference oldScreens newScreens
+  traverse_ ((fold . fmap (modify @[SubTiler] . (:)))) $ difference oldScreens newScreens
   put $ Just ()
   
 
@@ -249,12 +266,12 @@ keyDown keycode eventType
 
 -- |When the user moves the mouse in resize mode, this events are triggered.
 motion :: Members '[Property] r
-       => Members (Inputs [XRect, Pointer, MouseButtons]) r
+       => Members (Inputs [Pointer, MouseButtons]) r
        => Members (States [Tiler, MouseButtons, Maybe ()]) r
        => Sem r ()
 motion = do
   -- First, let's find the current screen and its dimensions.
-  Rect _ _ screenW screenH <- input @XRect
+  Rect _ _ screenW screenH <- gets @Tiler getScreens
   realButtonState <- input @MouseButtons
   lastButtonState <- get @MouseButtons
   case (getButtonLoc realButtonState, getButtonLoc lastButtonState) of
@@ -320,13 +337,24 @@ makeFullscreen :: Members '[State Tiler, Property] r
                => Window
                -> Sem r ()
 makeFullscreen window = do
-  root <- get @Tiler
+  -- Get the static parameters on Monitor and IC
+  loc <- gets @Tiler $ fromMaybe (error "Lost Mon") . cata \case
+    Monitor loc _ -> Just loc
+    t -> asum t
+  bords <- gets @Tiler $ fromMaybe (error "Lost Mon") . cata \case
+    InputController bords _ -> Just bords
+    t -> asum t
+
+  -- Get/set some useful atoms and window data
   wm_state <- getAtom False "_NET_WM_STATE"
   wm_full <- getAtom False "_NET_WM_STATE_FULLSCREEN"
   currentState <- getProperty 32 wm_state window
   putProperty 32 wm_state window aTOM $ fmap fromIntegral (wm_full : currentState)
+
+  -- Modify the tree with the newly zoomed in location
+  root <- get @Tiler
   modify @Tiler $ coerce . fromMaybe (coerce root) . cata \case
     Wrap pc@(ParentChild _ child)
-      | child == window -> Just $ Monitor $ Just $ InputController $ Just $ Wrap pc
+      | child == window -> Just $ Monitor loc $ Just $ InputController bords $ Just $ Wrap pc
     InputControllerOrMonitor _ t -> coerce $ join t
     t -> coerce $ reduce t

@@ -75,7 +75,7 @@ data Property m a where
   
   GetSizeHints :: Window -- ^ The window being analyzed
                -> Property m SizeHints
-
+  
 makeSem ''Property
 
 type AtomCache = Map String Atom
@@ -106,6 +106,7 @@ runProperty = interpret $ \case
 
   GetClassName win ->
     input >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return n
+      
 
   IsOverrideRedirect win ->
     input >>= \d -> embed $
@@ -148,4 +149,15 @@ runProperty = interpret $ \case
   GetSizeHints w -> do
     d <- input @Display
     embed $ getWMNormalHints d w
+
+
+
+getRealName :: Member Property r => Window -- ^ The Window we're interested in
+            -> Sem r String -- ^ The window's name
+getRealName win = do
+  netwmname <- getAtom False "_NET_WM_NAME"
+  wmname <- getAtom False "WM_NAME"
+  net_name <- getProperty 32 netwmname win
+  name <- getProperty 32 wmname win
+  return if null net_name then name else net_name
 

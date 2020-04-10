@@ -60,6 +60,7 @@ runGetScreens = interpret $ \case
     embed $ join . toList <$> xineramaQueryScreens d
 
 newtype NewBorders = NewBorders Borders
+newtype XestBorders = XestBorders [Window]
 runNewBorders :: Member (Embed IO) r
               => Sem (Input NewBorders ': r) a -> Sem r a
 runNewBorders = runInputSem $ do
@@ -89,10 +90,10 @@ indexedState
 indexedState = interpret $ \case
   Get -> do
     activeScreen <- get @ActiveScreen
-    screenTree . fromMaybe screenError . lookup activeScreen <$> get @Screens
+    fromMaybe screenError . lookup activeScreen <$> get @Screens
   Put p -> do
     activeScreen <- get @ActiveScreen
-    modify @Screens $ adjustMap (\s -> s {screenTree = p}) activeScreen
+    modify @Screens $ insertMap activeScreen p
       
 data MouseButtons = LeftButton (Int, Int) | RightButton (Int, Int) | None
   deriving Show
@@ -101,13 +102,11 @@ getButtonLoc (LeftButton l) = Just l
 getButtonLoc (RightButton l) = Just l
 getButtonLoc _ = Nothing
 
-type Screens = Map Int Screen'
+type Screens = Map Int Tiler
 type ActiveScreen = Int
-data Screen' = Screen' { screenSize :: XRect
-                       , screenTree :: Tiler
-                       , screenBorders :: Borders
-                       }
-  deriving Show
+-- data Screen' = Screen' { screenSize :: XRect
+--                        , screenTree :: Tiler
+--                        }
+--   deriving Show
 
-type Borders = (SDL.Window, SDL.Window, SDL.Window, SDL.Window)
 type Pointer = (Int32, Int32)

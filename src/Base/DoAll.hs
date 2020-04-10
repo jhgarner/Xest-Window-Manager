@@ -89,12 +89,9 @@ doAll ioref t c m d w f =
     . runInputs (w ::: d ::: f ::: HNil)
     . stateToInput @Conf
     . stateToInput @Screens
-    . smartBorders
     . runNewBorders
     . runGetScreens
-    . listOfScreens
     . indexedState
-    . runInputScreen
     . runGetButtons
     . runGetPointer
     . runExecutor
@@ -113,32 +110,6 @@ doAll ioref t c m d w f =
     when shouldLog $
       embed @IO $ appendFile "/tmp/xest.log" (msg ++ "\n")
 
-  -- Get the screens from Xinerama
-  runInputScreen
-    :: Members (States '[ActiveScreen, Screens]) r
-    => Sem (Input XRect ': r) a
-    -> Sem r a
-  runInputScreen = runInputSem $ do
-    activeScreen <- get @ActiveScreen
-    gets @Screens $ screenSize . fromMaybe screenError . lookup activeScreen
-
-  listOfScreens
-    :: Member (Input Screens) r => Sem (Input [XRect] ': r) a -> Sem r a
-  listOfScreens = interpret $ \case
-    Input -> toList . fmap screenSize <$> input @Screens
-  smartBorders
-    :: Members '[Input Screens, State ActiveScreen] r
-    => Sem (Input Borders ': r) a
-    -> Sem r a
-  smartBorders = interpret $ \case
-    Input ->
-      get
-        >>= (\activeScreen ->
-              screenBorders
-                .   fromMaybe screenError
-                .   lookup activeScreen
-                <$> input @Screens
-            )
   stateToInput :: Member (State a) r => Sem (Input a ': r) b -> Sem r b
   stateToInput = interpret $ \case
     Input -> get

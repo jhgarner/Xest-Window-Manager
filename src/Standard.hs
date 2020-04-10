@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 module Standard
     ( module All
@@ -18,10 +20,6 @@ module Standard
     , pattern (:<~)
     , Void
     , absurd
-    , DeferedList(..)
-    , DeferedListF(..)
-    , undefer
-    , deferred
     , RectA(..)
     , Rect
     , XRect
@@ -30,6 +28,8 @@ module Standard
     , getStartingPoint
     , trd
     , fromEither
+    , onBoth
+    , oFind
     ) where
 
 import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector, log, fromEither)
@@ -83,11 +83,11 @@ type Rect = RectA Double Double
 type XRect = RectA Int32 Word32
 
 -- There must be some way to get the Compiler to make this one...
-instance Semigroup (RectA Double Double) where
+instance (Num n, Num m) => Semigroup (RectA n m) where
   Rect a1 a2 a3 a4 <> Rect b1 b2 b3 b4 = Rect (a1 + b1) (a2 + b2) (a3 + b3) (a4 + b4)
 
 -- And this one as well...
-instance Monoid (RectA Double Double) where
+instance (Num n, Num m) => Monoid (RectA n m) where
   mempty = Rect 0 0 0 0
 
 -- |Some transformations you might want to make to a rectangle.
@@ -98,28 +98,23 @@ instance Monoid (RectA Double Double) where
 -- we create a list of transformations and wait to apply them until the
 -- last moment. This lets our drawing functions inspect how they're going
 -- to be transformed.
-data Transformation = Slide Rect Transformation | Spin Transformation | StartingPoint Rect
+data Transformation = Slide Rect Transformation | Spin Transformation | StartingPoint XRect
   deriving (Eq, Show)
 
 makeBaseFunctor ''Transformation
 
 -- |Actually does the computations to create a new rectangle.
-applyTrans :: Transformation -> (Bool, Rect)
-applyTrans = cata \case
+toScreenCoord :: Transformation -> XRect
+toScreenCoord = bimap floor ceiling . snd . cata \case
   SlideF (Rect dx dy dw dh) (False, Rect {..}) ->
     (False, Rect (x + dx * w) (y + dy * h) (w * dw) (h * dh))
   SlideF (Rect dx dy dw dh) (True, Rect {..}) ->
     (False, Rect (x + dy * w) (y + dx * h) (w * dh) (h * dw))
   SpinF (_, Rect {..}) -> (True, Rect x y w h)
-  StartingPointF r -> (False, r)
-
--- |Combines the above 2 functions to turn a transformation into something
--- you can give to Xlib.
-toScreenCoord :: Transformation -> Rect
-toScreenCoord t = snd $ applyTrans t
+  StartingPointF r -> (False, bimap fromIntegral fromIntegral r)
 
 -- |Extracts the original untransformed rectangle.
-getStartingPoint :: Transformation -> Rect
+getStartingPoint :: Transformation -> XRect
 getStartingPoint = cata $ \case
   StartingPointF r -> r
   SpinF r -> r
@@ -185,31 +180,6 @@ absurd a = a `seq` spin a where
    spin (Void b) = spin b
 
 
--- |Another fun data type! This one is a little less fun because the useful
--- functions it provides are partial...
---
--- You can think of it as a way of splitting a list on some element. Basically,
--- it's a zipper but designed to be used by cata/ana. TODO Can I make this
--- better?
-data DeferedList a = DNil | DCons a (DeferedList a) | DActive (DeferedList a)
-makeBaseFunctor ''DeferedList
-
-undefer :: DeferedList a -> [a]
-undefer = either (const []) id . cata undefer'
-  where undefer' DNilF = Left []
-        undefer' (DConsF a (Left as)) = Left $ a : as
-        undefer' (DConsF _ (Right as)) = Right as
-        undefer' (DActiveF (Left as)) = Right as
-        undefer' (DActiveF (Right _)) = error "Double deferred!"
-
-deferred :: DeferedList a -> [a]
-deferred = either (const []) reverse . cata undefer'
-  where undefer' DNilF = Left []
-        undefer' (DConsF _ (Left _)) = Left $ error "Derferred broke"
-        undefer' (DConsF a (Right as)) = Right $ a : as
-        undefer' (DActiveF (Left _)) = Right []
-        undefer' (DActiveF (Right _)) = error "Double deferred!"
-
 -- |Like fst and snd but for the third element.
 trd :: (a, b, c) -> c
 trd (_, _, c) = c
@@ -217,3 +187,9 @@ trd (_, _, c) = c
 fromEither :: Either a a -> a
 fromEither (Left a) = a
 fromEither (Right a) = a
+
+onBoth :: forall k a b d. (k a, k b) => Either a b -> (forall c. (k c) => c -> d) -> d
+onBoth e f = either f f e
+
+oFind :: (MonoFoldable c, Element c ~ elem) => (elem -> Bool) -> c -> Maybe elem
+oFind p = foldl' (\acc elem -> if p elem then Just elem else acc) Nothing
