@@ -22,6 +22,7 @@ import           Polysemy.State
 import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Atom
+import           Graphics.X11.Xinerama
 import           Data.Either                    ( )
 import           Data.Char
 import           Tiler.Tiler
@@ -33,25 +34,35 @@ import qualified SDL (Window)
 -- called every literal frame; Xest doesn't have to do anything if it's
 -- children want to change their contents. Xest only gets involved when they
 -- need to move.
-refresh :: Members [Mover, Property, Colorer, GlobalX, Log String, Minimizer] r
-        => Members (Inputs [Window, Screens, Pointer]) r
-        => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time]) r
+refresh :: Members [Mover, Property, Colorer, GlobalX, Log String, Minimizer, Unmanaged] r
+        => Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo]]) r
+        => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time, Screens, RawBorders, DockState, Docks]) r
         => Sem r ()
 refresh = do
     log "[Starting Refresh]"
     put @(Maybe ()) Nothing
+
     -- Fix the Monitor if the Input Controller moved in a weird way
     modify @Tiler fixMonitor
+
+    -- Update the Monitors in case docks were created
+    oldScreens <- gets @Screens keys
+    forM_ oldScreens $ \i -> do
+      screenInfo <- input @[XineramaScreenInfo]
+      let Just (XineramaScreenInfo _ x y w h) = find ((== fromIntegral i) . xsi_screen_number) screenInfo
+      newRect <- constrainRect $ Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
+      log $ "Screen is: " ++ show newRect
+      modify @Screens $ adjustMap (putScreens newRect) i
 
     -- Write the path to the upper border
     writePath
 
     -- restack all of the windows
-    topWindows <- makeTopWindows
+    (topWindows, bottomWindows) <- findSpecialWindows
     log $ "[TOP WINDOWS] " ++ show topWindows
     log "[Rendering]"
     middleWins <- render
-    restack $ topWindows ++ fmap getParent middleWins
+    restack $ topWindows ++ fmap getParent middleWins ++ bottomWindows
     allBorders <- inputs @Screens $ fmap (getBorders . snd) . mapToList
     forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
     log "[Done Rendering]"
@@ -125,19 +136,6 @@ placeWindow root =
         -- Monitors specify the starting point for the transformations that
         -- follow.
         Monitor screenSize t ->
-          -- nwsp <- getAtom False "_NET_WM_STRUT_PARTIAL"
-          -- forM_ unman \win -> do
-          --   struts <- getProperty 32 nwsp $ getChild win
-          --   let 
-          --       newR =
-          --         case struts of
-          --           -- Yikes, this is a big line...
-          --           [left, right, top, bottom, leftStarty, leftEndy, rightStarty, rightEndy, topStartx, topEndx, bottomStartx, bottomEndx] ->
-          --             if
-          --                | left /= 0 && left >= x && left < x+w ->
-          --                  Rect (x+left) y (w-fromIntegral left) h
-          --                | right /= 0 && w-right >= x && w-right < x+w -> Rect x y (w-fromIntegral right) h
-          --                | top /= 0 -> Rect x (y+top) (w-fromIntegral right) h
           Monitor screenSize $ fmap (StartingPoint screenSize, depth, ) t
 
       -- Runs the above function after shuffling the types around.
@@ -291,6 +289,7 @@ initEwmh root upper = do
     , "_NET_CLIENT_LIST"
     , "_NET_ACTIVE_WINDOW"
     , "_NET_SUPPORTING_WM_CHECK"
+    , "_NET_WM_STRUT_PARTIAL"
     , "_NET_WM_STATE"
     , "_NET_WM_STATE_FULLSCREEN"
     ]
@@ -317,25 +316,18 @@ writeWorkspaces (names, i) = do
   putProperty 32 ncd root cARDINAL [i]
 
 -- |Some windows (like Polybar) want to be on top of everything else
--- This function finds those windows and returns them in a list.
-makeTopWindows
-  :: (Members '[Property, GlobalX, Mover, Log String] r)
-  => Sem r [Window]
-makeTopWindows = do
-  -- Get a list of all windows
-  wins <- getTree
-  higherWins <- for wins $ \win -> do
-    -- EWMH defines how to do this.
-    -- Check out their spec if you're curious.
-    nws <- getAtom False "_NET_WM_STATE"
-    prop <- getProperty @_ @Atom 32 nws win
-    nwsa <- getAtom False "_NET_WM_STATE_ABOVE"
-    name <- getClassName win
-    return $ case prop of
-               [] -> [win | name == "xest-exe"]
-               states -> [win | nwsa `elem` states]
-  return $ join higherWins
-
+-- This function finds those windows and returns them in a list. Also, windows
+-- which should be on the bottom are returned too.
+findSpecialWindows
+  :: (Members (States '[Screens, Docks, DockState, RawBorders]) r)
+  => Sem r ([Window], [Window])
+findSpecialWindows = do
+  Docks docks <- get @Docks
+  dockState <- get @DockState
+  RawBorders borders <- get @RawBorders
+  return if dockState == Hidden
+            then (borders, docks)
+            else (borders ++ docks, [])
 
 -- |Writes all of the clients we're managing for others to see.
 setClientList :: (Members '[State Tiler, Input Window, Property] r)

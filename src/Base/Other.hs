@@ -104,9 +104,4 @@ getButtonLoc _ = Nothing
 
 type Screens = Map Int Tiler
 type ActiveScreen = Int
--- data Screen' = Screen' { screenSize :: XRect
---                        , screenTree :: Tiler
---                        }
---   deriving Show
-
 type Pointer = (Int32, Int32)

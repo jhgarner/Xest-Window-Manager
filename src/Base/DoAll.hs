@@ -18,6 +18,7 @@ module Base.DoAll
   , module Base.Global
   , module Base.EventFlags
   , module Base.Colorer
+  , module Base.Unmanaged
   , module Base.DoAll
   )
 where
@@ -41,6 +42,7 @@ import           Base.Executor
 import           Base.Global
 import           Base.Colorer
 import           Base.EventFlags
+import           Base.Unmanaged
 import           Tiler.TilerTypes
 import           Tiler.ParentChild
 import           Config
@@ -86,6 +88,9 @@ doAll ioref t c m d w f =
     . runStateLogged (c, "Config")
     . runStateLogged ((0 :: ActiveScreen), "Active screen")
     . runStateLogged (currentTime, "Time")
+    . runStateLogged (Docks [], "Docks")
+    . runStateLogged (Visible, "Dock State")
+    . runStateLogged (RawBorders [], "Raw Borders")
     . runInputs (w ::: d ::: f ::: HNil)
     . stateToInput @Conf
     . stateToInput @Screens
@@ -101,6 +106,7 @@ doAll ioref t c m d w f =
     . runMinimizer
     . runMover
     . runColorer
+    . runUnmanaged
  where
   logger :: Members '[State Bool, State [String], Embed IO] r => LogAction (Sem r) String
   logger = LogAction $ \msg -> do

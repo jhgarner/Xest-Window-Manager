@@ -183,11 +183,18 @@ mainLoop = do
   -- A handful of them have slightly more complicated logic.
   runInputConst currentScreen $ getXEvent >>= (\x -> log ("[Event] " ++ show x) >> return x) >>= \case
     -- Called when a new window is created by someone
-    MapRequestEvent {..} ->
-      -- If we think the window is currently managed, unmap it first.
-      unlessM (findWindow ev_window <$> get @Tiler) $
-        -- unmapWin ev_window
-        reparentWin ev_window >>= mapWin
+    MapRequestEvent {..} -> do
+      -- First, check if it's a dock which should be unmanaged
+      nwwtd <- getAtom False "_NET_WM_WINDOW_TYPE_DOCK"
+      nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
+      windowType <- getProperty 32 nwwt ev_window
+      if elem nwwtd windowType
+        then
+          addUM ev_window
+        else
+          unlessM (findWindow ev_window <$> get @Tiler) $
+            reparentWin ev_window >>= mapWin
+        
     -- Called when a window actually dies.
     DestroyWindowEvent {..} -> killed ev_window
     -- Called when a window is dying. Because X is asynchronous, there's a chance
@@ -276,5 +283,6 @@ mainLoop = do
       SetRotate -> changeMods Rotate
       SetFull -> changeMods Full
       SetNoMod -> changeMods NoMods
+      ToggleDocks -> toggleDocks
       
 

@@ -256,9 +256,14 @@ insertTiler
   => Sem r ()
 insertTiler =
   modify @Tiler $ applyInput (fmap toTiler)
-
  where
   toTiler focused = Many (Horiz $ makeFL (NE (Sized 1 focused) []) 0) NoMods
+
+toggleDocks
+  :: Member (State DockState) r
+  => Sem r ()
+toggleDocks =
+  modify @DockState \d -> if d == Visible then Hidden else Visible
 
 -- |Kill the active window
 killActive

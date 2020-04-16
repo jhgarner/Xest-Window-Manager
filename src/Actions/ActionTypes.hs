@@ -34,6 +34,7 @@ data Action
   | SetRotate
   | SetFull
   | SetNoMod
+  | ToggleDocks
   deriving (Show, Generic, Interpret)
 
 -- | Modes similar to modes in vim

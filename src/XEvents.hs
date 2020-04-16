@@ -30,32 +30,25 @@ reparentWin :: Members '[EventFlags, GlobalX, Log String, Property] r
        => Window
        -> Sem r ParentChild
 reparentWin window = do
-  -- Is this window a dock?
-  nwwtd <- getAtom False "_NET_WM_WINDOW_TYPE_DOCK"
-  nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
-  windowType <- getProperty 32 nwwt window
-  if elem nwwtd windowType
-     then return $ ParentChild window window
-     else do
-        -- Reparent the window inside of a new one.
-        -- Originally, Xest didn't do this but then a bunch of bugs came up
-        -- where crossing events weren't reported correctly. All of those
-        -- bugs went away when reparenting was added.
-        newWin <- newWindow window
-        log $ "[ReparentWin] " ++ show window ++ " with parent " ++ show newWin
+  -- Reparent the window inside of a new one.
+  -- Originally, Xest didn't do this but then a bunch of bugs came up
+  -- where crossing events weren't reported correctly. All of those
+  -- bugs went away when reparenting was added.
+  newWin <- newWindow window
+  log $ "[ReparentWin] " ++ show window ++ " with parent " ++ show newWin
 
-        -- Think of the new parent as an extension of the root window.
-        -- Just like on the root window, we need to register some events
-        -- on the parent.
-        selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
-        return $ ParentChild newWin window
+  -- Think of the new parent as an extension of the root window.
+  -- Just like on the root window, we need to register some events
+  -- on the parent.
+  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
+  return $ ParentChild newWin window
 
 deriving instance Show SizeHints
 
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer, Screens]) r
        => Members [EventFlags, GlobalX, Property, Log String] r
-       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time]) r
+       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time, DockState]) r
        => ParentChild
        -> Sem r ()
 mapWin pc@(ParentChild newWin window) = do
@@ -81,16 +74,6 @@ mapWin pc@(ParentChild newWin window) = do
           | otherwise -> modify @LostWindow (insertWith (++) parent [pc])
 
     Nothing -> do
-      -- Is this window a dock?
-      -- nwwtd <- getAtom False "_NET_WM_WINDOW_TYPE_DOCK"
-      -- nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
-      -- windowType <- getProperty 32 nwwt window
-      -- modify if elem nwwtd windowType
-      --           -- Add the child to the unmanaged section.
-      --           then addUnmanagedWindow pc
-      --           -- Add the new window as a child of InputController.
-      --           else applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
-
       modify $ applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
       newFocus newWin
 
@@ -127,7 +110,7 @@ mapWin pc@(ParentChild newWin window) = do
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
-killed :: Members (States [Tiler, LocCache, Maybe ()]) r
+killed :: Members (States [Tiler, LocCache, Maybe (), Docks]) r
        => Member GlobalX r
        => Window 
        -> Sem r ()
@@ -143,9 +126,11 @@ killed window = do
   modify @LocCache $ M.delete window
   -- Remove the window from the tree.
   modify @Tiler $ ripOut window
+  -- Remove the window from the docks cache.
+  modify @Docks $ Docks . filter (/= window) . undock
 
 -- |A window is either dying slowly or has been minimized.
-unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe ()]) r
+unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe (), Docks]) r
          => Members [GlobalX, Property] r
          => Window 
          -> Sem r ()
@@ -333,7 +318,7 @@ changeSize mouseLoc screen (Many mh mods) =
 
 changeSize _ _ t = t
 
-makeFullscreen :: Members '[State Tiler, Property] r
+makeFullscreen :: Members '[State Tiler, Property, State DockState] r
                => Window
                -> Sem r ()
 makeFullscreen window = do
@@ -358,3 +343,6 @@ makeFullscreen window = do
       | child == window -> Just $ Monitor loc $ Just $ InputController bords $ Just $ Wrap pc
     InputControllerOrMonitor _ t -> coerce $ join t
     t -> coerce $ reduce t
+
+  -- Hide the docks
+  put @DockState Hidden

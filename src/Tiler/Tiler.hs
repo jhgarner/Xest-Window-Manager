@@ -302,3 +302,8 @@ getScreens :: Tiler -> XRect
 getScreens = fromMaybe (error "No IC here!") . cata \case
   Monitor r _ -> Just r
   t -> asum t
+
+putScreens :: XRect -> Tiler -> Tiler
+putScreens xRect = unfix . cata \case
+  Monitor _ t -> Monitor xRect t
+  t -> Fix t
