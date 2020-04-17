@@ -57,6 +57,7 @@ runGetScreens :: Members [Input Display, Embed IO] r
 runGetScreens = interpret $ \case
   Input -> do
     d <- input @Display
+    embed $ sync d False
     embed $ join . toList <$> xineramaQueryScreens d
 
 newtype NewBorders = NewBorders Borders

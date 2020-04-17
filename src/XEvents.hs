@@ -47,7 +47,7 @@ deriving instance Show SizeHints
 
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer, Screens]) r
-       => Members [EventFlags, GlobalX, Property, Log String] r
+       => Members [EventFlags, GlobalX, Property, Log String, Mover] r
        => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time, DockState]) r
        => ParentChild
        -> Sem r ()
@@ -82,7 +82,7 @@ mapWin pc@(ParentChild newWin window) = do
       full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
       isFullScreen <- (== Just full_screen) . headMay <$> getProperty 32 wm_state window
       when isFullScreen $
-        makeFullscreen window
+        makeFullscreen window 1
 
 
 
@@ -135,6 +135,7 @@ unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe (), Docks]) r
          => Window 
          -> Sem r ()
 unmapWin window = do
+  put $ Just ()
   -- We need to check if we expected the window to be unmapped. Any window
   -- we explicitly minimized ends up in a set (Thanks XMonad for the idea).
   -- If the window is in the set, we don't need to do anything.
@@ -151,8 +152,7 @@ unmapWin window = do
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
 rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders] r
-           => Members (States [Tiler, Maybe (), Screens, ActiveScreen, [SubTiler], RawBorders]) r
-           => Members '[GlobalX, Property] r
+           => Members (States [Tiler, Maybe (), Screens, ActiveScreen, [SubTiler]]) r
            => Sem r ()
 rootChange = do
   -- Update the list of screens
@@ -173,15 +173,6 @@ rootChange = do
   -- Update the active screen if that monitor got disconnected
   modify @ActiveScreen $ \activeScreen ->
     if member activeScreen newScreens then activeScreen else headEx (keys newScreens)
-
-  -- Add the Xest border windows based on their name. Unfortunately, SDL
-  -- doesn't give us a way to raise the windows normally.
-  allWins <- getTree
-  put @RawBorders $ RawBorders []
-  forM allWins \win -> do
-    name <- getClassName win
-    when (name == "xest-exe") $
-      modify @RawBorders $ RawBorders . (:) win . unRaw
 
   -- Put all of the dead monitors into the minimized window stack
   traverse_ ((fold . fmap (modify @[SubTiler] . (:)))) $ difference oldScreens newScreens
@@ -329,10 +320,12 @@ changeSize mouseLoc screen (Many mh mods) =
 
 changeSize _ _ t = t
 
-makeFullscreen :: Members '[State Tiler, Property, State DockState] r
+makeFullscreen :: Members '[State Tiler, Property, State DockState, State (Maybe ()), Mover] r
                => Window
+               -> Int
                -> Sem r ()
-makeFullscreen window = do
+makeFullscreen window isSet = do
+  put $ Just ()
   -- Get the static parameters on Monitor and IC
   loc <- gets @Tiler $ fromMaybe (error "Lost Mon") . cata \case
     Monitor loc _ -> Just loc
@@ -341,19 +334,30 @@ makeFullscreen window = do
     InputController bords _ -> Just bords
     t -> asum t
 
-  -- Get/set some useful atoms and window data
+  -- Get some useful atoms and window data
   wm_state <- getAtom False "_NET_WM_STATE"
   wm_full <- getAtom False "_NET_WM_STATE_FULLSCREEN"
   currentState <- getProperty 32 wm_state window
-  putProperty 32 wm_state window aTOM $ fmap fromIntegral (wm_full : currentState)
 
-  -- Modify the tree with the newly zoomed in location
-  root <- get @Tiler
-  modify @Tiler $ coerce . fromMaybe (coerce root) . cata \case
-    Wrap pc@(ParentChild _ child)
-      | child == window -> Just $ Monitor loc $ Just $ InputController bords $ Just $ Wrap pc
-    InputControllerOrMonitor _ t -> coerce $ join t
-    t -> coerce $ reduce t
+  let shouldSet = if isSet == 2
+                     then not $ wm_full `elem` currentState
+                     else isSet == 1
 
-  -- Hide the docks
-  put @DockState Hidden
+  if shouldSet
+    then do
+      putProperty 32 wm_state window aTOM $ fmap fromIntegral (wm_full : currentState)
+
+      -- Modify the tree with the newly zoomed in location
+      root <- get @Tiler
+      modify @Tiler $ coerce . fromMaybe (coerce root) . cata \case
+        Wrap pc@(ParentChild _ child)
+          | child == window -> Just $ Monitor loc $ Just $ InputController bords $ Just $ Wrap pc
+        InputControllerOrMonitor _ t -> coerce $ join t
+        t -> coerce $ reduce t
+
+      -- Hide the docks
+      put @DockState Hidden
+    else do
+      putProperty 32 wm_state window aTOM $ fmap fromIntegral (filter (/= wm_full) currentState)
+      changeLocation (ParentChild window window) $ Rect 1 1 1 1
+      put @DockState Visible

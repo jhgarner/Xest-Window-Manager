@@ -28,9 +28,6 @@ data Docks = Docks {undock :: [Window]}
 data DockState = Hidden | Visible
   deriving (Show, Eq)
 
-data RawBorders = RawBorders {unRaw :: [Window]}
-  deriving Show
-
 -- |Manages unmanaged windows such as docks
 data Unmanaged m a where
   FocusUM :: Window -> Unmanaged m ()
@@ -40,7 +37,7 @@ makeSem ''Unmanaged
 
 
 runUnmanaged :: Members [State Docks, Input RootWindow, State DockState] r
-             => Members '[Mover, Property, Minimizer] r
+             => Members '[Mover, Property, Minimizer, Log String] r
              => Interpret Unmanaged r a
 runUnmanaged = interpret $ \case
   FocusUM win -> do
@@ -63,6 +60,7 @@ runUnmanaged = interpret $ \case
       if (dockState == Visible)
         then
           forM docks \win -> do
+            restore win
             struts <- fmap fromIntegral <$> getProperty @_ @CLong 32 nwsp win
             return $ fmap (bimap fromIntegral fromIntegral)
               case struts of
@@ -75,7 +73,7 @@ runUnmanaged = interpret $ \case
                   ]
                 _ -> [mempty, mempty, mempty, mempty]
         else
-          return []
+          forM_ docks minimize >> return []
     return $ foldl' constrain rect $ strutRects
       where
         -- Yikes, I don't like this function
@@ -88,7 +86,7 @@ runUnmanaged = interpret $ \case
                 | otherwise = Nothing
               rightBounds :: XRect -> Maybe XRect
               rightBounds (Rect nx ny nw nh)
-                | x right > fromIntegral nx && x right < nx + fromIntegral nw && ny < y right + fromIntegral (h right) && ny + fromIntegral nh > y right =
+                | x right > nx && x right < nx + fromIntegral nw && ny < y right + fromIntegral (h right) && ny + fromIntegral nh > y right =
                   Just $ Rect nx ny (fromIntegral $ x right - nx) nh
                 | otherwise = Nothing
               topBounds :: XRect -> Maybe XRect
@@ -98,7 +96,7 @@ runUnmanaged = interpret $ \case
                 | otherwise = Nothing
               bottomBounds :: XRect -> Maybe XRect
               bottomBounds (Rect nx ny nw nh)
-                | y bottom > fromIntegral ny && y bottom < ny + fromIntegral nh && nx < x bottom + fromIntegral (w bottom) && nx + fromIntegral nw > x bottom =
+                | y bottom > ny && y bottom < ny + fromIntegral nh && nx < x bottom + fromIntegral (w bottom) && nx + fromIntegral nw > x bottom =
                   Just $ Rect nx ny nw (fromIntegral $ y bottom - ny)
                 | otherwise = Nothing
               pass :: (a -> Maybe a) -> a -> a

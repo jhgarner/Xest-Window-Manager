@@ -90,7 +90,6 @@ doAll ioref t c m d w f =
     . runStateLogged (currentTime, "Time")
     . runStateLogged (Docks [], "Docks")
     . runStateLogged (Visible, "Dock State")
-    . runStateLogged (RawBorders [], "Raw Borders")
     . runInputs (w ::: d ::: f ::: HNil)
     . stateToInput @Conf
     . stateToInput @Screens

@@ -258,7 +258,7 @@ getFocusList (Many mh mods) =
                     NoMods -> ""
         child = foldFl mh $ extract . fst . pop (Right Focused)
         size = foldFl mh $ show . flLength
-        i = foldFl mh $ show . findNeFocIndex
+        i = foldFl mh $ show . succ . findNeFocIndex
 getFocusList (Wrap            _       ) = "Window"
 
 -- |Given a child, can we find the parent in our tree?

@@ -36,7 +36,7 @@ import qualified SDL (Window)
 -- need to move.
 refresh :: Members [Mover, Property, Colorer, GlobalX, Log String, Minimizer, Unmanaged] r
         => Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo]]) r
-        => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time, Screens, RawBorders, DockState, Docks]) r
+        => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time, Screens, DockState, Docks]) r
         => Sem r ()
 refresh = do
     log "[Starting Refresh]"
@@ -51,18 +51,17 @@ refresh = do
       screenInfo <- input @[XineramaScreenInfo]
       let Just (XineramaScreenInfo _ x y w h) = find ((== fromIntegral i) . xsi_screen_number) screenInfo
       newRect <- constrainRect $ Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
-      log $ "Screen is: " ++ show newRect
       modify @Screens $ adjustMap (putScreens newRect) i
 
     -- Write the path to the upper border
     writePath
 
     -- restack all of the windows
-    (topWindows, bottomWindows) <- findSpecialWindows
+    Docks topWindows <- get @Docks
     log $ "[TOP WINDOWS] " ++ show topWindows
     log "[Rendering]"
     middleWins <- render
-    restack $ topWindows ++ fmap getParent middleWins ++ bottomWindows
+    restack $ topWindows ++ fmap getParent middleWins
     allBorders <- inputs @Screens $ fmap (getBorders . snd) . mapToList
     forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
     log "[Done Rendering]"
@@ -315,19 +314,6 @@ writeWorkspaces (names, i) = do
   putProperty 32 nnod root cARDINAL [length names]
   putProperty 32 ncd root cARDINAL [i]
 
--- |Some windows (like Polybar) want to be on top of everything else
--- This function finds those windows and returns them in a list. Also, windows
--- which should be on the bottom are returned too.
-findSpecialWindows
-  :: (Members (States '[Screens, Docks, DockState, RawBorders]) r)
-  => Sem r ([Window], [Window])
-findSpecialWindows = do
-  Docks docks <- get @Docks
-  dockState <- get @DockState
-  RawBorders borders <- get @RawBorders
-  return if dockState == Hidden
-            then (borders, docks)
-            else (borders ++ docks, [])
 
 -- |Writes all of the clients we're managing for others to see.
 setClientList :: (Members '[State Tiler, Input Window, Property] r)

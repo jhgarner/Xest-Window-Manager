@@ -45,9 +45,9 @@ runMinimizer = interpret $ \case
       modify $ S.insert win
       embed @IO $ unmapWindow d win
       wm_state           <- getAtom False "WM_STATE"
-      win_state :: [Int] <- getProperty 32 wm_state win
-      unless (null win_state)
-        $ putProperty 32 wm_state win wm_state [0, fromIntegral none]
+      -- win_state :: [Int] <- getProperty 32 wm_state win
+      -- unless (null win_state) $
+      putProperty 32 wm_state win wm_state [0, fromIntegral none]
 
   Restore win -> do
     d <- input
@@ -58,7 +58,6 @@ runMinimizer = interpret $ \case
       modify $ S.delete win
       embed @IO $ mapWindow d win
       wm_state           <- getAtom False "WM_STATE"
-      win_state :: [Int] <- getProperty 32 wm_state win
-      unless (null win_state)
-        $ putProperty 32 wm_state win wm_state [1, fromIntegral none]
-    -- embed $ sync d False
+      -- win_state :: [Int] <- getProperty 32 wm_state win
+      --unless (null win_state) $
+      putProperty 32 wm_state win wm_state [1, fromIntegral none]

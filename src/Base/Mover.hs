@@ -59,14 +59,14 @@ runMover = interpret $ \case
       void $ if h == 0 || w == 0 then minimize p else do
         embed $ do
           -- Both the parent and the child should be the same size.
-          resizeWindow d p h w
           resizeWindow d c h w
-
-          -- The parent's location is "global" so it needs to move.
-          moveWindow d p x y 
+          resizeWindow d p h w
 
           -- The child's location is relative to the parent.
           moveWindow d c 0 0 
+
+          -- The parent's location is "global" so it needs to move.
+          moveWindow d p x y 
 
         -- If the parent or child had been minimized, fix that.
         restore c

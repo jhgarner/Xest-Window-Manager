@@ -127,7 +127,6 @@ startWM = do
     $ evalState @Tiler (InputController (error "Don't read this") Nothing)
     $ evalState Nothing
     $ evalState (0 :: Int)
-    $ evalState (RawBorders [])
     $ runGetScreens
     $ runNewBorders
     $ evalState False
@@ -152,7 +151,7 @@ startWM = do
   -- The finally makes sure we write the last 100 log messages on exit to the
   -- err file.
   logHistory <- newIORef []
-  E.catch (doAll logHistory screens c startingMode display root font (rootChange >> forever mainLoop)) \(e :: SomeException) -> do
+  E.catch (doAll logHistory screens c startingMode display root font (forever mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
     let header = "Xest crashed with the exception: " ++ show e ++ "\n"
     writeFile "/tmp/xest.err" (fromString $ header ++ lastLog ++ "\n")
@@ -192,7 +191,7 @@ mainLoop = do
       windowType <- getProperty 32 nwwt ev_window
       if elem nwwtd windowType
         then
-          addUM ev_window
+          addUM ev_window >> put (Just ())
         else
           unlessM (findWindow ev_window <$> get @Tiler) $
             reparentWin ev_window >>= mapWin
@@ -229,23 +228,15 @@ mainLoop = do
     -- ask to be fullscreen.
     ClientMessageEvent {..} -> do
       wm_state <- getAtom False "_NET_WM_STATE"
-      full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
-      let isSet = (== Just 1) $ headMay ev_data
+      full <- fromIntegral <$> getAtom False "_NET_WM_STATE_FULLSCREEN"
+      let isSet = maybe 0 fromIntegral $ headMay ev_data
       messageType <- fromAtom ev_message_type
 
       -- messageC <- traverse (fromAtom . fromIntegral) ev_data
       log $ "[ClientMessage] " ++ messageType ++ "\n\t[MessageData]" ++ show ev_data
 
-      when (wm_state == ev_message_type) $
-        when (fromIntegral full_screen `elem` ev_data) $ do
-          if isSet
-             then makeFullscreen ev_window >> newFocus ev_window
-             -- Why change the location? Well Chrome seems to expect that we
-             -- restore it to it's original size. By making it small then
-             -- changing back to the full size, we force it to render
-             -- correctly.
-             else changeLocation (ParentChild ev_window ev_window) $ Rect 1 1 1 1
-          put $ Just ()
+      when (wm_state == ev_message_type && full `elem` ev_data) $
+        makeFullscreen ev_window isSet
 
 
     -- 21 == reparent event. If a window decides to reparent itself,
