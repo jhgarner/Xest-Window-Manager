@@ -151,7 +151,8 @@ unmapWin window = do
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
 rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders] r
-           => Members (States [Tiler, Maybe (), Screens, ActiveScreen, [SubTiler]]) r
+           => Members (States [Tiler, Maybe (), Screens, ActiveScreen, [SubTiler], RawBorders]) r
+           => Members '[GlobalX, Property] r
            => Sem r ()
 rootChange = do
   -- Update the list of screens
@@ -168,9 +169,19 @@ rootChange = do
                   )
               ) screenInfo
   put newScreens
+
   -- Update the active screen if that monitor got disconnected
   modify @ActiveScreen $ \activeScreen ->
     if member activeScreen newScreens then activeScreen else headEx (keys newScreens)
+
+  -- Add the Xest border windows based on their name. Unfortunately, SDL
+  -- doesn't give us a way to raise the windows normally.
+  allWins <- getTree
+  put @RawBorders $ RawBorders []
+  forM allWins \win -> do
+    name <- getClassName win
+    when (name == "xest-exe") $
+      modify @RawBorders $ RawBorders . (:) win . unRaw
 
   -- Put all of the dead monitors into the minimized window stack
   traverse_ ((fold . fmap (modify @[SubTiler] . (:)))) $ difference oldScreens newScreens

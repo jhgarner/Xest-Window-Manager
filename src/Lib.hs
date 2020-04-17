@@ -114,7 +114,7 @@ startWM = do
   -- Once again we have a lot of Polysemy stuff going on which can
   -- be safely ignored. The only interesting finction is the last one
   -- in the chain.
-  (screens :: Screens) <-
+  screens <-
     runM
     $ runInputConst c
     $ runInputConst display
@@ -127,6 +127,7 @@ startWM = do
     $ evalState @Tiler (InputController (error "Don't read this") Nothing)
     $ evalState Nothing
     $ evalState (0 :: Int)
+    $ evalState (RawBorders [])
     $ runGetScreens
     $ runNewBorders
     $ evalState False
@@ -135,6 +136,7 @@ startWM = do
     $ runExecutor 
     $ runProperty
     $ runMoverFake
+    $ runGlobalX
     $ rebindKeys startingMode startingMode >> rootChange >> get @Screens
   print ("Got Screens" ++ show screens)
 
@@ -150,7 +152,7 @@ startWM = do
   -- The finally makes sure we write the last 100 log messages on exit to the
   -- err file.
   logHistory <- newIORef []
-  E.catch (doAll logHistory screens c startingMode display root font (forever mainLoop)) \(e :: SomeException) -> do
+  E.catch (doAll logHistory screens c startingMode display root font (rootChange >> forever mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
     let header = "Xest crashed with the exception: " ++ show e ++ "\n"
     writeFile "/tmp/xest.err" (fromString $ header ++ lastLog ++ "\n")
