@@ -315,7 +315,7 @@ If a Many Tiler is the direct child of the Input Controller, this will change to
 the rotate modifier.
 
 setFull
-^^^^^^^^^
+^^^^^^^
 
 If a Many Tiler is the direct child of the Input Controller, this will change to
 the full screen modifier.
@@ -332,7 +332,7 @@ ChangeNamed (n: Text)
 Change to a different child. Currently, the only valid names are numbers.
 
 Move (d: Direction)
-^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^
 
 Changes children either forwards or backwards depending on the value
 passed to it.
@@ -363,3 +363,11 @@ ZoomInputToMonitor
 ^^^^^^^^^^^^^^^^^^
 
 Moves the Input Controller so that it is right in front of the Monitor.
+
+
+ToggleDocks
+^^^^^^^^^^^
+
+Toggles whether to show any docks such as Polybar. Docks are hidden when you
+enter full screen although they won't necessarily be restored automatically so
+you might want to have this as a keybinding somewhere.
