@@ -34,12 +34,12 @@ import qualified SDL (Window)
 -- called every literal frame; Xest doesn't have to do anything if it's
 -- children want to change their contents. Xest only gets involved when they
 -- need to move.
-refresh :: Members [Mover, Property, Colorer, GlobalX, Log String, Minimizer, Unmanaged] r
+refresh :: Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged] r
         => Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo]]) r
         => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time, Screens, DockState, Docks]) r
         => Sem r ()
 refresh = do
-    log "[Starting Refresh]"
+    log $ LD "Refreshing" "Has started"
     put @(Maybe ()) Nothing
 
     -- Fix the Monitor if the Input Controller moved in a weird way
@@ -58,18 +58,18 @@ refresh = do
 
     -- restack all of the windows
     Docks topWindows <- get @Docks
-    log $ "[TOP WINDOWS] " ++ show topWindows
-    log "[Rendering]"
+    log $ LD "TOP WINDOWS" $ show topWindows
+    log $ LD "Rendering" "Has started"
     middleWins <- render
     restack $ topWindows ++ fmap getParent middleWins
     allBorders <- inputs @Screens $ fmap (getBorders . snd) . mapToList
     forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
-    log "[Done Rendering]"
+    log $ LD "Rendering" "Has finished"
 
     -- tell X to focus whatever we're focusing
-    log "[Focusing]"
+    log $ LD "Focusing" "Has started"
     xFocus
-    log "[Done Focusing]"
+    log $ LD "Focusing" "Has finished"
 
 
     -- Do some EWMH stuff
@@ -77,7 +77,7 @@ refresh = do
     writeActiveWindow
     get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
     -- clearQueue
-    log "[Done Refreshing]"
+    log $ LD "Refreshing" "Has finished"
 
 
 -- | Places a tiler somewhere on the screen without actually placing it. The
@@ -158,7 +158,7 @@ getWindowByClass wName = do
 render
   :: ( Members (Inputs [Pointer, Screens]) r
      , Members (States [Tiler, Mode, [SubTiler]]) r
-     , Members [Mover, Colorer, GlobalX, Log String, Minimizer, Property] r
+     , Members [Mover, Colorer, GlobalX, Log LogData, Minimizer, Property] r
      )
   => Sem r [ParentChild]
 render = do
@@ -222,7 +222,7 @@ render = do
          case mh of
            Floating fl ->
              let (bottom, tops) = pop (Left Front) $ fmap (fst . extract) fl
-              in (join $ maybe [] (toList . fOrder) tops ++ [bottom], log (show tops) >> mapM_ (snd . extract) fl)
+              in (join $ maybe [] (toList . fOrder) tops ++ [bottom], mapM_ (snd . extract) fl)
            _ ->
              (foldFl mh $ join . toList . fOrder . fmap (fst . extract), foldFl mh $ mapM_ (snd . extract))
 

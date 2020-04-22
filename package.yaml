@@ -22,6 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - classy-prelude
+- base-prelude
 - X11
 - text
 - process
@@ -48,6 +49,7 @@ dependencies:
 - co-log-core
 - co-log-polysemy
 - lens
+- time
 
 library:
   source-dirs: src
@@ -64,6 +66,7 @@ library:
   - -Wno-monomorphism-restriction
   - -Wno-missing-export-lists
   - -Wno-partial-type-signatures
+  - -Wno-missing-deriving-strategies
   - -j
   - +RTS
   - -A128m

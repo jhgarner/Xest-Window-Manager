@@ -167,7 +167,7 @@ startWM = do
 mainLoop :: Sem _ ()
 mainLoop = do
   -- These debug lines have saved me countless times.
-  log "\n\n========================"
+  log $ LD "Loop" "\n\n========================"
 
   -- Check how many events are in the queue and whether someone
   -- has asked us to replace the windows.
@@ -182,7 +182,7 @@ mainLoop = do
   -- Here we have the bulk of the program. Most of the events given to us
   -- by the server are just handed off to something in the XEvents file.
   -- A handful of them have slightly more complicated logic.
-  runInputConst currentScreen $ getXEvent >>= (\x -> log ("[Event] " ++ show x) >> return x) >>= \case
+  runInputConst currentScreen $ getXEvent >>= (\x -> log (LD "Event" $ show x) >> return x) >>= \case
     -- Called when a new window is created by someone
     MapRequestEvent {..} -> do
       -- First, check if it's a dock which should be unmanaged
@@ -233,7 +233,8 @@ mainLoop = do
       messageType <- fromAtom ev_message_type
 
       -- messageC <- traverse (fromAtom . fromIntegral) ev_data
-      log $ "[ClientMessage] " ++ messageType ++ "\n\t[MessageData]" ++ show ev_data
+      log $ LD "ClientMessage" $ messageType ++ "\n\t[MessageData]" ++ show ev_data
+      log $ LD "MessageData" $ show ev_data
 
       when (wm_state == ev_message_type && full `elem` ev_data) $
         makeFullscreen ev_window isSet
@@ -243,13 +244,13 @@ mainLoop = do
     -- it's practically unmapped and dead.
     AnyEvent {ev_event_type = 21, ev_window = window} -> killed window
 
-    _ -> void $ log "Got unknown event"
+    _ -> void $ log $ LD "Event" "Got unknown event"
 
   where
     -- Here we have executors for the various actions a user might
     -- have in their config. These go to Actions/Actions.hs
     executeActions :: Action -> Sem _ ()
-    executeActions action = log ("[Action] " ++ show action) >> case action of
+    executeActions action = log (LD "Action" $ show action) >> case action of
       RunCommand command -> execute command
       ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
       HideWindow wName -> getWindowByClass wName >>= mapM_ minimize

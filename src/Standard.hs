@@ -18,8 +18,6 @@ module Standard
     , PathF (..)
     , journey
     , pattern (:<~)
-    , Void
-    , absurd
     , RectA(..)
     , Rect
     , XRect
@@ -28,32 +26,24 @@ module Standard
     , getStartingPoint
     , trd
     , fromEither
-    , onBoth
-    , oFind
     ) where
 
-import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector, log, fromEither)
-import Data.Foldable as All (find)
+-- import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector, log, fromEither)
+import BasePrelude as All hiding (NonEmpty, gunfold, log, tail, head, init, last)
 import           Colog.Polysemy as All
-import Data.Monoid as All (Sum(..))
 
 import Polysemy.State
 import Polysemy
-import Data.List as All (elemIndex)
 import Control.Comonad.Cofree as All (Cofree((:<)))
 -- import Control.Comonad.Cofree as C
 import Control.Comonad as All
 import qualified Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import Data.Functor.Foldable as All hiding (fold, unfold, embed)
-import Data.Fixed as All (mod')
 import Data.Kind (Type)
 import Data.Functor.Foldable.TH as All
 import NonEmpty as All
 -- import Data.List.NonEmpty as All (NonEmpty(..), nonEmpty)
-import Data.Monoid as All (Alt(..), getAlt, getFirst)
-import Data.Coerce as All
 import Data.Bifunctor.TH
-import Data.Bifunctor as All (bimap)
 import Control.Monad.Loops as All (untilM_, iterateWhile)
 
 
@@ -170,16 +160,6 @@ journey = cata step
 mapFold :: Traversable t => (acc -> a -> (acc, b)) -> acc -> t a -> t b
 mapFold f i ta = snd . run $ runState i $ traverse (\a -> Polysemy.State.get >>= \acc -> let (newAcc, newA) = f acc a in put newAcc >> return newA) ta
 
-
--- |Thanks void package on Hackage!
-newtype Void = Void Void
-
--- |If we have an element of type void, we can do anything.
-absurd :: Void -> a
-absurd a = a `seq` spin a where
-   spin (Void b) = spin b
-
-
 -- |Like fst and snd but for the third element.
 trd :: (a, b, c) -> c
 trd (_, _, c) = c
@@ -187,9 +167,3 @@ trd (_, _, c) = c
 fromEither :: Either a a -> a
 fromEither (Left a) = a
 fromEither (Right a) = a
-
-onBoth :: forall k a b d. (k a, k b) => Either a b -> (forall c. (k c) => c -> d) -> d
-onBoth e f = either f f e
-
-oFind :: (MonoFoldable c, Element c ~ elem) => (elem -> Bool) -> c -> Maybe elem
-oFind p = foldl' (\acc elem -> if p elem then Just elem else acc) Nothing

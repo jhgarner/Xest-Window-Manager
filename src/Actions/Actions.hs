@@ -267,7 +267,7 @@ toggleDocks =
 
 -- |Kill the active window
 killActive
-  :: Members '[State Tiler, State Tiler, GlobalX, Log String, State (Maybe ())] r
+  :: Members '[State Tiler, State Tiler, GlobalX, Log LogData, State (Maybe ())] r
   => Sem r ()
 killActive = do
   root <- get @Tiler
@@ -282,7 +282,7 @@ killActive = do
       -- a nice message. Otherwise, disconnect the client application.
       shouldKill <- kill False child
 
-      log $ "[KillActive] " ++ show child ++ " and " ++ show parent ++ " and got " ++ show shouldKill ++ "\n"
+      log $ LD "KillActive" $ show child ++ " and " ++ show parent ++ " and got " ++ show shouldKill ++ "\n"
       -- If we had to disconnect the client, we won't (TODO is that true) get a Destroyed window event.
       -- This does what Destroy window would do.
       return $ fmap (, parent) shouldKill

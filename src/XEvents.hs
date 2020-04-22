@@ -26,7 +26,7 @@ import Config
 import Actions.ActionTypes
 
 -- |Called when we want to reparent a window
-reparentWin :: Members '[EventFlags, GlobalX, Log String, Property] r
+reparentWin :: Members '[EventFlags, GlobalX, Log LogData, Property] r
        => Window
        -> Sem r ParentChild
 reparentWin window = do
@@ -35,7 +35,7 @@ reparentWin window = do
   -- where crossing events weren't reported correctly. All of those
   -- bugs went away when reparenting was added.
   newWin <- newWindow window
-  log $ "[ReparentWin] " ++ show window ++ " with parent " ++ show newWin
+  log $ LD "ReparentWin" $ show window ++ " with parent " ++ show newWin
 
   -- Think of the new parent as an extension of the root window.
   -- Just like on the root window, we need to register some events
@@ -47,12 +47,12 @@ deriving instance Show SizeHints
 
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer, Screens]) r
-       => Members [EventFlags, GlobalX, Property, Log String, Mover] r
+       => Members [EventFlags, GlobalX, Property, Log LogData, Mover] r
        => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time, DockState]) r
        => ParentChild
        -> Sem r ()
 mapWin pc@(ParentChild newWin window) = do
-  log "[MapWin] Mapping a window"
+  log $ LD "MapWin" "Mapping a window"
   transient <- getTransientFor window
 
   let tWin :: SubTiler = Wrap $ ParentChild newWin window
@@ -60,7 +60,7 @@ mapWin pc@(ParentChild newWin window) = do
   -- If a window wants to be transient for itself, just make it a normal window
   case if transient == Just window then Nothing else transient of
     Just parent -> do
-      log $ "[MapWin] Found a transient window!"
+      log $ LD "MapWin" "Found a transient window!"
       root <- get @Tiler
       SizeHints{..} <- getSizeHints window
       let idealSize = fromMaybe (500, 500) sh_min_size
@@ -181,7 +181,7 @@ rootChange = do
 
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
-newFocus :: Members '[Input Screens, Property, Input Pointer, Log String] r
+newFocus :: Members '[Input Screens, Property, Input Pointer, Log LogData] r
          => Members (States [Tiler, Maybe (), ActiveScreen, Screens, Time]) r
          => Window
          -> Sem r ()

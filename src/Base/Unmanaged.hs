@@ -37,7 +37,7 @@ makeSem ''Unmanaged
 
 
 runUnmanaged :: Members [State Docks, Input RootWindow, State DockState] r
-             => Members '[Mover, Property, Minimizer, Log String] r
+             => Members '[Mover, Property, Minimizer] r
              => Interpret Unmanaged r a
 runUnmanaged = interpret $ \case
   FocusUM win -> do

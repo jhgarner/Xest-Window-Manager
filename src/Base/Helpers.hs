@@ -65,14 +65,14 @@ type States (a :: [Type]) = TypeMap State a
 runStates :: HList t -> Sem ((States t) ++ r) a -> Sem r a
 runStates = runSeveral evalState
 
-runStateLogged :: forall r s a. (Show s, Member (Log String) r) => (s, Text) -> Sem ((State s) ': r) a -> Sem r a
+runStateLogged :: forall r s a. (Show s, Member (Log LogData) r) => (s, Text) -> Sem ((State s) ': r) a -> Sem r a
 runStateLogged (s, t) = evalState s . logState (unpack t)
   where 
-        logState :: Member (Log String) r' => String -> Sem (State s ': r') x -> Sem (State s ': r') x
+        logState :: Member (Log LogData) r' => String -> Sem (State s ': r') x -> Sem (State s ': r') x
         logState name = intercept $ \case
           Put a -> do
             oldValue <- get
-            log ("[State] " ++ name ++ "\n\t[From] " ++ show oldValue ++ "\n\t[to] " ++ show a) >> put a
+            log (LD (name ++ " From") $ show oldValue) >> log (LD "to" $ show a) >> put a
           Get -> get
 
 
@@ -91,3 +91,6 @@ instance Monoid a => Monoid (Sem r a) where
 -- |Just makes it more clear when you say Input RootWindow.
 type RootWindow = Window
 
+data LogData = LD { prefix :: String
+                  , logMsg :: String
+                  }

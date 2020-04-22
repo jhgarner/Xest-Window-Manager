@@ -61,12 +61,6 @@ data TilerF a =
 deriveShow1 ''TilerF
 deriveEq1 ''TilerF
 
--- TODO I'm not sure I actually like the MonoTraversable hierarchy although I
--- really like the convenient Container stuff it has.
-type instance Element (TilerF a) = a
-
-instance MonoFoldable (TilerF a)
-
 -- These instances let us use recursion schemes on Tilers. If I had to pick one
 -- library that has had the most impact on Xest, I would easily pick recursion
 -- schemes.

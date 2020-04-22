@@ -50,6 +50,8 @@ import           Actions.ActionTypes
 import           System.IO (appendFile)
 import           Colog.Core
 import qualified SDL.Font as Font
+import Data.Time
+import Data.Time.Format.ISO8601
 
 
 type LostWindow = Map Window [ParentChild]
@@ -107,13 +109,18 @@ doAll ioref t c m d w f =
     . runColorer
     . runUnmanaged
  where
-  logger :: Members '[State Bool, State [String], Embed IO] r => LogAction (Sem r) String
-  logger = LogAction $ \msg -> do
-    modify @[String] $ (:) msg
+  logger :: Members '[State Bool, State [String], Embed IO] r => LogAction (Sem r) LogData
+  logger = LogAction $ \(LD prefix msg) -> do
+    timeZone <- embed getCurrentTimeZone
+    timeUtc <- embed getCurrentTime
+    let timeStamp = "[" ++ formatShow iso8601Format (utcToLocalTime timeZone timeUtc) ++ "]"
+        prefixWrap = "[" ++ prefix ++ "]"
+        fullMsg = prefixWrap ++ timeStamp ++ msg
+    modify @[String] $ (:) fullMsg
     modify @[String] $ take 100
     shouldLog <- get @Bool
     when shouldLog $
-      embed @IO $ appendFile "/tmp/xest.log" (msg ++ "\n")
+      embed @IO $ appendFile "/tmp/xest.log" (fullMsg ++ "\n")
 
   stateToInput :: Member (State a) r => Sem (Input a ': r) b -> Sem r b
   stateToInput = interpret $ \case
