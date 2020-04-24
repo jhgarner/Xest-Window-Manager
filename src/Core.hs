@@ -24,7 +24,6 @@ import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Atom
 import           Graphics.X11.Xinerama
 import           Data.Either                    ( )
-import           Data.Char
 import           Tiler.Tiler
 import           FocusList
 import Control.Comonad.Trans.Cofree as C hiding (Cofree)
@@ -46,12 +45,12 @@ refresh = do
     modify @Tiler fixMonitor
 
     -- Update the Monitors in case docks were created
-    oldScreens <- gets @Screens keys
+    oldScreens <- gets @Screens $ map fst . itoList
     forM_ oldScreens $ \i -> do
       screenInfo <- input @[XineramaScreenInfo]
       let Just (XineramaScreenInfo _ x y w h) = find ((== fromIntegral i) . xsi_screen_number) screenInfo
       newRect <- constrainRect $ Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
-      modify @Screens $ adjustMap (putScreens newRect) i
+      modify @Screens $ over (at i) (fmap $ putScreens newRect)
 
     -- Write the path to the upper border
     writePath
@@ -62,7 +61,7 @@ refresh = do
     log $ LD "Rendering" "Has started"
     middleWins <- render
     restack $ topWindows ++ fmap getParent middleWins
-    allBorders <- inputs @Screens $ fmap (getBorders . snd) . mapToList
+    allBorders <- inputs @Screens $ fmap getBorders . toList
     forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
     log $ LD "Rendering" "Has finished"
 
@@ -147,7 +146,7 @@ placeWindow root =
 -- bash utility instead?
 getWindowByClass
   :: Members [Property, GlobalX] r
-  => String
+  => Text
   -> Sem r [Window]
 getWindowByClass wName = do
   childrenList <- getTree
@@ -180,12 +179,12 @@ render = do
 
        -- The main part of this function.
  where draw :: Base (Cofree TilerF (XRect, Int)) ([ParentChild], Sem _ ()) -> ([ParentChild], Sem _ ())
-       draw ((Rect {..}, _) :<~ Wrap pc) = ([pc],
+       draw (CofreeF (Rect {..}, _) (Wrap pc)) = ([pc],
            changeLocation pc $ Rect x y (abs w) (abs h))
        
        -- The InputController places the SDL window borders around the focused
        -- Tiler if you're in a mode that wants borders.
-       draw ((Rect{..}, depth) :<~ InputController (l, u, r, d) t) =
+       draw (CofreeF (Rect{..}, depth) (InputController (l, u, r, d) t)) =
            (maybe [] fst t, do
               -- Do the movements requested by the children.
               mapM_ snd t
@@ -218,7 +217,7 @@ render = do
            )
 
        -- Draw the background with the floating windows on top.
-       draw (_ :<~ Many mh _) =
+       draw (CofreeF _ (Many mh _)) =
          case mh of
            Floating fl ->
              let (bottom, tops) = pop (Left Front) $ fmap (fst . extract) fl
@@ -227,7 +226,7 @@ render = do
              (foldFl mh $ join . toList . fOrder . fmap (fst . extract), foldFl mh $ mapM_ (snd . extract))
 
        -- Everything else just needs to draw it's children
-       draw (_ :<~ tiler) = (concatMap fst tiler, mapM_ snd tiler)
+       draw (CofreeF _ tiler) = (concatMap fst tiler, mapM_ snd tiler)
 
        hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)
        hsvToRgb h s v = let c = v * s
@@ -310,7 +309,7 @@ writeWorkspaces (names, i) = do
   nnod <- getAtom False "_NET_NUMBER_OF_DESKTOPS"
   ncd <- getAtom False "_NET_CURRENT_DESKTOP"
   putProperty 8 ndn root utf8
-    $ concatMap (fmap ord . unpack) names
+    $ concatMap (map ord . view _Text) names
   putProperty 32 nnod root cARDINAL [length names]
   putProperty 32 ncd root cARDINAL [i]
 

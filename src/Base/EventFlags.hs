@@ -17,7 +17,6 @@ import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Misc
-import           Data.Bits
 import Actions.ActionTypes
 import Base.Helpers
 import Config

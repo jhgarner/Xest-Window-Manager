@@ -11,20 +11,19 @@ import           Data.Eq.Deriving
 data Sized a = Sized { getSize :: Double, getItem :: a }
   deriving stock (Show, Functor, Foldable, Traversable, Generic)
 
-type instance Element (Sized a) = a
-
 deriveShow1 ''Sized
 
 deriveEq1 ''Sized
+
+instance Applicative Sized where
+  pure = Sized 0
+  Sized _ f <*> Sized s a = Sized s $ f a
 
 -- |The size is irrelevant when checking for equality.
 instance Eq a => Eq (Sized a) where
   (Sized _ a) == (Sized _ b) = a == b
 
-instance MonoPointed (Sized a) where
-  opoint = Sized 0
-
 instance Comonad Sized where
   extract (Sized _ a) = a
 
-  duplicate = opoint
+  duplicate = Sized 0

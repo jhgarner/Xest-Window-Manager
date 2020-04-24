@@ -19,14 +19,12 @@ import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Window
 import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Misc
-import qualified Data.Map                      as M
 import qualified SDL
 import Base.Helpers
 import Base.Property
 import Base.Minimizer
 import           Base.Executor
 import Tiler.Tiler
-import           Data.Bits
 
 -- |Anything that changes where a window sits goes in here.
 data Mover m a where
@@ -54,7 +52,8 @@ runMover = interpret $ \case
   ChangeLocation (ParentChild p c) r@(Rect x y h w) -> do
     -- Every window will have change location called every "frame".
     -- The cache makes sure we don't send more wark to X than we need.
-    unlessM ((== Just r) . (M.!? c) <$> get @LocCache) $ do
+    locCache <- get @LocCache
+    unless (locCache ^. at c == Just r) $ do
       d <- input @Display
       void $ if h == 0 || w == 0 then minimize p else do
         embed $ do
@@ -71,17 +70,19 @@ runMover = interpret $ \case
         -- If the parent or child had been minimized, fix that.
         restore c
         restore p
-    modify $ M.insert c r
+    modify @LocCache $ set (at c) $ Just r
 
   ChangeLocationS win r@(Rect x y h w) -> do
     -- Avoid moving the SDL windows more than we need to
-    unlessM ((== Just r) . (M.!? win) <$> get) $ do
+    sdlLocCache <- get @SDLLocCache
+    unless (sdlLocCache ^. at win == Just r) $ do
       embed @IO $ SDL.setWindowPosition win $ SDL.Absolute $ SDL.P (SDL.V2 (fromIntegral x) (fromIntegral y))
       SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
-    modify $ M.insert win r
+    modify @SDLLocCache $ set (at win) $ Just r
 
   Restack wins -> do
-    unlessM ((== wins) <$> get) $ do
+    stackCache <- get @WindowStack
+    unless (stackCache == wins) $ do
       d <- input
       -- The sync here fixes a race condition between SDL and Xest.
       -- We need the SDL bufferSwap function to run after the restack.
@@ -94,7 +95,7 @@ runMover = interpret $ \case
   ConfigureWin ConfigureRequestEvent {..} -> do
     d <- input
     tiler <- get @Tiler
-    void . embed @IO $ tryAny do
+    void . embed @IO $ try @SomeException do
       WindowAttributes {..} <- getWindowAttributes d ev_window
       let wc = WindowChanges ev_x
                             ev_y
@@ -121,8 +122,9 @@ runMover = interpret $ \case
     wm_take_focus <- getAtom False "WM_TAKE_FOCUS"
     wm_protocols <- getAtom False "WM_PROTOCOLS"
     protocols <- embed @IO $ getWMProtocols d c
-    Rect _ _ width height <- gets (fromMaybe (Rect 0 0 0 0) . (M.!? c))
-    unlessM ((== FocusedCache c) <$> get @FocusedCache) $ do
+    Rect _ _ width height <- gets @LocCache (fromMaybe (Rect 0 0 0 0) . (view $ at c))
+    focusCache <- get @FocusedCache
+    unless (focusCache == FocusedCache c) $ do
       when ((width /= 0 && height /= 0) || rootWin == c) $ do
         hints <- embed @IO $ getWMHints d c
         if wm_take_focus `elem` protocols && not (wmh_input hints)

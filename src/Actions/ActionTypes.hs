@@ -9,12 +9,12 @@ import           FocusList
 -- | Actions/events to be performed
 data Action
   = Insert
-  | ChangeNamed String
+  | ChangeNamed Text
   | Move Direction
-  | RunCommand String
+  | RunCommand Text
   | ChangeModeTo Mode
-  | ShowWindow String
-  | HideWindow String
+  | ShowWindow Text
+  | HideWindow Text
   | ZoomInInput
   | ZoomOutInput
   | ZoomInMonitor

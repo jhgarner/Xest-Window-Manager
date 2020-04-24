@@ -21,8 +21,6 @@ data NonEmpty a = NE a [a]
   deriving (Show, Eq, Functor, Foldable, Traversable, Generic)
 deriveShow1 ''NonEmpty
 deriveEq1 ''NonEmpty
-type instance Element (NonEmpty a) = a
-instance MonoFoldable (NonEmpty a)
 
 instance Zip NonEmpty where
   zipWith f (NE a as) (NE b bs) =
@@ -60,8 +58,8 @@ findNe :: Int -> NonEmpty a -> a
 findNe 0 (NE a _) = a
 findNe i (NE _ as) = fromMaybe (error "Index out of bounds") $ index as (i-1)
 
-findNeI :: Eq a => a -> NonEmpty a -> Int
-findNeI b (NE a as) = fromMaybe (error "Not in List") $ elemIndex b $ a : as
+findNeI :: (a -> Bool) -> NonEmpty a -> Int
+findNeI p (NE a as) = fromMaybe (error "Not in List") $ findIndexOf folded p $ a : as
 
 filterNe :: (a -> Bool) -> NonEmpty a -> Maybe (NonEmpty a)
 filterNe p (NE a as) = mkNE $ filter p $ a : as

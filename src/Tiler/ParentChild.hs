@@ -1,8 +1,6 @@
 module Tiler.ParentChild where
 
 import           Standard
-import           Text.Show.Deriving
-import           Data.Eq.Deriving
 import           Graphics.X11.Types
 
 -- |A child parent relationship between two windows.
@@ -13,8 +11,8 @@ data ParentChild = ParentChild {getParent :: Window, getChild :: Window}
 inParentChild :: Window -> ParentChild -> Bool
 inParentChild win (ParentChild ww ww') = win == ww || win == ww'
 
--- |If either the child or the parent are equal, then the whole typ
--- is equal.
+-- |If either the child or the parent are equal, then the whole type
+-- is equal. TODO
 instance Eq ParentChild where
   (ParentChild a b) == (ParentChild a' b') = a == a' || b == b'
 

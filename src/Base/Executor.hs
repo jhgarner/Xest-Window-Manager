@@ -22,7 +22,7 @@ import Config
 -- |Actions that modify the world outside of X11 go here
 data Executor m a where
   -- |Run a command
-  Execute :: String -> Executor m ()
+  Execute :: Text -> Executor m ()
   -- |Toggle logging
   ToggleLogs :: Executor m ()
   -- |Prints in a controlled way
@@ -32,26 +32,24 @@ makeSem ''Executor
 -- |Do it in IO
 runExecutor :: Members [Embed IO, State Bool, State Conf, Input Display] r => Sem (Executor ': r) a -> Sem r a
 runExecutor = interpret $ \case
-  Execute s -> void . embed @IO $ spawnCommand s
+  Execute (Text s) -> void . embed @IO $ spawnCommand s
 
   ToggleLogs -> do
-    unlessM (get @Bool) $
+    shouldLog <- get @Bool
+    unless shouldLog $
       -- Empty the last run of logging
       embed @IO $ Standard.writeFile "/tmp/xest.log" ""
     modify not
 
   ReloadConf -> do
     display <- input @Display
-    (homeDir, displayNumber) <- embed @IO $ do
-      args <- getArgs
+    newConf <- embed @IO $ do
+      args <- fmap fromString <$> getArgs
       let displayNumber = fromMaybe "0" $ headMay args
 
       -- Read the config file
-      homeDir <- Env.getEnv "HOME"
-      return (homeDir, displayNumber)
-    newConf <- embed @IO $
+      homeDir <- fromString <$> Env.getEnv "HOME"
       if displayNumber == "0" || displayNumber == "1"
-          then reloadConfig display . pack $ homeDir ++ "/.config/xest/config.dhall"
-          else reloadConfig display . pack $ homeDir ++ "/.config/xest/config." ++ unpack displayNumber ++ ".dhall"
+          then reloadConfig display $ homeDir <> "/.config/xest/config.dhall"
+          else reloadConfig display $ homeDir <> "/.config/xest/config." <> displayNumber <> ".dhall"
     put newConf
-

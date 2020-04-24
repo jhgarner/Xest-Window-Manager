@@ -50,7 +50,13 @@ add w (Many (Horiz fl) mods) =
 
    in Many (Horiz newestFl) mods
 
-add w (Many mh mods) = Many (withFl' mh (push Back Focused (point w))) mods
+add w (Many mh mods) = Many newMh mods
+  where
+    newMh =
+      case mh of
+        Horiz ne -> Horiz $ push Back Focused (Sized 0 w) ne
+        Floating ne -> Floating $ push Back Focused (WithRect (Rect 0 0 500 500) w) ne
+        TwoCols size ne -> TwoCols size $ push Back Focused (Identity w) ne
 add w t = Many (Horiz (makeFL (NE (Sized 0.5 $ Fix t) [Sized 0.5 w]) 0)) NoMods
 
 
@@ -96,7 +102,7 @@ popWindow howToPop (Many mh mods) = (newElem, fmap (\newMh -> Many newMh mods) n
         newMhM = withFl mh $ snd . pop howToPop
 
 popWindow e t =
-  error $ "Attempted to pop the unpopable" ++ show e ++ " " ++ show t
+  error $ "Attempted to pop the unpopable" <> show e <> " " <> show t
 
 
 -- |Get's the focused window. Throws an error if it can't. This little function
@@ -134,7 +140,7 @@ modFocused f t@( InputControllerOrMonitor _ _) = fmap f t
 
 -- | Change the focus of a Tiler
 focus :: SubTiler -> Tiler -> Tiler
-focus newF (Many mh mods) = Many (withFl'Eq mh $ focusElem (point newF)) mods
+focus newF (Many mh mods) = Many (withFl' mh $ focusElem ((== newF) . extract)) mods
 focus _    t@(Wrap _) = t
 focus _    t@(InputControllerOrMonitor _ _) = t
 
@@ -237,17 +243,17 @@ moveToMon root =
 -- their names. This function gets that info, although we use a liberal
 -- definition of virtual desktop.
 getDesktopState :: Tiler -> ([Text], Int)
-getDesktopState (Many mh _) = (tshow @Int <$> [1 .. (foldFl mh flLength)], i)
+getDesktopState (Many mh _) = (show @Int <$> [1 .. (foldFl mh flLength)], i)
   where i = foldFl mh findNeFocIndex
 getDesktopState _ = (["None"], 0)
 
 -- |Renders the tree to a string which can be displayed on the top border of
 -- Xest.
-getFocusList :: TilerF String -> String
-getFocusList (InputController _ s) = "*" ++ fromMaybe "" s
-getFocusList (Monitor _ s) = "@" ++ fromMaybe "" s
+getFocusList :: TilerF Text -> Text
+getFocusList (InputController _ s) = "*" <> fromMaybe "" s
+getFocusList (Monitor _ s) = "@" <> fromMaybe "" s
 getFocusList (Many mh mods) =
-  "|" ++ modType ++ manyType ++ "-" ++ size ++ "-" ++ i ++ "|" ++ child
+  "|" <> modType <> manyType <> "-" <> size <> "-" <> i <> "|" <> child
   where manyType = case mh of
                      Horiz _ -> "H"
                      Floating _ -> "F"
@@ -276,11 +282,11 @@ findParent w = cata step
 -- you're looking for the index, f ~ (Int,).
 whichScreen
   :: (Eq (f Bool), Functor f) => (Int32, Int32) -> [f XRect] -> Maybe (f XRect)
-whichScreen (mx, my) = getFirst . foldMap findOverlap
+whichScreen (mx, my) = fmap getFirst . foldMap' findOverlap
  where
   findOverlap wrapped =
-    if (wrapped $> True) == fmap inside wrapped then return wrapped else mempty
-  inside Rect {..} =
+    if (wrapped $> True) == fmap isInside wrapped then Just $ First wrapped else Nothing
+  isInside Rect {..} =
     mx >= x && my >= y && mx < x + fromIntegral w && my < y + fromIntegral h
 
 -- |The monitor must always be in the focus path.

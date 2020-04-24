@@ -17,7 +17,8 @@ module Standard
     , Path (..)
     , PathF (..)
     , journey
-    , pattern (:<~)
+    , pattern CofreeF
+    , pattern Cofree
     , RectA(..)
     , Rect
     , XRect
@@ -26,17 +27,35 @@ module Standard
     , getStartingPoint
     , trd
     , fromEither
+    , map
+    , show
+    , headMay
+    , tailMay
+    , lastMay
+    , initMay
+    , error
+    , pattern Text
     ) where
 
--- import ClassyPrelude as All hiding (Reader, ask, asks, find, head, tail, init, last, Vector, log, fromEither)
-import BasePrelude as All hiding (NonEmpty, gunfold, log, tail, head, init, last)
+import BasePrelude as All hiding (NonEmpty, gunfold, log, tail, head, init, last, fmap, map, show, lazy, arr, uncons, index, String, error, left, right, appendFile, getContents, getLine, interact, putStrLn, putStr, readFile, writeFile, Functor)
+import qualified BasePrelude
+import Data.Text as All (Text)
+import Data.Text.IO as All
+-- Hiding Text because I define it below with a Complete pragma
+import Data.Text.Lens as All hiding (Text)
+import qualified BasePrelude as BP (fmap)
 import           Colog.Polysemy as All
+import           Data.IntMap.Strict as All (IntMap)
+import           Data.Map.Strict as All (Map)
+import           Data.Set as All (Set)
+import GHC.Stack
 
 import Polysemy.State
 import Polysemy
-import Control.Comonad.Cofree as All (Cofree((:<)))
+import Control.Comonad.Cofree as All (Cofree)
+import qualified Control.Comonad.Cofree as CC (Cofree((:<)))
 -- import Control.Comonad.Cofree as C
-import Control.Comonad as All
+import Control.Comonad as All hiding (fmap)
 import qualified Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import Data.Functor.Foldable as All hiding (fold, unfold, embed)
 import Data.Kind (Type)
@@ -45,16 +64,19 @@ import NonEmpty as All
 -- import Data.List.NonEmpty as All (NonEmpty(..), nonEmpty)
 import Data.Bifunctor.TH
 import Control.Monad.Loops as All (untilM_, iterateWhile)
+import Control.Lens as All hiding (para, none)
 
 
 
 -- TODO I can probably split out a lot of these functions into other places...
 
--- | Since Cofree already takes :<, this pattern gives :<~ to CofreeF.
--- The symbol name was chosen completely randomly.
-{-# COMPLETE (:<~) #-}
-pattern (:<~) :: forall (f :: Type -> Type) a b. a -> f b -> C.CofreeF f a b
-pattern (:<~) a b = a C.:< b
+{-# COMPLETE CofreeF #-}
+pattern CofreeF :: forall (f :: Type -> Type) a b. a -> f b -> C.CofreeF f a b
+pattern CofreeF a b = a C.:< b
+
+{-# COMPLETE Cofree #-}
+pattern Cofree :: forall (f :: Type -> Type) a. a -> f (CC.Cofree f a) -> CC.Cofree f a
+pattern Cofree a b = a CC.:< b
 
 -- |A rectangle with any kind of dimension you could every want.
 data RectA a b = Rect { x :: a
@@ -167,3 +189,29 @@ trd (_, _, c) = c
 fromEither :: Either a a -> a
 fromEither (Left a) = a
 fromEither (Right a) = a
+
+map :: Functor f => (a -> b) -> (f a -> f b)
+map = BP.fmap
+
+show :: Show a => a -> Text
+show = Text . BasePrelude.show
+
+headMay :: Cons s s a a => s -> Maybe a
+headMay = preview _head
+
+tailMay :: Cons s s a a => s -> Maybe s
+tailMay = preview _tail
+
+lastMay :: Snoc s s a a => s -> Maybe a
+lastMay = preview _last
+
+initMay :: Snoc s s a a => s -> Maybe s
+initMay = preview _init
+
+error :: HasCallStack => Text -> a
+error (Text s) = BasePrelude.error s
+
+{-# COMPLETE Text #-}
+pattern Text :: BasePrelude.String -> Text
+pattern Text a <- (view _Text -> a) where
+  Text a = review _Text a

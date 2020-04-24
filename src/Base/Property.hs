@@ -19,11 +19,9 @@ import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Atom
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
-import           Foreign.Storable
 import qualified Data.Map                      as M
 import Base.Helpers
 import Base.Executor
-import qualified Control.Exception as E
 
 
 -- |X11 defines properties as a dictionary like object from Atoms and windows
@@ -50,7 +48,7 @@ data Property m a where
   -- |Although most properties are only loosely defined, the class property
   -- is built into Xlib for some reason.
   GetClassName :: Window -- ^ The Window we're interested in
-               -> Property m String -- ^ The window's class
+               -> Property m Text -- ^ The window's class
 
   -- |Technically not a property but it kind of fits...
   GetChildX :: Window -- ^ The parent
@@ -58,15 +56,15 @@ data Property m a where
   IsOverrideRedirect :: Window
                      -> Property m Bool
 
-  -- |Turns a String into an X11 managed Atom. Think of atoms as pointers to
+  -- |Turns a Text into an X11 managed Atom. Think of atoms as pointers to
   -- strings.
   GetAtom :: Bool -- ^ Should we not create it if it doesn't exist?
-          -> String -- ^ The atom's name
+          -> Text -- ^ The atom's name
           -> Property m Atom -- ^ The atom created/retrieved from X11
 
   -- |Gives you the name of some Atom.
   FromAtom :: Atom
-           -> Property m String
+           -> Property m Text
 
   -- |Check if a window is transient for something else based on the
   -- ICCM protocol.
@@ -78,7 +76,7 @@ data Property m a where
   
 makeSem ''Property
 
-type AtomCache = Map String Atom
+type AtomCache = Map Text Atom
 type RootPropCache = Map Atom [Int]
 
 -- |Runs a propertiy using IO
@@ -105,12 +103,12 @@ runProperty = interpret $ \case
       
 
   GetClassName win ->
-    input >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return n
+    input >>= \d -> embed $ getClassHint d win >>= \(ClassHint _ n) -> return (fromString n)
       
 
   IsOverrideRedirect win ->
     input >>= \d -> embed $
-      either (const False) wa_override_redirect <$> tryAny (getWindowAttributes d win)
+      either (const False) wa_override_redirect <$> try @SomeException (getWindowAttributes d win)
 
   GetChildX win -> do
     display <- input @Display
@@ -130,17 +128,17 @@ runProperty = interpret $ \case
         )
       )
 
-  GetAtom shouldCreate name -> input >>= \d -> do
+  GetAtom shouldCreate name@(Text sName) -> input >>= \d -> do
     maybeAtom <- (M.!? name) <$> get
     case maybeAtom of
       Nothing -> do
-        atom <- embed @IO $ internAtom d name shouldCreate
+        atom <- embed @IO $ internAtom d sName shouldCreate
         modify $ M.insert name atom
         return atom
       Just atom -> return atom
 
   FromAtom atom -> input >>= \d ->
-    embed @IO $ fromMaybe "" <$> getAtomName d atom
+    embed @IO $ fromMaybe "" . fmap fromString <$> getAtomName d atom
 
   GetTransientFor w -> do
     d <- input @Display
@@ -153,11 +151,10 @@ runProperty = interpret $ \case
 
 
 getRealName :: Member Property r => Window -- ^ The Window we're interested in
-            -> Sem r String -- ^ The window's name
+            -> Sem r Text -- ^ The window's name
 getRealName win = do
   netwmname <- getAtom False "_NET_WM_NAME"
   wmname <- getAtom False "WM_NAME"
-  net_name <- getProperty 32 netwmname win
-  name <- getProperty 32 wmname win
-  return if null net_name then name else net_name
-
+  net_name <- fromString <$> getProperty 32 netwmname win
+  name <- fromString <$> getProperty 32 wmname win
+  return if nullOf text net_name then name else net_name

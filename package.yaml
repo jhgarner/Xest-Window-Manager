@@ -25,6 +25,7 @@ dependencies:
 - base-prelude
 - X11
 - text
+- text-show
 - process
 - dhall
 - vector
@@ -50,12 +51,14 @@ dependencies:
 - co-log-polysemy
 - lens
 - time
+- semigroupoids
 
 library:
   source-dirs: src
   ghc-options:
   - -Weverything
   - -Wno-implicit-prelude
+  - -Wno-orphans
   - -Wno-missing-exported-signatures
   - -Wno-missing-import-lists
   - -Wno-missed-specialisations

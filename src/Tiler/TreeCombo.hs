@@ -1,9 +1,8 @@
 module Tiler.TreeCombo where
 
 import           Standard
-import           Text.Show.Deriving
-import           Data.Eq.Deriving
 import           Tiler.TilerTypes
+import           Prelude (show)
 
 -- | TreeCombo is used when trying to find the deepest common parent of two
 -- elements. One of the elements is considered unmovable. The other is movable

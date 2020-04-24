@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
@@ -5,6 +6,7 @@
 {-# LANGUAGE Strict #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Base.Helpers where
 
@@ -15,12 +17,7 @@ import           Polysemy.Input
 import           Data.Kind
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
-import           Colog.Polysemy
 
-{-# LANGUAGE TemplateHaskell #-}
-
-import Polysemy
-import Data.Kind
 
 infixr 5 :::
 data HList a where
@@ -66,13 +63,13 @@ runStates :: HList t -> Sem ((States t) ++ r) a -> Sem r a
 runStates = runSeveral evalState
 
 runStateLogged :: forall r s a. (Show s, Member (Log LogData) r) => (s, Text) -> Sem ((State s) ': r) a -> Sem r a
-runStateLogged (s, t) = evalState s . logState (unpack t)
+runStateLogged (s, t) = evalState s . logState t
   where 
-        logState :: Member (Log LogData) r' => String -> Sem (State s ': r') x -> Sem (State s ': r') x
+        logState :: Member (Log LogData) r' => Text -> Sem (State s ': r') x -> Sem (State s ': r') x
         logState name = intercept $ \case
           Put a -> do
             oldValue <- get
-            log (LD (name ++ " From") $ show oldValue) >> log (LD "to" $ show a) >> put a
+            log (LD (name <> " From") $ show oldValue) >> log (LD "to" $ show a) >> put a
           Get -> get
 
 
@@ -91,6 +88,6 @@ instance Monoid a => Monoid (Sem r a) where
 -- |Just makes it more clear when you say Input RootWindow.
 type RootWindow = Window
 
-data LogData = LD { prefix :: String
-                  , logMsg :: String
+data LogData = LD { prefix :: Text
+                  , logMsg :: Text
                   }

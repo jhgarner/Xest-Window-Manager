@@ -11,7 +11,6 @@ import           Standard
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
-import           Data.Bits
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xinerama
@@ -43,14 +42,15 @@ runGetButtons = runInputSem $ do
   root <- input @RootWindow
   embed @IO $ do 
     (_, _, _, px, py, _, _, b) <- queryPointer d root
-    let x = fromIntegral px
-    let y = fromIntegral py
+    let xLoc = fromIntegral px
+    let yLoc = fromIntegral py
 
     allowEvents d asyncPointer currentTime
     return $ case b of
-            _ | b .&. button1Mask /= 0-> LeftButton (x, y)
-              | b .&. button3Mask /= 0-> RightButton (x, y)
+            _ | b .&. button1Mask /= 0-> LeftButton (xLoc, yLoc)
+              | b .&. button3Mask /= 0-> RightButton (xLoc, yLoc)
               | otherwise -> None
+
 
 runGetScreens :: Members [Input Display, Embed IO] r
               => Sem (Input [XineramaScreenInfo] ': r) a -> Sem r a
@@ -59,6 +59,7 @@ runGetScreens = interpret $ \case
     d <- input @Display
     embed $ sync d False
     embed $ join . toList <$> xineramaQueryScreens d
+
 
 newtype NewBorders = NewBorders Borders
 newtype XestBorders = XestBorders [Window]
@@ -71,6 +72,7 @@ runNewBorders = runInputSem $ do
   let nb = NewBorders (lWin, dWin, uWin, rWin)
   embed @IO $ addFinalizer nb $ forM_ windows SDL.destroyWindow >> putStrLn "Finalized"
   return nb
+
 
 -- |Gets the pointer location
 runGetPointer :: Members (Inputs [RootWindow, Display]) r 
@@ -91,11 +93,11 @@ indexedState
 indexedState = interpret $ \case
   Get -> do
     activeScreen <- get @ActiveScreen
-    fromMaybe screenError . lookup activeScreen <$> get @Screens
+    fromMaybe screenError . view (at activeScreen) <$> get @Screens
   Put p -> do
     activeScreen <- get @ActiveScreen
-    modify @Screens $ insertMap activeScreen p
-      
+    modify @Screens $ set (at activeScreen) $ Just p
+
 data MouseButtons = LeftButton (Int, Int) | RightButton (Int, Int) | None
   deriving Show
 getButtonLoc :: MouseButtons -> Maybe (Int, Int)
@@ -103,6 +105,6 @@ getButtonLoc (LeftButton l) = Just l
 getButtonLoc (RightButton l) = Just l
 getButtonLoc _ = Nothing
 
-type Screens = Map Int Tiler
+type Screens = IntMap Tiler
 type ActiveScreen = Int
 type Pointer = (Int32, Int32)

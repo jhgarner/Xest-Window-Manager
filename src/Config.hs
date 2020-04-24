@@ -15,16 +15,15 @@ import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Types
 import           Actions.ActionTypes
 import           System.Process
-import           System.Exit
 
 -- |A config file. It contains a list of startup scripts, a command to run, and
 -- an initial mode. The a type decides how you want to represent keys.
 -- internally, we store those as KeyCodes but users would prefer to specify
 -- them as strings.
 data ConfA a = Conf { keyBindings  :: [KeyTrigger a]
-                 , startupScript :: String
+                 , startupScript :: Text
                  , initialMode :: Mode
-                 , fontLocation :: String
+                 , fontLocation :: Text
                  }
   deriving (Generic, Show, Interpret)
 
@@ -38,11 +37,12 @@ type ConfUser = ConfA Text
 -- launching the config for the first time. If we're only reloading, don't run
 -- the startup script.
 confToType :: Display -> ConfUser -> Bool -> IO Conf
-confToType display (Conf kb startupScript initialMode fontLocation) isReload = do
-  keyBindings <- traverse (traverse $ keysymToKeycode display . stringToKeysym . unpack) kb
+confToType display (Conf kb startupScript@(Text script) initialMode fontLocation) isReload = do
+  keyBindings <- traverse (traverse $ keysymToKeycode display . stringToKeysym . view _Text) kb
 
-  unless isReload $
-    unlessM ((== ExitSuccess) <$> (waitForProcess <=< runCommand $ startupScript))
+  unless isReload $ do
+    exitCode <- runCommand script >>= waitForProcess
+    unless (exitCode == ExitSuccess)
       $ die "Error while running startup script" 
   return Conf { .. }
 

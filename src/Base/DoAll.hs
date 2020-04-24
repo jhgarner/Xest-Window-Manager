@@ -47,7 +47,6 @@ import           Tiler.TilerTypes
 import           Tiler.ParentChild
 import           Config
 import           Actions.ActionTypes
-import           System.IO (appendFile)
 import           Colog.Core
 import qualified SDL.Font as Font
 import Data.Time
@@ -58,7 +57,7 @@ type LostWindow = Map Window [ParentChild]
 
 -- Want to do everything in IO? Use this!
 doAll
-  :: IORef [String]
+  :: IORef [Text]
   -> Screens
   -> Conf
   -> Mode
@@ -79,7 +78,7 @@ doAll ioref t c m d w f =
     . runStateLogged (t, "Screens")
     . runStateLogged ([] @SubTiler, "Popped Tilers")
     . runStateLogged (None, "Mouse Button")
-    . runStateLogged (M.empty @String, "name->Atom")
+    . runStateLogged (M.empty @Text, "name->Atom")
     . runStateLogged (M.empty @Atom @[Int], "Atom->value")
     . runStateLogged (FocusedCache 0, "Focused window")
     . runStateLogged (M.empty @SDL.Window, "SDL->location")
@@ -109,18 +108,18 @@ doAll ioref t c m d w f =
     . runColorer
     . runUnmanaged
  where
-  logger :: Members '[State Bool, State [String], Embed IO] r => LogAction (Sem r) LogData
+  logger :: Members '[State Bool, State [Text], Embed IO] r => LogAction (Sem r) LogData
   logger = LogAction $ \(LD prefix msg) -> do
     timeZone <- embed getCurrentTimeZone
     timeUtc <- embed getCurrentTime
-    let timeStamp = "[" ++ formatShow iso8601Format (utcToLocalTime timeZone timeUtc) ++ "]"
-        prefixWrap = "[" ++ prefix ++ "]"
-        fullMsg = prefixWrap ++ timeStamp ++ msg
-    modify @[String] $ (:) fullMsg
-    modify @[String] $ take 100
+    let timeStamp = "[" <> Text (formatShow iso8601Format (utcToLocalTime timeZone timeUtc)) <> "]"
+        prefixWrap = "[" <> prefix <> "]"
+        fullMsg:: Text = prefixWrap <> timeStamp <> msg
+    modify @[Text] $ (:) fullMsg
+    modify @[Text] $ take 100
     shouldLog <- get @Bool
     when shouldLog $
-      embed @IO $ appendFile "/tmp/xest.log" (fullMsg ++ "\n")
+      embed @IO $ appendFile "/tmp/xest.log" (fullMsg <> "\n")
 
   stateToInput :: Member (State a) r => Sem (Input a ': r) b -> Sem r b
   stateToInput = interpret $ \case

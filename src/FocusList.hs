@@ -34,7 +34,7 @@ module FocusList
   )
 where
 
-import           Standard
+import           Standard hiding (zip, zipWith)
 import           Data.ChunkedZip
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
@@ -62,10 +62,8 @@ data FocusedList a = FL { visualOrder :: NonEmpty Int
 
 -- Begin deriving the laundry list of things we want to use
   deriving (Eq, Show, Functor, Generic, Foldable, Traversable)
-instance MonoFoldable (FocusedList a)
 deriveShow1 ''FocusedList
 deriveEq1 ''FocusedList
-type instance Element (FocusedList a) = a
 
 instance Zip FocusedList where
   zipWith f fl@FL { actualData = ad } FL { actualData = add } =
@@ -166,7 +164,7 @@ fOrder :: FocusedList a -> NonEmpty a
 fOrder FL { focusOrder = fo, actualData = ad } =
   map (flip findNe ad) fo
 
-focusElem :: Eq a => a -> FocusedList a -> FocusedList a
+focusElem :: (a -> Bool) -> FocusedList a -> FocusedList a
 focusElem a fl@FL { focusOrder = fo, actualData = ad } = fl { focusOrder }
   where focusOrder = move 0 (findNeI a ad) fo
 
@@ -189,7 +187,7 @@ visualFIndex :: Int -> FocusedList a -> FocusedList a
 visualFIndex i fl@FL {focusOrder = fo } = visualIndex (findNe i fo) fl
 
 findNeFocIndex :: FocusedList a -> Int
-findNeFocIndex FL {..} = findNeI (head focusOrder) visualOrder
+findNeFocIndex FL {..} = findNeI (== head focusOrder) visualOrder
 
 makeFL :: NonEmpty a -> Int -> FocusedList a
 makeFL actualData focIndex = FL { visualOrder = vo

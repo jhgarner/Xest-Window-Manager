@@ -1,11 +1,13 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module TH where
 
 import           Language.Haskell.TH
-import           Standard
+import           Standard hiding (init)
+import           Prelude (init)
 
 -- |This piece of template haskell creates a series of
 -- patterns based on a given data type.
@@ -51,7 +53,7 @@ makeSimpleBase name className tfName toName fromName = do
     -- get the old and new names to use in the signatures
     let oldName = nameBase cName
     let newerName =
-          mkName $ fromMaybe (error "nameTooShort") $ initMay oldName
+          mkName $ init oldName
     -- A random other type we use in the pattern
     let bType     = mkName "b"
     -- The type corresponding to the class name we were passed in

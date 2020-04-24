@@ -20,12 +20,8 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Window
 import           Graphics.X11.Xlib.Atom
-import           Graphics.X11.Xlib.Misc
 import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Array
-import           Foreign.Storable
-import           System.Exit
-import Data.Bits
 import Base.Helpers
 import Base.Property
 import Config

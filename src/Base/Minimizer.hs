@@ -14,7 +14,6 @@ import           Polysemy
 import           Polysemy.State
 import           Polysemy.Input
 import           Graphics.X11.Types
-import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Window
 import qualified Data.Set                      as S
@@ -39,9 +38,9 @@ runMinimizer = interpret $ \case
   Minimize win -> do
     d <- input
     -- We only want to minimize if it hasn't already been minimized
-    mapped <- embed
-      $ either (const waIsUnmapped) wa_map_state <$> tryAny (getWindowAttributes d win)
-    when (mapped /= waIsUnmapped) $ do
+    mappedWin <- embed
+      $ either (const waIsUnmapped) wa_map_state <$> try @SomeException (getWindowAttributes d win)
+    when (mappedWin /= waIsUnmapped) $ do
       modify $ S.insert win
       embed @IO $ unmapWindow d win
       wm_state           <- getAtom False "WM_STATE"
@@ -52,9 +51,9 @@ runMinimizer = interpret $ \case
   Restore win -> do
     d <- input
     -- Only restore if it needs to be restored
-    mapped <- embed
-      $ either (const waIsViewable) wa_map_state <$> tryAny (getWindowAttributes d win)
-    when (mapped == waIsUnmapped) $ do
+    mappedWin <- embed
+      $ either (const waIsViewable) wa_map_state <$> try @SomeException (getWindowAttributes d win)
+    when (mappedWin == waIsUnmapped) $ do
       modify $ S.delete win
       embed @IO $ mapWindow d win
       wm_state           <- getAtom False "WM_STATE"
