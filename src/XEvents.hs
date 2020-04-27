@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE PartialTypeSignatures #-}
@@ -19,8 +20,8 @@ import           Tiler.Tiler
 import           Base.DoAll
 import Core
 import           FocusList
-import           Data.Bits
 import qualified Data.Map.Strict as M
+import qualified Data.IntMap as IM
 import           Graphics.X11.Xlib.Extras
 import Config
 import Actions.ActionTypes
@@ -35,7 +36,7 @@ reparentWin window = do
   -- where crossing events weren't reported correctly. All of those
   -- bugs went away when reparenting was added.
   newWin <- newWindow window
-  log $ LD "ReparentWin" $ show window ++ " with parent " ++ show newWin
+  log $ LD "ReparentWin" $ show window <> " with parent " <> show newWin
 
   -- Think of the new parent as an extension of the root window.
   -- Just like on the root window, we need to register some events
@@ -71,10 +72,10 @@ mapWin pc@(ParentChild newWin window) = do
       if
           | worked -> put @Tiler newRoot >> newFocus newWin
           | workedAlt -> put @Tiler altNewRoot >> newFocus newWin
-          | otherwise -> modify @LostWindow (insertWith (++) parent [pc])
+          | otherwise -> modify @LostWindow (M.insertWith (++) parent [pc])
 
     Nothing -> do
-      modify $ applyInput $ coerce $ \tiler -> fmap (add tWin) tiler <|> Just (coerce tWin)
+      modify $ applyInput $ coerce $ \tiler -> map (add tWin) tiler <|> Just (coerce tWin)
       newFocus newWin
 
       -- Make the window full screen if needed
@@ -87,7 +88,7 @@ mapWin pc@(ParentChild newWin window) = do
 
 
   -- Were any lost children expecting to find this window?
-  lostChildren <- lookup window <$> get @LostWindow
+  lostChildren <- view (at window) <$> get @LostWindow
   traverse_ (traverse_ mapWin) lostChildren
 
   where 
@@ -96,16 +97,16 @@ mapWin pc@(ParentChild newWin window) = do
       oldT@(Many (Floating fl) mods) ->
         let bottom = fst $ pop (Left Front) fl
          in if (False, t) == extract bottom
-              then (True, Many (Floating $ push Back Focused (WithRect (Rect 0 0 newW newH) newTiler) $ fmap (fmap snd) fl) mods)
-              else (any fst oldT, Fix $ fmap snd oldT)
-      oldT -> (any fst oldT, Fix $ fmap snd oldT))
+              then (True, Many (Floating $ push Back Focused (WithRect (Rect 0 0 newW newH) newTiler) $ map (map snd) fl) mods)
+              else (any fst oldT, Fix $ map snd oldT)
+      oldT -> (any fst oldT, Fix $ map snd oldT))
 
     makeFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
     makeFloating (newW, newH) t newTiler = coerce . cata (\oldTAndB ->
-      let oldT = fmap snd oldTAndB
+      let oldT = map snd oldTAndB
           wasFound = any fst oldTAndB
        in if oldT == unfix t
-            then (True, Many (Floating $ makeFL (NE (point $ Fix oldT) [WithRect (Rect 0 0 newW newH) newTiler]) 1) NoMods)
+            then (True, Many (Floating $ makeFL (WithRect (Rect 0 0 500 500) (Fix oldT) :| [WithRect (Rect 0 0 newW newH) newTiler]) 1) NoMods)
             else (wasFound, Fix oldT))
 
 -- |A window was killed and no longer exists. Remove everything that
@@ -127,7 +128,7 @@ killed window = do
   -- Remove the window from the tree.
   modify @Tiler $ ripOut window
   -- Remove the window from the docks cache.
-  modify @Docks $ Docks . filter (/= window) . undock
+  modify @Docks $ Docks . mfilter (/= window) . undock
 
 -- |A window is either dying slowly or has been minimized.
 unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe (), Docks]) r
@@ -142,7 +143,7 @@ unmapWin window = do
   minimized <- get @(Set Window)
   root <- get @Tiler
 
-  unless (member window minimized || not (findWindow window root)) $ do
+  unless (view (contains window) minimized || not (findWindow window root)) $ do
     -- Windows that weren't minimized but were unmapped are probably dying.
     -- We need to move the window onto the root so that we can kill the parent
     -- and it can die in its own time.
@@ -159,23 +160,23 @@ rootChange = do
   screenInfo <- input @[XineramaScreenInfo]
   oldScreens <- get @Screens
   newScreens <-
-        mapFromList <$>
+        IM.fromList <$>
           traverse (\(XineramaScreenInfo name x y w h) -> do
                 NewBorders newBorders <- input @NewBorders
                 -- TODO This line is long...
                 let defaultTiler = Monitor (Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)) $ Just $ Fix $ InputController newBorders Nothing
                 return ( fromIntegral name
-                  , findWithDefault defaultTiler (fromIntegral name) $ oldScreens
+                  , IM.findWithDefault defaultTiler (fromIntegral name) $ oldScreens
                   )
               ) screenInfo
   put newScreens
 
   -- Update the active screen if that monitor got disconnected
   modify @ActiveScreen $ \activeScreen ->
-    if member activeScreen newScreens then activeScreen else headEx (keys newScreens)
+    if notNullOf (at activeScreen) newScreens then activeScreen else fromJust $ headMay (IM.keys newScreens)
 
   -- Put all of the dead monitors into the minimized window stack
-  traverse_ ((fold . fmap (modify @[SubTiler] . (:)))) $ difference oldScreens newScreens
+  traverse_ ((fold . map (modify @[SubTiler] . (:)))) $ IM.difference oldScreens newScreens
   put $ Just ()
   
 
@@ -267,7 +268,7 @@ motion = do
                         LeftButton _ -> Left
                         RightButton _ -> Right
           change = direction (xNow - xLast, yNow - yLast)
-       in modify $ applyInput $ fmap $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
+       in modify $ applyInput $ map $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
     (_, _) -> return ()
 
   input @MouseButtons >>= put
@@ -291,14 +292,14 @@ changeSize mouseLoc screen (Many mh mods) =
                Right _ -> id
                Left  _ -> (\n -> n-1)
             ) $ findNeFocIndex fl
-          vList = vOrder fl
-          maxChange = getSize $ findNe (focLoc+1) vList
-          currentSize = getSize $ findNe focLoc vList
+          vList:: NonEmpty (Sized (Fix TilerF)) = vOrder fl
+          maxChange = getSize $ vList !! (focLoc+1)
+          currentSize = getSize $ vList !! focLoc
           bounded = max (0.01-currentSize) $ min maxChange deltaPercent
-          withFocChange = updateIx (\(Sized s a) -> Sized (s + bounded) a) focLoc vList
-          withPredChange = updateIx (\(Sized s a) -> Sized (s - bounded) a) (focLoc+1) withFocChange
+          withFocChange = over (ix focLoc) (\(Sized s a) -> Sized (s + bounded) a) vList
+          withPredChange = over (ix (focLoc+1)) (\(Sized s a) -> Sized (s - bounded) a) withFocChange
           
-      in if focLoc > -1 && focLoc < flLength fl - 1
+      in if focLoc > -1 && focLoc < length fl - 1
             then Horiz $ fromVis fl withPredChange
             else Horiz fl
 
@@ -345,7 +346,7 @@ makeFullscreen window isSet = do
 
   if shouldSet
     then do
-      putProperty 32 wm_state window aTOM $ fmap fromIntegral (wm_full : currentState)
+      putProperty 32 wm_state window aTOM $ map fromIntegral (wm_full : currentState)
 
       -- Modify the tree with the newly zoomed in location
       root <- get @Tiler
@@ -358,6 +359,6 @@ makeFullscreen window isSet = do
       -- Hide the docks
       put @DockState Hidden
     else do
-      putProperty 32 wm_state window aTOM $ fmap fromIntegral (filter (/= wm_full) currentState)
+      putProperty 32 wm_state window aTOM $ map fromIntegral (mfilter (/= wm_full) currentState)
       changeLocation (ParentChild window window) $ Rect 1 1 1 1
       put @DockState Visible

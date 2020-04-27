@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -30,17 +31,22 @@ module Standard
     , map
     , show
     , headMay
+    , head
     , tailMay
     , lastMay
+    , last
     , initMay
+    , removeAt
+    , remove
     , error
     , pattern Text
     ) where
 
-import BasePrelude as All hiding (NonEmpty, gunfold, log, tail, head, init, last, fmap, map, show, lazy, arr, uncons, index, String, error, left, right, appendFile, getContents, getLine, interact, putStrLn, putStr, readFile, writeFile, Functor)
+import BasePrelude as All hiding (gunfold, log, tail, head, init, last, fmap, map, show, lazy, arr, uncons, index, String, error, left, right, appendFile, getContents, getLine, interact, putStrLn, putStr, readFile, writeFile, filter, (!!), unlines)
 import qualified BasePrelude
-import Data.Text as All (Text)
+import Data.Text as All (Text, unlines)
 import Data.Text.IO as All
+import Data.List.NonEmpty as All (filter, nonEmpty, (!!), (<|), tail, init)
 -- Hiding Text because I define it below with a Complete pragma
 import Data.Text.Lens as All hiding (Text)
 import qualified BasePrelude as BP (fmap)
@@ -49,22 +55,21 @@ import           Data.IntMap.Strict as All (IntMap)
 import           Data.Map.Strict as All (Map)
 import           Data.Set as All (Set)
 import GHC.Stack
+import Control.Monad.Zip as All
 
 import Polysemy.State
 import Polysemy
 import Control.Comonad.Cofree as All (Cofree)
 import qualified Control.Comonad.Cofree as CC (Cofree((:<)))
--- import Control.Comonad.Cofree as C
 import Control.Comonad as All hiding (fmap)
 import qualified Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import Data.Functor.Foldable as All hiding (fold, unfold, embed)
 import Data.Kind (Type)
 import Data.Functor.Foldable.TH as All
-import NonEmpty as All
--- import Data.List.NonEmpty as All (NonEmpty(..), nonEmpty)
 import Data.Bifunctor.TH
 import Control.Monad.Loops as All (untilM_, iterateWhile)
-import Control.Lens as All hiding (para, none)
+import Control.Lens as All hiding (para, none, (<|))
+import Data.Functor.Bind as All (Bind)
 
 
 
@@ -199,17 +204,35 @@ show = Text . BasePrelude.show
 headMay :: Cons s s a a => s -> Maybe a
 headMay = preview _head
 
+head :: Traversable1 t => t a -> a
+head = view head1
+
 tailMay :: Cons s s a a => s -> Maybe s
 tailMay = preview _tail
+
+-- TODO There must ba a typeclass for this...
+-- tail :: Traversable1 t => NonEmpty a -> Maybe (NonEmpty a)
 
 lastMay :: Snoc s s a a => s -> Maybe a
 lastMay = preview _last
 
+last :: Traversable1 t => t a -> a
+last = view last1
+
 initMay :: Snoc s s a a => s -> Maybe s
 initMay = preview _init
 
+-- init :: Traversable1 t => t a -> Maybe (t a)
+
+removeAt :: Int -> NonEmpty a -> Maybe (NonEmpty a)
+removeAt i = nonEmpty . map snd . filter (\(i', _) -> if i == i' then False else True) . mzip [0..]
+
+remove :: Eq a => a -> NonEmpty a -> Maybe (NonEmpty a)
+remove a = nonEmpty . filter (/= a)
+
 error :: HasCallStack => Text -> a
 error (Text s) = BasePrelude.error s
+
 
 {-# COMPLETE Text #-}
 pattern Text :: BasePrelude.String -> Text

@@ -50,7 +50,7 @@ refresh = do
       screenInfo <- input @[XineramaScreenInfo]
       let Just (XineramaScreenInfo _ x y w h) = find ((== fromIntegral i) . xsi_screen_number) screenInfo
       newRect <- constrainRect $ Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
-      modify @Screens $ over (at i) (fmap $ putScreens newRect)
+      modify @Screens $ over (at i) (map $ putScreens newRect)
 
     -- Write the path to the upper border
     writePath
@@ -60,8 +60,8 @@ refresh = do
     log $ LD "TOP WINDOWS" $ show topWindows
     log $ LD "Rendering" "Has started"
     middleWins <- render
-    restack $ topWindows ++ fmap getParent middleWins
-    allBorders <- inputs @Screens $ fmap getBorders . toList
+    restack $ topWindows ++ map getParent middleWins
+    allBorders <- inputs @Screens $ map getBorders . toList
     forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
     log $ LD "Rendering" "Has finished"
 
@@ -74,7 +74,7 @@ refresh = do
     -- Do some EWMH stuff
     setClientList
     writeActiveWindow
-    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (fmap (getDesktopState . unfix))
+    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (map (getDesktopState . unfix))
     -- clearQueue
     log $ LD "Refreshing" "Has finished"
 
@@ -102,7 +102,7 @@ placeWindow root =
         Many mh mods -> flip Many mods
           case (mods, mh) of
             (Full, _) ->
-              withFl' (fmap (\t -> (StartingPoint $ Rect 0 0 0 0, depth + 1, t)) mh) $ mapOne (Right Focused) (fmap (\(_, d, t) -> (trans, d, t)))
+              withFl' (map (\t -> (StartingPoint $ Rect 0 0 0 0, depth + 1, t)) mh) $ mapOne (Right Focused) (map (\(_, d, t) -> (trans, d, t)))
             (_, Horiz fl) ->
               let wrapTrans = if mods == Rotate then Spin trans else trans
                   placed lSize size t = Sized size (Slide (Rect lSize 0 size 1) wrapTrans, depth+1, t)
@@ -114,12 +114,12 @@ placeWindow root =
                   wrapTrans = if mods == Rotate then Spin trans else trans
                   location i = Slide (Rect colSize (1.0 / numWins * i) (1-colSize) (1.0 / numWins)) wrapTrans
                   bigLoc = Slide (Rect 0 0 (colSize) 1) wrapTrans
-                  allRight = fromVis fl $ fmap (\(i, Identity t) -> Identity (location i, depth+1, t)) $ zip [-1 ..] (vOrder fl)
+                  allRight = fromVis fl $ map (\(i, Identity t) -> Identity (location i, depth+1, t)) $ mzip [-1 ..] (vOrder fl)
 
                in TwoCols colSize $ mapOne (Left Front) (\(Identity (_, d, t)) -> Identity (bigLoc, d, t)) allRight
 
             (_, Floating ls) ->
-              let allFloating = flip fmap ls $ \case
+              let allFloating = flip map ls $ \case
                     WithRect rr@Rect {..} t ->
                       let wrapTrans = if mods == Rotate then Spin trans else trans
                           starting@(Rect realX realY realW realH) = bimap fromIntegral fromIntegral $ getStartingPoint wrapTrans
@@ -129,12 +129,12 @@ placeWindow root =
 
         -- Input controllers don't really do anything.
         InputController bords t ->
-          InputController bords $ fmap (trans, depth, ) t
+          InputController bords $ map (trans, depth, ) t
 
         -- Monitors specify the starting point for the transformations that
         -- follow.
         Monitor screenSize t ->
-          Monitor screenSize $ fmap (StartingPoint screenSize, depth, ) t
+          Monitor screenSize $ map (StartingPoint screenSize, depth, ) t
 
       -- Runs the above function after shuffling the types around.
       buildUp :: (Transformation, Int, SubTiler) -> CofreeF TilerF (Transformation, Int) (Transformation, Int, SubTiler)
@@ -164,16 +164,16 @@ render = do
   screens <- input @Screens
 
   let locations :: [(Cofree TilerF (XRect, Int))] =
-        toList $ fmap (fmap (first toScreenCoord) . placeWindow) screens
+        toList $ map (map (first toScreenCoord) . placeWindow) screens
 
   -- Draw the tiler we've been given. winOrder will be used by restackWindows
   -- while io coantains the io action which moves the windows.
-  let (winOrder, io) = unzip . toList $ fmap (cata draw) locations
+  let (winOrder, io) = unzip . toList $ map (cata draw) locations
   sequence_ io
 
   -- Hide all of the popped tilers
   minimized <- get @[SubTiler]
-  traverse_ (snd . cata draw . fmap (first toScreenCoord) . placeWindow . unfix) minimized
+  traverse_ (snd . cata draw . map (first toScreenCoord) . placeWindow . unfix) minimized
 
   return $ join winOrder
 
@@ -220,10 +220,10 @@ render = do
        draw (CofreeF _ (Many mh _)) =
          case mh of
            Floating fl ->
-             let (bottom, tops) = pop (Left Front) $ fmap (fst . extract) fl
+             let (bottom, tops) = pop (Left Front) $ map (fst . extract) fl
               in (join $ maybe [] (toList . fOrder) tops ++ [bottom], mapM_ (snd . extract) fl)
            _ ->
-             (foldFl mh $ join . toList . fOrder . fmap (fst . extract), foldFl mh $ mapM_ (snd . extract))
+             (foldFl mh $ join . toList . fOrder . map (fst . extract), foldFl mh $ mapM_ (snd . extract))
 
        -- Everything else just needs to draw it's children
        draw (CofreeF _ tiler) = (concatMap fst tiler, mapM_ snd tiler)
@@ -270,7 +270,7 @@ setScreenFromMouse :: Members [Input Pointer, State ActiveScreen, State Screens]
 setScreenFromMouse = do
   pointer <- input @Pointer
   screens <- get @Screens
-  put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ zip [0..] $ toList $ fmap getScreens screens
+  put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ zip [0..] $ toList $ map getScreens screens
 
 -- |Add a bunch of properties to our root window to comply with EWMH
 initEwmh :: Member Property r
@@ -291,10 +291,10 @@ initEwmh root upper = do
     , "_NET_WM_STATE"
     , "_NET_WM_STATE_FULLSCREEN"
     ]
-  putProperty 32 a root aTOM (fmap fromIntegral supp)
+  putProperty 32 a root aTOM (map fromIntegral supp)
   putProperty 32 nswc root wINDOW [fromIntegral upper]
   putProperty 32 nswc upper wINDOW [fromIntegral upper]
-  putProperty 8 nwname upper utf8 $ fmap ord "xest"
+  putProperty 8 nwname upper utf8 $ map ord "xest"
 
 
 -- |Write workspaces in a EWMH compatible way

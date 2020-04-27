@@ -61,8 +61,8 @@ runUnmanaged = interpret $ \case
         then
           forM docks \win -> do
             restore win
-            struts <- fmap fromIntegral <$> getProperty @_ @CLong 32 nwsp win
-            return $ fmap (bimap fromIntegral fromIntegral)
+            struts <- map fromIntegral <$> getProperty @_ @CLong 32 nwsp win
+            return $ map (bimap fromIntegral fromIntegral)
               case struts of
                 -- Yikes, this is a big line...
                 [left, right, top, bottom, leftStarty, leftEndy, rightStarty, rightEndy, topStartx, topEndx, bottomStartx, bottomEndx] ->

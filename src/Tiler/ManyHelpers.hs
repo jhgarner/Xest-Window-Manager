@@ -55,22 +55,22 @@ foldFl (TwoCols _ fl) f = f fl
 
 -- |Converts a holder of Floating things into one of horizontal things.
 toFloating :: ManyHolder a -> ManyHolder a
-toFloating (Horiz fl) = Floating $ fmap (WithRect (Rect 0 0 500 500) . extract) fl
-toFloating (TwoCols _ fl) = Floating $ fmap (WithRect (Rect 0 0 500 500) . extract) fl
+toFloating (Horiz fl) = Floating $ map (WithRect (Rect 0 0 500 500) . extract) fl
+toFloating (TwoCols _ fl) = Floating $ map (WithRect (Rect 0 0 500 500) . extract) fl
 toFloating mh@(Floating _) = mh
 
 -- |Like the above but in reverse.
 toHoriz :: ManyHolder a -> ManyHolder a
-toHoriz (Floating fl) = Horiz $ fmap (Sized (1/len) . extract) fl
+toHoriz (Floating fl) = Horiz $ map (Sized (1/len) . extract) fl
   where len = fromIntegral $ flLength fl
-toHoriz (TwoCols _ fl) = Horiz $ fmap (Sized (1/len) . extract) fl
+toHoriz (TwoCols _ fl) = Horiz $ map (Sized (1/len) . extract) fl
   where len = fromIntegral $ flLength fl
 toHoriz mh@(Horiz _) = mh
 
 -- |Like the above but in reverse.
 toTwoCols :: ManyHolder a -> ManyHolder a
-toTwoCols (Floating fl) = TwoCols 0.6 $ fmap (Identity . extract) fl
-toTwoCols (Horiz fl) = TwoCols 0.6 $ fmap (Identity . extract) fl
+toTwoCols (Floating fl) = TwoCols 0.6 $ map (Identity . extract) fl
+toTwoCols (Horiz fl) = TwoCols 0.6 $ map (Identity . extract) fl
 toTwoCols mh@(TwoCols _ _) = mh
 
 

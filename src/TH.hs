@@ -49,7 +49,7 @@ makeSimpleBase name className tfName toName fromName = do
   newDec aType (NormalC cName types) = do
       -- Given the list of types this constructor
       -- takes as a parameter, turn them into unique names.
-    binds <- typeListToBinds $ fmap snd types
+    binds <- typeListToBinds $ map snd types
     -- get the old and new names to use in the signatures
     let oldName = nameBase cName
     let newerName =
@@ -70,7 +70,7 @@ makeSimpleBase name className tfName toName fromName = do
                 $ AppT (ConT tfName) (VarT bType)
               ]
             $ foldr mkArrowType (VarT bType)
-            $ fmap snd types
+            $ map snd types
     -- Equivalent to:
     -- pattern NewerName :: <patSigRHS>
     let patSig = PatSynSigD newerName patSigRHS
@@ -78,7 +78,7 @@ makeSimpleBase name className tfName toName fromName = do
     -- The right hand side of the function. Equivalent to:
     -- (toName -> CName a a1 a2 a3 ... an)
     patRHS <-
-      [p| ($(varE toName) -> $(conP cName $ fmap (return . VarP) binds)) |]
+      [p| ($(varE toName) -> $(conP cName $ map (return . VarP) binds)) |]
     -- The function given by the fromName
     let fromNameFunc = VarE fromName
     -- The inmplementation of the bidirectional pattern. Equivalent to:
@@ -89,7 +89,7 @@ makeSimpleBase name className tfName toName fromName = do
           (PrefixPatSyn binds)
           (ExplBidir
             [ Clause
-                (fmap VarP binds)
+                (map VarP binds)
                 (NormalB $ AppE fromNameFunc $ applyAll (ConE cName) binds)
                 []
             ]

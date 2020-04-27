@@ -1,41 +1,54 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedLists #-}
 
-import           ClassyPrelude
+import           Standard
 import           Test.QuickCheck
 import           Data.Functor.Foldable
-import           Types
-import           Tiler
 import           FocusList
 import           Control.Monad.Free
 import           Test.QuickCheck.Arbitrary.Generic
 
 main :: IO ()
 main = do
-  quickCheck alwaysHasController
   quickCheck pushPopInverse
+  quickCheck pushKeepsValid
+  quickCheck makeFLWorks
+  quickCheck focusWorks
 
-alwaysHasController :: RootTest -> Bool
-alwaysHasController (RootTest t) = cata isController t == 1
- where
-  isController (InputController a) = a + 1
-  isController a                   = sum a
+-- alwaysHasController :: RootTest -> Bool
+-- alwaysHasController (RootTest t) = cata isController t == 1
+--  where
+--   isController (InputController a) = a + 1
+--   isController a                   = sum a
 
 -- The reverse is not true. Should it be?
-pushPopInverse :: Int -> FocusedList Int -> Direction -> Focus -> Bool
+pushPopInverse :: Int -> FocusedList Int -> Direction -> Focus -> Property
 pushPopInverse i fl dir foc =
-  snd (pop (Left dir) (push dir foc i fl))
-    == fl
-    && snd (pop (Right foc) (push dir foc i fl))
-    == fl
+  fromJust (snd (pop (Left dir) (push dir foc i fl)))
+    === fl
+    .&&. fromJust (snd (pop (Right foc) (push dir foc i fl)))
+    === fl
 
-addPopInverse :: Fix Tiler -> RootTest -> Direction -> Focus -> Bool
-addPopInverse i (RootTest (Fix t)) dir foc =
-  snd (popWindow (Left dir) (add dir foc i t))
-    == t
-    && snd (popWindow (Right foc) (add dir foc i t))
-    == t
+pushKeepsValid :: Int -> Direction -> Focus -> FocusedList Int -> Property
+pushKeepsValid a dir foc fl =
+  isValid $ push dir foc a fl
 
+makeFLWorks :: FAndIX NonEmpty Int -> Property
+makeFLWorks (FAndIX na i) =
+  let fl = makeFL na i
+   in isValid fl .&&. visualOrder fl === [0..length na-1] .&&.
+        head (focusOrder fl) === visualOrder fl !! i
+
+focusWorks :: FAndIX FocusedList Int -> Property
+focusWorks (FAndIX ogfl i) =
+  let fl = focusIndex i ogfl
+   in isValid fl .&&. (head (focusOrder fl) === i)
+
+isValid :: FocusedList a -> Property
+isValid (FL vo fo ad) = label "Is valid" $
+  sort (toList vo) === [0..length ad-1] .&&.
+  sort (toList fo) === [0..length ad-1]
 
 -- Instances start here
 instance Arbitrary Focus where
@@ -44,51 +57,59 @@ instance Arbitrary Focus where
 instance Arbitrary Direction where
   arbitrary = genericArbitrary
   shrink    = genericShrink
-instance Arbitrary Axis where
+instance Arbitrary a => Arbitrary (NonEmpty a) where
   arbitrary = genericArbitrary
   shrink    = genericShrink
-
 instance Arbitrary a => Arbitrary (FocusedList a) where
   arbitrary = do
     ad <- arbitrary
-    i  <- choose (0, length ad - 1)
-    return $ if null ad then emptyFL else makeFL ad i
-  -- shrink = genericShrink
+    vs <- fromJust . nonEmpty <$> shuffle [0..length ad-1]
+    fs <- fromJust . nonEmpty <$> shuffle [0..length ad-1]
+    return $ FL vs fs ad
 
-instance Arbitrary a => Arbitrary (Tiler a) where
-  arbitrary = sized make
-   where
-    make i = frequency
-      [ (i, resize (i `div` 2) $ liftM2 Directional arbitrary arbitrary)
-      , (1, fmap Wrap arbitrary)
-      , (1, return EmptyTiler)
-      ]
-
-instance Arbitrary (Fix Tiler) where
-  arbitrary = Fix <$> arbitrary
-
-newtype RootTest = RootTest (Fix Tiler)
+data FAndIX f a = FAndIX (f a) Int
   deriving Show
-instance Arbitrary RootTest where
+
+instance (Foldable f, Arbitrary (f a)) => Arbitrary (FAndIX f a) where
   arbitrary = do
-    tiler         <- Fix <$> arbitrary
-    (paths, size) <- cata randPath tiler
-    distance      <- choose (0, size)
-    return $ RootTest $ apo insertTiler (take distance paths, tiler)
+    f <- arbitrary
+    i <- choose (0, length f-1)
+    return $ FAndIX f i
 
-   where
-    insertTiler ([], prev) = InputController $ Left prev
-    insertTiler (d : ds, Fix (Directional a fl)) =
-      Directional a
-        $ map (\(v, k) -> if k == d then Right (ds, v) else Left v)
-        $ zip fl
-        $ makeFL [0 ..] 0
-    insertTiler _ = error "Shouldn't get to end"
+-- instance Arbitrary a => Arbitrary (Tiler a) where
+--   arbitrary = sized make
+--    where
+--     make i = frequency
+--       [ (i, resize (i `div` 2) $ liftM2 Directional arbitrary arbitrary)
+--       , (1, fmap Wrap arbitrary)
+--       , (1, return EmptyTiler)
+--       ]
 
-    randPath (Directional _ fl) = if flLength fl == 0
-      then return ([], 0)
-      else do
-        path            <- choose (0, flLength fl - 1)
-        (restOfPath, s) <- fromMaybe (error "No") $ indexFL path fl
-        return (path : restOfPath, s + 1)
-    randPath _ = return ([], 0)
+-- instance Arbitrary (Fix Tiler) where
+--   arbitrary = Fix <$> arbitrary
+
+-- newtype RootTest = RootTest (Fix Tiler)
+--   deriving Show
+-- instance Arbitrary RootTest where
+--   arbitrary = do
+--     tiler         <- Fix <$> arbitrary
+--     (paths, size) <- cata randPath tiler
+--     distance      <- choose (0, size)
+--     return $ RootTest $ apo insertTiler (take distance paths, tiler)
+
+--    where
+--     insertTiler ([], prev) = InputController $ Left prev
+--     insertTiler (d : ds, Fix (Directional a fl)) =
+--       Directional a
+--         $ map (\(v, k) -> if k == d then Right (ds, v) else Left v)
+--         $ zip fl
+--         $ makeFL [0 ..] 0
+--     insertTiler _ = error "Shouldn't get to end"
+
+--     randPath (Directional _ fl) = if flLength fl == 0
+--       then return ([], 0)
+--       else do
+--         path            <- choose (0, flLength fl - 1)
+--         (restOfPath, s) <- fromMaybe (error "No") $ indexFL path fl
+--         return (path : restOfPath, s + 1)
+--     randPath _ = return ([], 0)

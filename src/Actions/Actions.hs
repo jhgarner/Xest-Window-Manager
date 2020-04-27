@@ -2,6 +2,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 
 {-|
@@ -60,16 +61,17 @@ zoomInMonitor =
 zoomOutInput
   :: Member (State Tiler) r
   => Sem r ()
-zoomOutInput =
+zoomOutInput = do
   -- The unless guards against zooming the controller out of existence
-  unlessM (isJust . isController <$> gets @Tiler Fix)
+  rootTiler <- gets @Tiler Fix
+  unless (isJust $ isController $ rootTiler)
     $ modify @Tiler
     $ fromMaybe (error "e")
     . coerce (para $ \case
         InputController _ t -> t >>= snd
-        t -> fmap Fix $ case asum $ fmap (isController . fst) t of
-                           Just makeIC -> Just . makeIC . fmap Fix . reduce $ fmap snd t
-                           Nothing -> reduce $ fmap snd t)
+        t -> map Fix $ case asum $ map (isController . fst) t of
+                           Just makeIC -> Just . makeIC . map Fix . reduce $ map snd t
+                           Nothing -> reduce $ map snd t)
 
  where
   isController :: SubTiler -> Maybe (Maybe SubTiler -> Tiler)
@@ -111,14 +113,15 @@ zoomOutMonitor
   => Sem r ()
 zoomOutMonitor = do
   -- Don't want to zoom the monitor out of existence
-  unlessM (isJust . isMonitor <$> gets @Tiler Fix)
+  rootTiler <- gets @Tiler Fix
+  unless (isJust $ isMonitor $ rootTiler)
     $ modify @Tiler
     $ fromMaybe (error "e")
     . coerce (para $ \case
         Monitor _ t -> t >>= snd
-        t -> fmap Fix $ case asum $ fmap (isMonitor . fst) t of
-                           Just makeIC -> Just . makeIC . fmap Fix . reduce $ fmap snd t
-                           Nothing -> reduce $ fmap snd t)
+        t -> map Fix $ case asum $ map (isMonitor . fst) t of
+                           Just makeIC -> Just . makeIC . map Fix . reduce $ map snd t
+                           Nothing -> reduce $ map snd t)
 
  where
   isMonitor :: SubTiler -> Maybe (Maybe SubTiler -> Tiler)
@@ -152,7 +155,7 @@ changeMany
   => (ManyHolder SubTiler -> ManyHolder SubTiler)
   -> Sem r ()
 changeMany f =
-  modify $ applyInput $ fmap \case
+  modify $ applyInput $ map \case
     Many mh mods -> Many (f mh) mods
     t -> t
 
@@ -173,7 +176,7 @@ changeMods :: Member (State Tiler) r
            => ManyMods
            -> Sem r ()
 changeMods newMod =
-  modify $ applyInput $ fmap \case
+  modify $ applyInput $ map \case
     Many mh _ -> Many mh newMod
     t -> t
 
@@ -188,21 +191,21 @@ makeEmptySpot =
  where
   makeEmptySpot' :: SubTiler -> Tiler -> Tiler -> Tiler
   makeEmptySpot' newInput root t = case t of
-    Many (Horiz _) _ ->
+    Many (Horiz fl) mods ->
       -- TODO I don't like the fromMaybe
       fromMaybe (error "We know it's not just an IC") $ removeIC
-        $ applyInput (\(Just (Many (Horiz fl) mods)) ->
+        $ applyInput (\_ ->
           let ogSize = fromIntegral $ flLength fl
               newSize = ogSize + 1
               growPercent = ogSize / newSize
 
-              newFl = fmap (\(Sized s a) -> Sized (s * growPercent) a) fl
+              newFl = map (\(Sized s a) -> Sized (s * growPercent) a) fl
               newestFl = push Back Focused (Sized (1 / newSize) $ newInput) newFl
            in Just $ Many (Horiz newestFl) mods) root
-    Many _ _ ->
+    Many (Floating fl) mods ->
       fromMaybe (error "We know it's not just an IC") $ removeIC
-        $ applyInput (\(Just (Many mh mods)) ->
-          Just $ Many (withFl' mh $ push Back Focused (point $ newInput)) mods) root
+        $ applyInput (\_ ->
+          Just $ Many (Floating (push Back Focused (WithRect (Rect 0 0 500 500) newInput) fl)) mods) root
     _ -> root
 
   removeIC = cata $ \case 
@@ -223,7 +226,7 @@ popTiler
 popTiler = do
   root <- get
 
-  sequence_ $ onInput (fmap (modify @[SubTiler] . (:))) root
+  sequence_ $ onInput (map (modify @[SubTiler] . (:))) root
   modify $ applyInput $ const Nothing
 
 -- |Move a tiler from the stack into the tree. Should be the inverse
@@ -240,7 +243,7 @@ pushTiler = do
       case cleanTiler $ coerce uncleanT of
         Just t ->
           -- TODO These coercions are probably a sign that I should change something
-          modify $ applyInput $ coerce $ \tiler -> fmap (add t) tiler <|> Just (coerce t)
+          modify $ applyInput $ coerce $ \tiler -> map (add t) tiler <|> Just (coerce t)
         Nothing -> return ()
     [] -> return ()
     where cleanTiler :: Tiler -> Maybe SubTiler
@@ -255,9 +258,9 @@ insertTiler
   :: Member (State Tiler) r
   => Sem r ()
 insertTiler =
-  modify @Tiler $ applyInput (fmap toTiler)
+  modify @Tiler $ applyInput (map toTiler)
  where
-  toTiler focused = Many (Horiz $ makeFL (NE (Sized 1 focused) []) 0) NoMods
+  toTiler focused = Many (Horiz $ makeFL ((Sized 1 focused) :| []) 0) NoMods
 
 toggleDocks
   :: Member (State DockState) r
@@ -282,10 +285,10 @@ killActive = do
       -- a nice message. Otherwise, disconnect the client application.
       shouldKill <- kill False child
 
-      log $ LD "KillActive" $ show child ++ " and " ++ show parent ++ " and got " ++ show shouldKill ++ "\n"
+      log $ LD "KillActive" $ show child <> " and " <> show parent <> " and got " <> show shouldKill <> "\n"
       -- If we had to disconnect the client, we won't (TODO is that true) get a Destroyed window event.
       -- This does what Destroy window would do.
-      return $ fmap (, parent) shouldKill
+      return $ map (, parent) shouldKill
     Nothing -> return Nothing
   case l of
     Nothing               -> put Nothing

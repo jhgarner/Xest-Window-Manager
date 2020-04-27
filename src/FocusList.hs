@@ -10,7 +10,7 @@
 {-# LANGUAGE DeriveAnyClass    #-}
 
 module FocusList
-  ( FocusedList
+  ( FocusedList(..)
   , Direction(..)
   , Focus(..)
   , push
@@ -36,6 +36,7 @@ where
 
 import           Standard hiding (zip, zipWith)
 import           Data.ChunkedZip
+import           Data.List.NonEmpty (fromList)
 import           Text.Show.Deriving
 import           Data.Eq.Deriving
 import           Dhall (Interpret)
@@ -77,42 +78,42 @@ push :: Direction -> Focus -> a -> FocusedList a -> FocusedList a
 push dir foc a FL { visualOrder = vo, focusOrder = fo, actualData = ad } = FL
   { visualOrder = dirSide
   , focusOrder  = focSide
-  , actualData  = append ad [a]
+  , actualData  = ad <> [a]
   }
  where
-  focSide = if foc == Focused then len +: fo else append fo [len]
-  dirSide = if dir == Front then len +: vo else append vo [len]
+  focSide = if foc == Focused then len <| fo else fo <> [len]
+  dirSide = if dir == Front then len <| vo else vo <> [len]
   len     = length ad
 
 -- | Given an ordering and direction to pop from, pops from the list
 pop :: Either Direction Focus -> FocusedList a -> (a, Maybe (FocusedList a))
 pop (Right isFocused) FL { visualOrder = vo, focusOrder = fo, actualData = ad }
   = case isFocused of 
-      Focused -> popLogic head tail
-      Unfocused -> popLogic last init
+      Focused -> popLogic head (nonEmpty . tail)
+      Unfocused -> popLogic last (nonEmpty . init)
   where popLogic elemF otherF = 
-          (findNe (elemF fo) ad,) $ do
-            tailFo <- otherF fo
-            filteredVo <- remove (elemF fo) vo
-            filteredAd <- removeI (elemF fo) ad
-            return $ reduce (elemF fo) FL { visualOrder = filteredVo
-                      , focusOrder  = tailFo
-                      , actualData  = filteredAd
-                      }
+            (ad !! elemF fo,) $ do
+              tailFo <- otherF fo
+              filteredVo <- remove (elemF fo) vo
+              filteredAd <- removeAt (elemF fo) ad
+              return $ reduce (elemF fo) FL { visualOrder = filteredVo
+                        , focusOrder  = tailFo
+                        , actualData  = filteredAd
+                        }
 
 pop (Left direction) FL { visualOrder = vo, focusOrder = fo, actualData = ad } 
   = case direction of
-      Front -> popLogic head tail
-      Back -> popLogic last init
+      Front -> popLogic head (nonEmpty . tail)
+      Back -> popLogic last (nonEmpty . init)
   where popLogic elemV otherV =
-          (findNe (elemV vo) ad,) $ do
-            tailVo <- otherV vo
-            filteredFo <- remove (elemV vo) fo
-            filteredAd <- removeI (elemV vo) ad
-            return $ reduce (elemV vo) FL { visualOrder = tailVo
-                      , focusOrder  = filteredFo
-                      , actualData  = filteredAd
-                      }
+            (ad !! elemV vo,) $ do
+              tailVo <- otherV vo
+              filteredFo <- remove (elemV vo) fo
+              filteredAd <- removeAt (elemV vo) ad
+              return $ reduce (elemV vo) FL { visualOrder = tailVo
+                        , focusOrder  = filteredFo
+                        , actualData  = filteredAd
+                        }
   
 
 -- |We just removed something from the list which did all sorts of bad things to order.
@@ -139,10 +140,10 @@ mapOne orderAndEnd f fl@FL { focusOrder = fo, visualOrder = vo, actualData = ad 
 -- TODO This looks suspiciously like traverse...
 flMapMaybe :: (a -> Maybe b) -> FocusedList a -> Maybe (FocusedList b)
 flMapMaybe predicate FL { actualData = ad, visualOrder = vo, focusOrder = fo } =
-  fmap (\unwrapped -> foldl' (flip reduce) unwrapped $ sortBy (comparing Down) gone) newFL
+  map (\unwrapped -> foldl' (flip reduce) unwrapped $ sortBy (comparing Down) gone) newFL
   where
     newFL = do
-      newAd <- mapMaybeNe predicate ad
+      newAd <- nonEmpty $ mapMaybe predicate $ toList ad
       newVo <- foldM removeFrom vo gone
       newFo <- foldM removeFrom fo gone
       return FL { actualData  = newAd
@@ -158,36 +159,39 @@ flLength FL {..} = length actualData
 
 vOrder :: FocusedList a -> NonEmpty a
 vOrder FL { visualOrder = vo, actualData = ad } =
-  map (flip findNe ad) vo
+  map ((!!) ad) vo
 
 fOrder :: FocusedList a -> NonEmpty a
 fOrder FL { focusOrder = fo, actualData = ad } =
-  map (flip findNe ad) fo
+  map ((!!) ad) fo
 
 focusElem :: (a -> Bool) -> FocusedList a -> FocusedList a
-focusElem a fl@FL { focusOrder = fo, actualData = ad } = fl { focusOrder }
-  where focusOrder = move 0 (findNeI a ad) fo
+focusElem p fl@FL { actualData = ad } = focusIndex loc fl
+  where
+    loc = fst $ fromJust $ find (p . snd) $ mzip [0..] ad
 
 focusIndex :: Int -> FocusedList a -> FocusedList a
 focusIndex i fl@FL { focusOrder = fo } = fl
-  { focusOrder = if length fo > i then newFo else fo
+  { focusOrder = if length fo > i then focusNE i fo else fo
   }
-  where newFo = move 0 i fo
 
 visualIndex :: Int -> FocusedList a -> FocusedList a
-visualIndex i fl@FL { visualOrder = fo } = fl
-  { visualOrder = if length fo > i then newFo else fo
+visualIndex i fl@FL { visualOrder = vo } = fl
+  { visualOrder = if length vo > i then focusNE i vo else vo
   }
-  where newFo = move 0 i fo
+
+focusNE :: Int -> NonEmpty Int -> NonEmpty Int
+focusNE i = maybe (pure i) ((<|) i) . remove i
+
 
 focusVIndex :: Int -> FocusedList a -> FocusedList a
-focusVIndex i fl@FL {visualOrder = vo } = focusIndex (findNe i vo) fl
+focusVIndex i fl@FL {visualOrder = vo } = focusIndex (vo !! i) fl
 
 visualFIndex :: Int -> FocusedList a -> FocusedList a
-visualFIndex i fl@FL {focusOrder = fo } = visualIndex (findNe i fo) fl
+visualFIndex i fl@FL {focusOrder = fo } = visualIndex (fo !! i) fl
 
 findNeFocIndex :: FocusedList a -> Int
-findNeFocIndex FL {..} = findNeI (== head focusOrder) visualOrder
+findNeFocIndex FL {..} = visualOrder !! (head focusOrder)
 
 makeFL :: NonEmpty a -> Int -> FocusedList a
 makeFL actualData focIndex = FL { visualOrder = vo
@@ -197,13 +201,13 @@ makeFL actualData focIndex = FL { visualOrder = vo
  where
   len = length actualData
   vo  = [0.. len - 1]
-  fo  = move 0 focIndex vo
+  fo = maybe (pure focIndex) ((<|) focIndex) $ removeAt focIndex vo
 
 focusDir :: Direction -> FocusedList a -> FocusedList a
 focusDir dir fl@FL { focusOrder = fo, visualOrder = vo } = fromMaybe fl $
   case dir of
-    Front -> switchF Just tail
-    Back -> switchF tail Just
+    Front -> switchF Just (nonEmpty . tail)
+    Back -> switchF (nonEmpty . tail) Just
   where switchF finding using = do
           findList <- finding vo
           usingList <- using vo
@@ -211,13 +215,13 @@ focusDir dir fl@FL { focusOrder = fo, visualOrder = vo } = fromMaybe fl $
           return $ focusIndex (snd newLoc) fl
 
 indexFL :: Int -> FocusedList a -> a
-indexFL i FL {..} = findNe i actualData
+indexFL i FL {..} = actualData !! i
 
 reconcile :: NonEmpty b -> NonEmpty Int -> FocusedList a -> FocusedList b
 reconcile newAs order fl@FL{..} =
     fl {actualData = foldl' updateAt base $ zip order newAs}
- where updateAt as (i, a) = map (\old -> if fst old == i then a else snd old) $ zip (NE 0 [1..]) as
-       base = mkMany (length actualData) $ head newAs
+ where updateAt as (i, a) = map (\old -> if fst old == i then a else snd old) $ zip (0 :| [1..]) as
+       base = fromList $ replicate (length actualData) $ head newAs
 
 fromFoc oldFl as = reconcile as (focusOrder oldFl) oldFl
 fromVis oldFl as = reconcile as (visualOrder oldFl) oldFl

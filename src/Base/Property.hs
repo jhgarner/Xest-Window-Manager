@@ -92,8 +92,8 @@ runProperty = interpret $ \case
     rootWin <- input
     rootPropCache <- get @RootPropCache
     unless (rootWin == w && (== Just msg) (rootPropCache M.!? atomContent)) $ do
-      let longMsg = fmap fromIntegral msg
-          charMsg = fmap fromIntegral msg
+      let longMsg = map fromIntegral msg
+          charMsg = map fromIntegral msg
       embed @IO $ case i of
         8 -> changeProperty8 d w atomContent atomType propModeReplace $ charMsg
         32 -> changeProperty32 d w atomContent atomType propModeReplace $ longMsg
@@ -138,7 +138,7 @@ runProperty = interpret $ \case
       Just atom -> return atom
 
   FromAtom atom -> input >>= \d ->
-    embed @IO $ fromMaybe "" . fmap fromString <$> getAtomName d atom
+    embed @IO $ fromMaybe "" . map fromString <$> getAtomName d atom
 
   GetTransientFor w -> do
     d <- input @Display

@@ -14,7 +14,6 @@ import           Polysemy                hiding ( )
 import           Polysemy.State
 import           Polysemy.Input
 import           Core
-import           Data.Bits
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Display
 import           Graphics.X11.Xlib.Event
@@ -45,9 +44,9 @@ startWM = do
   -- We grab it based on the arguments passed to Xest.
   -- By default we pick 1 since that seems to be what GDM offers most
   -- of the time. If you launch it with startx, you probably want 0.
-  args <- getArgs
+  args <- map Text <$> getArgs
   let displayNumber = fromMaybe "1" $ headMay args
-  display <- openDisplay $ ":" ++ unpack displayNumber
+  display <- openDisplay . view _Text $ ":" <> displayNumber
 
   -- Read the config file from the user's home directory.
   -- If using display number 0 or 1, you're probably launching a real
@@ -56,13 +55,13 @@ startWM = do
   -- display, it likely means you're testing and want a slightly different
   -- config. For example, my testing config uses Alt instead of the Super
   -- (Windows) key.
-  homeDir <- Env.getEnv "HOME"
+  homeDir <- Text <$> Env.getEnv "HOME"
   print displayNumber
   c <- if displayNumber == "0" || displayNumber == "1"
-          then readConfig display . pack $ homeDir ++ "/.config/xest/config.dhall"
-          else readConfig display . pack $ homeDir ++ "/.config/xest/config." ++ unpack displayNumber ++ ".dhall"
+          then readConfig display $ homeDir <> "/.config/xest/config.dhall"
+          else readConfig display $ homeDir <> "/.config/xest/config." <> displayNumber <> ".dhall"
   let startingMode = initialMode c
-  font <- Font.load (fontLocation c) 18
+  font <- Font.load (view _Text $ fontLocation c) 18
 
   -- X orders windows like a tree.
   -- This gets the root of said tree.
@@ -88,7 +87,7 @@ startWM = do
   runM 
     $ runInputConst display
     $ runInputConst root
-    $ evalState (M.empty @String @Atom)
+    $ evalState (M.empty @Text @Atom)
     $ evalState (M.empty @Atom @[Int])
     $ evalState (M.empty @Window @XRect)
     $ evalState False
@@ -119,10 +118,10 @@ startWM = do
     $ runInputConst c
     $ runInputConst display
     $ runInputConst root
-    $ evalState (M.empty @String @Atom)
-    $ evalState (M.empty @Atom @[Int])
-    $ evalState (M.empty @Window @XRect)
-    $ evalState (M.empty @Int @Tiler)
+    $ evalState (mempty :: Map Text Atom)
+    $ evalState (mempty :: Map Atom [Int])
+    $ evalState (mempty :: Map Window XRect)
+    $ evalState (mempty :: IntMap Tiler)
     $ evalState ([] @SubTiler)
     $ evalState @Tiler (InputController (error "Don't read this") Nothing)
     $ evalState Nothing
@@ -137,7 +136,7 @@ startWM = do
     $ runMoverFake
     $ runGlobalX
     $ rebindKeys startingMode startingMode >> rootChange >> get @Screens
-  print ("Got Screens" ++ show screens)
+  print ("Got Screens" <> show screens)
 
   -- Normally, Xlib will crash on any error. Calling this function 
   -- asks Xlib to print recoverable errors instead of crashing on them.
@@ -153,8 +152,8 @@ startWM = do
   logHistory <- newIORef []
   E.catch (doAll logHistory screens c startingMode display root font (forever mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
-    let header = "Xest crashed with the exception: " ++ show e ++ "\n"
-    writeFile "/tmp/xest.err" (fromString $ header ++ lastLog ++ "\n")
+    let header = "Xest crashed with the exception: " <> show e <> "\n"
+    writeFile "/tmp/xest.err" $ header <> lastLog <> "\n"
 
 
 
@@ -192,8 +191,9 @@ mainLoop = do
       if elem nwwtd windowType
         then
           addUM ev_window >> put (Just ())
-        else
-          unlessM (findWindow ev_window <$> get @Tiler) $
+        else do
+          rootTiler <- get @Tiler
+          unless (findWindow ev_window rootTiler) $
             reparentWin ev_window >>= mapWin
         
     -- Called when a window actually dies.
@@ -233,7 +233,7 @@ mainLoop = do
       messageType <- fromAtom ev_message_type
 
       -- messageC <- traverse (fromAtom . fromIntegral) ev_data
-      log $ LD "ClientMessage" $ messageType ++ "\n\t[MessageData]" ++ show ev_data
+      log $ LD "ClientMessage" $ messageType <> "\n\t[MessageData]" <> show ev_data
       log $ LD "MessageData" $ show ev_data
 
       when (wm_state == ev_message_type && full `elem` ev_data) $
@@ -262,7 +262,7 @@ mainLoop = do
       ZoomInputToMonitor -> zoomInputToMonitor
       ChangeModeTo mode -> changeModeTo mode
       Move dir -> changeMany $ moveDir dir
-      ChangeNamed name -> maybe (return ()) (changeMany . changeIndex) $ readMay name
+      ChangeNamed (Text name) -> maybe (return ()) (changeMany . changeIndex) $ readMaybe name
       PopTiler -> popTiler
       PushTiler -> pushTiler
       Insert -> insertTiler

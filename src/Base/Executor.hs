@@ -44,7 +44,7 @@ runExecutor = interpret $ \case
   ReloadConf -> do
     display <- input @Display
     newConf <- embed @IO $ do
-      args <- fmap fromString <$> getArgs
+      args <- map fromString <$> getArgs
       let displayNumber = fromMaybe "0" $ headMay args
 
       -- Read the config file

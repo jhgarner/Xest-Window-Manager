@@ -46,7 +46,7 @@ add w (Many (Horiz fl) mods) =
       newFl = push Back Focused (Sized (1 / ogSize) w) fl
       growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 newFl
 
-      newestFl = fmap (\(Sized s a) -> Sized (s * growPercent) a) newFl
+      newestFl = map (\(Sized s a) -> Sized (s * growPercent) a) newFl
 
    in Many (Horiz newestFl) mods
 
@@ -57,7 +57,7 @@ add w (Many mh mods) = Many newMh mods
         Horiz ne -> Horiz $ push Back Focused (Sized 0 w) ne
         Floating ne -> Floating $ push Back Focused (WithRect (Rect 0 0 500 500) w) ne
         TwoCols size ne -> TwoCols size $ push Back Focused (Identity w) ne
-add w t = Many (Horiz (makeFL (NE (Sized 0.5 $ Fix t) [Sized 0.5 w]) 0)) NoMods
+add w t = Many (Horiz (makeFL ((Sized 0.5 $ Fix t) :| [Sized 0.5 w]) 0)) NoMods
 
 
 -- | Remove a Window if it exists in the tree.
@@ -78,7 +78,7 @@ reduce (Many (Horiz fl) mods) = do
   newFl <- flMapMaybe sequence fl
   -- We need to multiply by a growth percentage to get the new sizes.
   let growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 fl
-      newestFl = fmap (\(Sized s a) -> Sized (s * growPercent) a) newFl
+      newestFl = map (\(Sized s a) -> Sized (s * growPercent) a) newFl
   return $ Many (Horiz newestFl) mods
 reduce (Many fl mods) = do
   newFl <- withFl fl (flMapMaybe sequence)
@@ -96,8 +96,8 @@ popWindow howToPop (Many (Horiz fl) mods) = (newElem, newMany)
         newMany = do
           newFl <- newFlM
           let growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 fl
-          return $ Many (Horiz $ fmap (\(Sized s a) -> Sized (s * growPercent) a) newFl) mods
-popWindow howToPop (Many mh mods) = (newElem, fmap (\newMh -> Many newMh mods) newMhM )
+          return $ Many (Horiz $ map (\(Sized s a) -> Sized (s * growPercent) a) newFl) mods
+popWindow howToPop (Many mh mods) = (newElem, map (\newMh -> Many newMh mods) newMhM )
   where newElem = foldFl mh $ extract . fst . pop howToPop
         newMhM = withFl mh $ snd . pop howToPop
 
@@ -133,9 +133,9 @@ onInput f root = f $ extract $ ana @(Beam _) findIC $ coerce root
 -- | Kind of like applyInput but instead of searching for the InputController,
 -- it just applies the function to whatever is focused by an individual Tiler.
 modFocused :: (a -> a) -> TilerF a -> TilerF a
-modFocused f (Many mh mods) = Many (withFl' mh $ mapOne (Right Focused) (fmap f)) mods
+modFocused f (Many mh mods) = Many (withFl' mh $ mapOne (Right Focused) (map f)) mods
 modFocused _ wp@(Wrap      _                 ) = wp
-modFocused f t@( InputControllerOrMonitor _ _) = fmap f t
+modFocused f t@( InputControllerOrMonitor _ _) = map f t
 
 
 -- | Change the focus of a Tiler
@@ -162,9 +162,9 @@ moveToClosestParent predicateUnmove predicateMove = coerce
   moveToClosestParent'
     :: TilerF (Maybe SubTiler, TreeCombo) -> (Maybe Tiler, TreeCombo)
   moveToClosestParent' t
-    | predicateUnmove $ fmap fst t =
+    | predicateUnmove $ map fst t =
       -- We are looking at the unmovable part
-      case asum $ fmap (getMovable . snd) t of
+      case asum $ map (getMovable . snd) t of
         -- We haven't seen the movable part, so just set the Unmovable flag and be done
         Nothing -> (withNewFocus t, Unmovable)
         -- We already saw the movable part so add that in as this thing's parents
@@ -172,7 +172,7 @@ moveToClosestParent predicateUnmove predicateMove = coerce
           (Just $ reparentFunction $ coerce $ withNewFocus t, Both)
 
     | otherwise =
-      case predicateMove $ fmap fst t of
+      case predicateMove $ map fst t of
         -- Whatever we found, it's neither of the parts. It might be the parent though.
         Nothing -> case hasBothIndividually t of
           -- We found the parent! Let's make it the parent.
@@ -189,14 +189,14 @@ moveToClosestParent predicateUnmove predicateMove = coerce
              else (unparented, Movable functions)
 
   reduced :: TilerF (Maybe SubTiler, a) -> Maybe Tiler
-  reduced t = reduce $ fmap fst t
+  reduced t = reduce $ map fst t
 
   withNewFocus :: TilerF (Maybe SubTiler, TreeCombo) -> Maybe Tiler
   withNewFocus t = fromMaybe (reduced t) $ do
     elementToFoc <- find (\(_, tc) -> isUnmovable tc || isBoth tc) t >>= fst
     Just $ focus elementToFoc <$> reduced t
   hasBothIndividually tiler = if any (isUnmovable . snd) tiler
-    then asum $ fmap (getMovable . snd) tiler
+    then asum $ map (getMovable . snd) tiler
     else Nothing
 
 -- |Specialization of the above for moving an InputController towards a window
@@ -282,10 +282,10 @@ findParent w = cata step
 -- you're looking for the index, f ~ (Int,).
 whichScreen
   :: (Eq (f Bool), Functor f) => (Int32, Int32) -> [f XRect] -> Maybe (f XRect)
-whichScreen (mx, my) = fmap getFirst . foldMap' findOverlap
+whichScreen (mx, my) = map getFirst . foldMap' findOverlap
  where
   findOverlap wrapped =
-    if (wrapped $> True) == fmap isInside wrapped then Just $ First wrapped else Nothing
+    if (wrapped $> True) == map isInside wrapped then Just $ First wrapped else Nothing
   isInside Rect {..} =
     mx >= x && my >= y && mx < x + fromIntegral w && my < y + fromIntegral h
 
