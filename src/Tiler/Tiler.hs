@@ -152,8 +152,8 @@ focus _    t@(InputControllerOrMonitor _ _) = t
 -- In addition to moving the node, this function also ensures that
 -- the movable node is always a parent of the unmovable node.
 moveToClosestParent
-  :: (TilerF (Maybe SubTiler) -> Bool) -- |Function used to find the unmovable part
-  -> (TilerF (Maybe SubTiler) -> Maybe (Reparenter, Unparented)) -- |Function used to find the movable part.
+  :: (TilerF (Maybe SubTiler) -> Bool)
+  -> (TilerF (Maybe SubTiler) -> Maybe (Reparenter, Unparented))
   -> Tiler
   -> (Maybe Tiler, TreeCombo)
 moveToClosestParent predicateUnmove predicateMove = coerce

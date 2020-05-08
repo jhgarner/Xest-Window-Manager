@@ -89,7 +89,7 @@ class TilerLike a where
   toFType :: a -> TilerF (PolyA a)
   fromFType :: TilerF (PolyA a) -> a
 
- -- |A trivial instance. TilerF can be transformed into itself.
+-- |A trivial instance. TilerF can be transformed into itself.
 instance TilerLike (TilerF a) where
   type PolyA (TilerF a) = a
 
@@ -97,8 +97,8 @@ instance TilerLike (TilerF a) where
 
   fromFType = id
 
- -- |The interesting instance. A Fix TilerF can be coerced to and from
- -- TilerF.
+-- |The interesting instance. A Fix TilerF can be coerced to and from
+-- TilerF.
 instance TilerLike (Fix TilerF) where
   type PolyA (Fix TilerF) = Fix TilerF
 

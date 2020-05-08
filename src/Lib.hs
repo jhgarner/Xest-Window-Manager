@@ -221,7 +221,16 @@ mainLoop = do
     -- The pointer moved and we probably want to resize something.
     MotionEvent {..} -> motion
     -- A press of the keyboard.
-    KeyEvent {..} -> put ev_time >> keyDown ev_keycode ev_event_type >>= foldMap executeActions
+    KeyEvent {..} -> do
+      put ev_time
+      mode <- get @Mode
+      if any kb $ \(KeyTrigger k km _ _) -> mode == km && ev_keycode == k
+        then keyDown ev_keycode ev_event_type >>= foldMap executeActions
+        else embed @IO do
+          allocaXEvent $ \pe -> do
+            setEventType pe configureNotify
+            setConfigureEvent pe ev_window ev_window wa_x wa_y wa_width wa_height wa_border_width none False
+            sendEvent d ev_window False noEventMask pe
     -- This usually means the keyboard layout changed.
     MappingNotifyEvent {} -> reloadConf
     -- Some other window sent us a message. Currently, we only care if they

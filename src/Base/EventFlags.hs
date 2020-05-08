@@ -39,6 +39,7 @@ data EventFlags m a where
   RebindKeys :: Mode -- ^ The mode we want to unbind keys for
              -> Mode -- ^ The mode we want to bind keys for
              -> EventFlags m ()
+  SendKeyEvent :: Event -> Window -> EventFlags m ()
 makeSem ''EventFlags
 
 -- |Runs the event using IO
@@ -77,3 +78,16 @@ runEventFlags = interpret $ \case
     embed $ forM_ kb $
       \(KeyTrigger k km _ _) -> when (activeMode == km)
         (grabKey d k anyModifier win True grabModeAsync grabModeAsync)
+
+  SendKeyEvent KeyEvent{..} win -> do
+    d <- input @Display
+
+    embed @IO $ allocaXEvent \ptr -> do
+      setKeyEvent ptr win
+      sendEvent d win False noEventMask ptr
+
+
+
+
+
+  

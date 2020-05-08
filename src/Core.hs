@@ -48,10 +48,11 @@ refresh = do
     oldScreens <- gets @Screens $ map fst . itoList
     forM_ oldScreens $ \i -> do
       screenInfo <- input @[XineramaScreenInfo]
-      let Just (XineramaScreenInfo _ x y w h) = find ((== fromIntegral i) . xsi_screen_number) screenInfo
-      newRect <- constrainRect $ Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
-      modify @Screens $ over (at i) (map $ putScreens newRect)
-
+      case find ((== fromIntegral i) . xsi_screen_number) screenInfo of
+        Just (XineramaScreenInfo _ x y w h) -> do
+          newRect <- constrainRect $ Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
+          modify @Screens $ over (at i) (map $ putScreens newRect)
+        Nothing -> put $ Just ()
     -- Write the path to the upper border
     writePath
 
