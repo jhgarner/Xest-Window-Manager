@@ -1,5 +1,5 @@
 nix:
-  enable: false
+  enable: true
   packages:
     # - xss-lock
     - x11

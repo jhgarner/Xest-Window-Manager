@@ -62,15 +62,17 @@ type States (a :: [Type]) = TypeMap State a
 runStates :: HList t -> Sem ((States t) ++ r) a -> Sem r a
 runStates = runSeveral evalState
 
-runStateLogged :: forall r s a. (Show s, Member (Log LogData) r) => (s, Text) -> Sem ((State s) ': r) a -> Sem r a
-runStateLogged (s, t) = evalState s . logState t
+runStateLogged :: forall r s a. (Show s, Members [Log LogData, Embed IO] r) => (s, Text) -> Sem ((State s) ': r) a -> Sem r a
+runStateLogged (s, t) = map snd . stateToIO s . logState t
   where 
         logState :: Member (Log LogData) r' => Text -> Sem (State s ': r') x -> Sem (State s ': r') x
         logState name = intercept $ \case
           Put a -> do
             oldValue <- get
-            log (LD (name <> " From") $ show oldValue) >> log (LD "to" $ show a) >> put a
+            log (LD (name <> " From") $ show oldValue) *> log (LD "to" $ show a) *> put a
           Get -> get
+        {-# INLINE logState #-}
+{-# INLINE runStateLogged #-}
 
 
 -- |Pretty much everything needs effects when being run. This type alias makes

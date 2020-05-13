@@ -45,6 +45,7 @@ module Standard
 import BasePrelude as All hiding (gunfold, log, tail, head, init, last, fmap, map, show, lazy, arr, uncons, index, String, error, left, right, appendFile, getContents, getLine, interact, putStrLn, putStr, readFile, writeFile, filter, (!!), unlines)
 import qualified BasePrelude
 import Data.Text as All (Text, unlines)
+import Control.DeepSeq as All
 import Data.Text.IO as All
 import Data.List.NonEmpty as All (filter, nonEmpty, (!!), (<|), tail, init)
 -- Hiding Text because I define it below with a Complete pragma
