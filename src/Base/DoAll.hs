@@ -115,11 +115,12 @@ doAll ioref t c m d w f =
     let timeStamp = "[" <> Text (formatShow iso8601Format (utcToLocalTime timeZone timeUtc)) <> "]"
         prefixWrap = "[" <> prefix <> "]"
         fullMsg:: Text = prefixWrap <> timeStamp <> msg
-    modify @[Text] $ (:) fullMsg
-    modify @[Text] $ take 100
+    modify' @[Text] $ force . take 100 . (:) fullMsg
     shouldLog <- get @Bool
     when shouldLog $
       embed @IO $ appendFile "/tmp/xest.log" (fullMsg <> "\n")
+  {-# INLINE logger #-}
+
 
   stateToInput :: Member (State a) r => Sem (Input a ': r) b -> Sem r b
   stateToInput = interpret $ \case

@@ -41,6 +41,7 @@ dependencies:
 - sdl2
 - sdl2-ttf
 - polysemy
+- deepseq
 - polysemy-plugin
 # - polysemy-zoo
 - template-haskell
@@ -81,6 +82,7 @@ library:
 
   default-extensions:
     - DataKinds
+    - StrictData
     - FlexibleContexts
     - GADTs
     - LambdaCase

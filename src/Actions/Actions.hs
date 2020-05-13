@@ -104,6 +104,7 @@ zoomInputToMonitor = do
   modify $ coerce . fromMaybe (error "Can't be empty") . cata \case
     Monitor loc t ->
       Just . InputController bords . Just . Monitor loc $ join t
+    InputController _ child -> join child
     Monitor _ childT -> join childT
     t -> coerce $ reduce t
 
