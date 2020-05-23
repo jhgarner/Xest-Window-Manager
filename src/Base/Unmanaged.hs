@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
@@ -9,9 +10,6 @@
 module Base.Unmanaged where
 
 import           Standard
-import           Polysemy
-import           Polysemy.State
-import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Extras
@@ -29,31 +27,27 @@ data DockState = Hidden | Visible
   deriving (Show, Eq)
 
 -- |Manages unmanaged windows such as docks
-data Unmanaged m a where
-  FocusUM :: Window -> Unmanaged m ()
-  AddUM :: Window -> Unmanaged m ()
-  ConstrainRect :: XRect -> Unmanaged m XRect
-makeSem ''Unmanaged
+class Unmanaged m where
+  focusUM :: Window -> m ()
+  addUM :: Window -> m ()
+  constrainRect :: XRect -> m XRect
 
 
-runUnmanaged :: Members [State Docks, Input RootWindow, State DockState] r
-             => Members '[Mover, Property, Minimizer] r
-             => Interpret Unmanaged r a
-runUnmanaged = interpret $ \case
-  FocusUM win -> do
+instance Members [State Docks, Input RootWindow, State DockState, Mover, Property, Minimizer, MonadIO, Input Display] m => Unmanaged m where
+  focusUM win = do
     root <- input @RootWindow
     setFocus (ParentChild root win)
 
-  AddUM win -> do
+  addUM win = do
     restore win
     modify @Docks (Docks . (:) win . undock)
 
-  ConstrainRect rect -> do
+  constrainRect rect = do
     Docks docks <- get @Docks
     dockState <- get @DockState
     root <- input @RootWindow
     display <- input @Display
-    WindowAttributes _ _ sw sh _ _ _ _ _ <- embed @IO $ getWindowAttributes display root
+    WindowAttributes _ _ sw sh _ _ _ _ _ <- liftIO $ getWindowAttributes display root
 
     nwsp <- getAtom False "_NET_WM_STRUT_PARTIAL"
     strutRects <-

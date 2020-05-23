@@ -24,6 +24,7 @@ dependencies:
 - base-prelude
 - X11
 - text
+- monad-control
 - text-show
 - process
 - dhall
@@ -40,15 +41,16 @@ dependencies:
 - vector-sized
 - sdl2
 - sdl2-ttf
-- polysemy
+# - polysemy
 - deepseq
-- polysemy-plugin
+- mtl
+# - polysemy-plugin
 # - polysemy-zoo
 - template-haskell
 - bifunctors
 - monad-loops
 - co-log-core
-- co-log-polysemy
+# - co-log-polysemy
 - lens
 - time
 - semigroupoids
@@ -75,13 +77,15 @@ library:
   - -A128m
   - -n2m
   - -RTS
-  - -fplugin=Polysemy.Plugin
-  - -O2 
-  - -flate-specialise
-  - -fspecialise-aggressively
+  # - -fplugin=Polysemy.Plugin
+  - -O2
+  # - -flate-specialise
+  # - -fspecialise-aggressively
 
   default-extensions:
     - DataKinds
+    - Strict
+    - FlexibleInstances
     - StrictData
     - FlexibleContexts
     - GADTs

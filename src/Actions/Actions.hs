@@ -16,8 +16,6 @@ module Actions.Actions (module Actions.Actions, module Actions.ActionTypes) wher
 
 import           Standard
 import           Base.DoAll
-import           Polysemy
-import           Polysemy.State
 import           Data.Either                    ( )
 import           Tiler.Tiler
 import           FocusList
@@ -36,8 +34,8 @@ import Actions.ActionTypes
 -- usually won't change, you will change the Tiler that will receive actions
 -- and events.
 zoomInInput
-  :: Member (State Tiler) r
-  => Sem r ()
+  :: State Tiler m
+  => m ()
 zoomInInput =
   modify $ unfix . cata \case
     t@(InputController _ (Just (Wrap _))) -> Fix t
@@ -48,8 +46,8 @@ zoomInInput =
 
 -- |Nearly identical to zooming in the input controller.
 zoomInMonitor
-  :: Member (State Tiler) r
-  => Sem r ()
+  :: State Tiler m
+  => m ()
 zoomInMonitor =
   modify @Tiler $ unfix . cata \case
     t@(Monitor _ (Just (Fix (Wrap _)))) -> Fix (t :: Tiler)
@@ -59,8 +57,8 @@ zoomInMonitor =
 
 -- |Move the input controller towards the root
 zoomOutInput
-  :: Member (State Tiler) r
-  => Sem r ()
+  :: State Tiler m
+  => m ()
 zoomOutInput = do
   -- The unless guards against zooming the controller out of existence
   rootTiler <- gets @Tiler Fix
@@ -81,13 +79,13 @@ zoomOutInput = do
 
 -- |A smart zoomer which moves the monitor to wherever the input controller is.
 zoomMonitorToInput
-  :: Member (State Tiler) r
-  =>  Sem r ()
+  :: State Tiler m
+  =>  m ()
 zoomMonitorToInput = do
   loc <- gets @Tiler $ fromMaybe (error "Lost Mon") . cata \case
     Monitor loc _ -> Just loc
     t -> asum t
-  modify $ coerce . fromMaybe (error "Can't be empty") . cata \case
+  modify @Tiler $ coerce . fromMaybe (error "Can't be empty") . cata \case
     InputController bords t ->
       Just . Monitor loc . Just . InputController bords  $ join t
     Monitor _ childT -> join childT
@@ -95,13 +93,13 @@ zoomMonitorToInput = do
 
 -- |A smart zoomer which moves the input contrell to wherever the monitor is.
 zoomInputToMonitor
-  :: Member (State Tiler) r
-  =>  Sem r ()
+  :: State Tiler m
+  =>  m ()
 zoomInputToMonitor = do
   bords <- gets @Tiler $ fromMaybe (error "Lost Mon") . cata \case
     InputController bords _ -> Just bords
     t -> asum t
-  modify $ coerce . fromMaybe (error "Can't be empty") . cata \case
+  modify @Tiler $ coerce . fromMaybe (error "Can't be empty") . cata \case
     Monitor loc t ->
       Just . InputController bords . Just . Monitor loc $ join t
     InputController _ child -> join child
@@ -110,8 +108,8 @@ zoomInputToMonitor = do
 
 -- |Very similar to zoomOutInput.
 zoomOutMonitor
-  :: Member (State Tiler) r
-  => Sem r ()
+  :: State Tiler m
+  => m ()
 zoomOutMonitor = do
   -- Don't want to zoom the monitor out of existence
   rootTiler <- gets @Tiler Fix
@@ -132,7 +130,7 @@ zoomOutMonitor = do
 
 -- |changes a mode. For example, I usually configure the windows key to change
 -- from Insert mode to Normal mode.
-changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] r => Mode -> Sem r ()
+changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] m => Mode -> m ()
 changeModeTo newM = do
   -- Unbind the keys from the old mode and bind the ones for the new mode.
   currentMode  <- get
@@ -152,9 +150,9 @@ changeModeTo newM = do
 
 -- |Make a change to a Many Tiler if it comes after the InputController.
 changeMany
-  :: Member (State Tiler) r
+  :: State Tiler m
   => (ManyHolder SubTiler -> ManyHolder SubTiler)
-  -> Sem r ()
+  -> m ()
 changeMany f =
   modify $ applyInput $ map \case
     Many mh mods -> Many (f mh) mods
@@ -173,9 +171,9 @@ moveDir dir mh = withFl' mh $ focusDir dir
 moveToFront :: ManyHolder SubTiler -> ManyHolder SubTiler
 moveToFront mh = withFl' mh $ visualFIndex 0
 
-changeMods :: Member (State Tiler) r
+changeMods :: State Tiler m
            => ManyMods
-           -> Sem r ()
+           -> m ()
 changeMods newMod =
   modify $ applyInput $ map \case
     Many mh _ -> Many mh newMod
@@ -183,8 +181,8 @@ changeMods newMod =
 
 -- |Move the input controller to create a new, empty item.
 makeEmptySpot
-  :: Member (State Tiler) r
-  => Sem r ()
+  :: State Tiler m
+  => m ()
 makeEmptySpot =
   modify @Tiler $ \root ->
     let newInput = flip InputController Nothing $ getIC root
@@ -222,8 +220,8 @@ makeEmptySpot =
 -- from the stack back into the tree. This function accomplishes
 -- something similar to minimization.
 popTiler
-  :: Members (States '[Tiler, [SubTiler]]) r
-  => Sem r ()
+  :: Members (States '[Tiler, [SubTiler]]) m
+  => m ()
 popTiler = do
   root <- get
 
@@ -233,8 +231,8 @@ popTiler = do
 -- |Move a tiler from the stack into the tree. Should be the inverse
 -- of popTiler.
 pushTiler
-  :: Members (States '[Tiler, [SubTiler]]) r
-  => Sem r ()
+  :: Members (States '[Tiler, [SubTiler]]) m
+  => m ()
 pushTiler = do
   popped <- get @[SubTiler]
 
@@ -256,23 +254,23 @@ pushTiler = do
 -- Note that this is not called when a new window is created.
 -- That would be the pushOrAdd function.
 insertTiler
-  :: Member (State Tiler) r
-  => Sem r ()
+  :: State Tiler m
+  => m ()
 insertTiler =
   modify @Tiler $ applyInput (map toTiler)
  where
   toTiler focused = Many (Horiz $ makeFL ((Sized 1 focused) :| []) 0) NoMods
 
 toggleDocks
-  :: Member (State DockState) r
-  => Sem r ()
+  :: State DockState m
+  => m ()
 toggleDocks =
   modify @DockState \d -> if d == Visible then Hidden else Visible
 
 -- |Kill the active window
 killActive
-  :: Members '[State Tiler, State Tiler, GlobalX, Log LogData, State (Maybe ())] r
-  => Sem r ()
+  :: Members '[State Tiler, State Tiler, GlobalX, Log LogData, State (Maybe ())] m
+  => m ()
 killActive = do
   root <- get @Tiler
 
@@ -292,7 +290,7 @@ killActive = do
       return $ map (, parent) shouldKill
     Nothing -> return Nothing
   case l of
-    Nothing               -> put Nothing
+    Nothing               -> put (Nothing @())
     Just (killed, parent) -> do
       _ <- kill True parent
       modify $ ripOut killed

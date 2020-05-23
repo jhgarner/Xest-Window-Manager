@@ -17,9 +17,6 @@ module Core where
 import           Standard
 import Base.DoAll
 import Actions.ActionTypes
-import           Polysemy
-import           Polysemy.State
-import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Atom
 import           Graphics.X11.Xinerama
@@ -33,10 +30,10 @@ import qualified SDL (Window)
 -- called every literal frame; Xest doesn't have to do anything if it's
 -- children want to change their contents. Xest only gets involved when they
 -- need to move.
-refresh :: Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged] r
-        => Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo]]) r
-        => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time, Screens, DockState, Docks]) r
-        => Sem r ()
+refresh :: Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged] m
+        => Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo]]) m
+        => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time, Screens, DockState, Docks]) m
+        => m ()
 refresh = do
     log $ LD "Refreshing" "Has started"
     put @(Maybe ()) Nothing
@@ -146,9 +143,9 @@ placeWindow root =
 -- showing or hiding a window. TODO Can I just ask the user to use some random
 -- bash utility instead?
 getWindowByClass
-  :: Members [Property, GlobalX] r
+  :: Members [Property, GlobalX] m
   => Text
-  -> Sem r [Window]
+  -> m [Window]
 getWindowByClass wName = do
   childrenList <- getTree
   filterM findWindow' childrenList
@@ -156,11 +153,12 @@ getWindowByClass wName = do
 
 -- |Moves windows around based on where they are in the tiler.
 render
-  :: ( Members (Inputs [Pointer, Screens]) r
-     , Members (States [Tiler, Mode, [SubTiler]]) r
-     , Members [Mover, Colorer, GlobalX, Log LogData, Minimizer, Property] r
+  :: forall m.
+     ( Members (Inputs [Pointer, Screens]) m
+     , Members (States [Tiler, Mode, [SubTiler]]) m
+     , Members [Mover, Colorer, GlobalX, Log LogData, Minimizer, Property] m
      )
-  => Sem r [ParentChild]
+  => m [ParentChild]
 render = do
   screens <- input @Screens
 
@@ -179,7 +177,7 @@ render = do
   return $ join winOrder
 
        -- The main part of this function.
- where draw :: Base (Cofree TilerF (XRect, Int)) ([ParentChild], Sem _ ()) -> ([ParentChild], Sem _ ())
+ where draw :: Base (Cofree TilerF (XRect, Int)) ([ParentChild], m ()) -> ([ParentChild], m ())
        draw (CofreeF (Rect {..}, _) (Wrap pc)) = ([pc],
            changeLocation pc $ Rect x y (abs w) (abs h))
        
@@ -244,8 +242,8 @@ render = do
 
           
 -- |Writes the path to the topmost border.
-writePath :: Members '[State Tiler, Colorer, Property] r 
-          => Sem r ()
+writePath :: Members '[State Tiler, Colorer, Property] m
+          => m ()
 writePath = do
   (_, u, _, _) <- gets @Tiler getBorders
   root <- get @Tiler
@@ -253,8 +251,8 @@ writePath = do
 
 -- |Focus the window our Tilers are focusing
 xFocus
-  :: Members [State Tiler, Mover, Input Window, State Time] r
-  => Sem r ()
+  :: Members [State Tiler, Mover, Input Window, State Time] m
+  => m ()
 xFocus = do
   root <- get @Tiler
   rWin <- input @Window
@@ -266,16 +264,16 @@ xFocus = do
   makeList t = ContinueF (unfix $ getFocused t)
 
 -- |Set the current screen number based on pointer position.
-setScreenFromMouse :: Members [Input Pointer, State ActiveScreen, State Screens] r
-                 => Sem r ()
+setScreenFromMouse :: Members [Input Pointer, State ActiveScreen, State Screens] m
+                 => m ()
 setScreenFromMouse = do
   pointer <- input @Pointer
   screens <- get @Screens
   put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ zip [0..] $ toList $ map getScreens screens
 
 -- |Add a bunch of properties to our root window to comply with EWMH
-initEwmh :: Member Property r
-         => RootWindow -> Window -> Sem r ()
+initEwmh :: (Property m, Monad m)
+         => RootWindow -> Window -> m ()
 initEwmh root upper = do
   a    <- getAtom False "_NET_SUPPORTED"
   nswc <- getAtom False "_NET_SUPPORTING_WM_CHECK"
@@ -300,9 +298,9 @@ initEwmh root upper = do
 
 -- |Write workspaces in a EWMH compatible way
 writeWorkspaces
-  :: (Members '[Property, Input Window] r)
+  :: Members '[Property, Input Window] m
   => ([Text], Int)
-  -> Sem r ()
+  -> m ()
 writeWorkspaces (names, i) = do
   root <- input
   ndn <- getAtom False "_NET_DESKTOP_NAMES" 
@@ -316,8 +314,8 @@ writeWorkspaces (names, i) = do
 
 
 -- |Writes all of the clients we're managing for others to see.
-setClientList :: (Members '[State Tiler, Input Window, Property] r)
-              => Sem r ()
+setClientList :: Members '[State Tiler, Input Window, Property] m
+              => m ()
 setClientList = do
   root <- input
   tilers <- get @Tiler
@@ -327,8 +325,8 @@ setClientList = do
           winList t = concat t
 
 -- |Writes the active window to the root window.
-writeActiveWindow :: (Members '[State Tiler, Input Window, Property] r)
-              => Sem r ()
+writeActiveWindow :: Members '[State Tiler, Input Window, Property] m
+              => m ()
 writeActiveWindow = do
   root <- input
   tilers <- gets Fix

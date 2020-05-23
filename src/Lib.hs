@@ -10,9 +10,6 @@ where
 
 import           Standard
 import           Config
-import           Polysemy                hiding ( )
-import           Polysemy.State
-import           Polysemy.Input
 import           Core
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Display
@@ -30,6 +27,8 @@ import XEvents
 import Actions.ActionTypes
 import Actions.Actions
 import qualified Control.Exception as E
+import Control.Monad.State.Strict (evalStateT)
+import Control.Monad.Reader (ReaderT(runReaderT))
 
 -- | Starting point of the program. This function should never return
 startWM :: IO ()
@@ -80,20 +79,17 @@ startWM = do
     >> changeWindowAttributes display ewmhWin cWOverrideRedirect wa
   mapWindow display ewmhWin
 
-  -- Here we have our first look at Polysemy. All those evalState calls
+  -- Here we have our first look at Polysemy. All those flip evalStateT calls
   -- might seem weird, but they're just setting up the caching environment
   -- that the property effects like to use. All of this ceremony is just
   -- needed to initialize all of the ewmh code.
-  runM 
-    $ runInputConst display
-    $ runInputConst root
-    $ evalState (M.empty @Text @Atom)
-    $ evalState (M.empty @Atom @[Int])
-    $ evalState (M.empty @Window @XRect)
-    $ evalState False
-    $ evalState c
-    $ runExecutor 
-    $ runProperty 
+  flip runReaderT display
+    $ flip runReaderT root
+    $ flip evalStateT (M.empty @Text @Atom)
+    $ flip evalStateT (M.empty @Atom @[Int])
+    $ flip evalStateT (M.empty @Window @XRect)
+    $ flip evalStateT False
+    $ flip evalStateT c
     $ initEwmh root ewmhWin
 
   -- Find and register ourselves with the root window
@@ -114,27 +110,22 @@ startWM = do
   -- be safely ignored. The only interesting finction is the last one
   -- in the chain.
   screens <-
-    runM
-    $ runInputConst c
-    $ runInputConst display
-    $ runInputConst root
-    $ evalState (mempty :: Map Text Atom)
-    $ evalState (mempty :: Map Atom [Int])
-    $ evalState (mempty :: Map Window XRect)
-    $ evalState (mempty :: IntMap Tiler)
-    $ evalState ([] @SubTiler)
-    $ evalState @Tiler (InputController (error "Don't read this") Nothing)
-    $ evalState Nothing
-    $ evalState (0 :: Int)
-    $ runGetScreens
-    $ runNewBorders
-    $ evalState False
-    $ runEventFlags
-    $ evalState c
-    $ runExecutor 
-    $ runProperty
-    $ runMoverFake
-    $ runGlobalX
+    flip runReaderT c
+    $ flip runReaderT display
+    $ flip runReaderT root
+    $ flip evalStateT (mempty :: Map Text Atom)
+    $ flip evalStateT (mempty :: Map Atom [Int])
+    $ flip evalStateT (mempty :: Map Window XRect)
+    $ flip evalStateT (mempty :: IntMap Tiler)
+    $ flip evalStateT ([] @SubTiler)
+    $ flip (evalStateT @_ @Tiler) (InputController (error "Don't read this") Nothing)
+    $ flip evalStateT (Nothing @())
+    $ flip evalStateT (0 :: Int)
+    $ flip evalStateT False
+    $ flip evalStateT c
+    $ runFakeScreens
+    $ runFakeBorders
+    $ runFakeMover
     $ rebindKeys startingMode startingMode >> rootChange >> get @Screens
   print ("Got Screens" <> show screens)
 
@@ -150,6 +141,7 @@ startWM = do
   -- The finally makes sure we write the last 100 log messages on exit to the
   -- err file.
   logHistory <- newIORef []
+  return ()
   E.catch (doAll logHistory screens c startingMode display root font (forever mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
     let header = "Xest crashed with the exception: " <> show e <> "\n"
@@ -163,8 +155,9 @@ startWM = do
 -- actually wrong, you need to figure out the type of doAll and paste that in
 -- here. Once you've finished debugging, you can replace it with the _ again or
 -- find a better way to do this.
-mainLoop :: Sem _ ()
+mainLoop :: _ ()
 mainLoop = do
+  liftIO $ print "IN MAIN LOOP"
   -- These debug lines have saved me countless times.
   log $ LD "Loop" "\n\n========================"
 
@@ -181,7 +174,7 @@ mainLoop = do
   -- Here we have the bulk of the program. Most of the events given to us
   -- by the server are just handed off to something in the XEvents file.
   -- A handful of them have slightly more complicated logic.
-  runInputConst currentScreen $ getXEvent >>= (\x -> log (LD "Event" $ show x) >> return x) >>= \case
+  flip runReaderT currentScreen $ getXEvent >>= (\x -> log (LD "Event" $ show x) >> return x) >>= \case
     -- Called when a new window is created by someone
     MapRequestEvent {..} -> do
       -- First, check if it's a dock which should be unmanaged
@@ -221,16 +214,7 @@ mainLoop = do
     -- The pointer moved and we probably want to resize something.
     MotionEvent {..} -> motion
     -- A press of the keyboard.
-    KeyEvent {..} -> do
-      put ev_time
-      mode <- get @Mode
-      if any kb $ \(KeyTrigger k km _ _) -> mode == km && ev_keycode == k
-        then keyDown ev_keycode ev_event_type >>= foldMap executeActions
-        else embed @IO do
-          allocaXEvent $ \pe -> do
-            setEventType pe configureNotify
-            setConfigureEvent pe ev_window ev_window wa_x wa_y wa_width wa_height wa_border_width none False
-            sendEvent d ev_window False noEventMask pe
+    KeyEvent {..} -> put ev_time >> keyDown ev_keycode ev_event_type >>= unwrapMonad . foldMap (WrapMonad . executeActions)
     -- This usually means the keyboard layout changed.
     MappingNotifyEvent {} -> reloadConf
     -- Some other window sent us a message. Currently, we only care if they
@@ -258,7 +242,7 @@ mainLoop = do
   where
     -- Here we have executors for the various actions a user might
     -- have in their config. These go to Actions/Actions.hs
-    executeActions :: Action -> Sem _ ()
+    executeActions :: Action -> _ ()
     executeActions action = log (LD "Action" $ show action) >> case action of
       RunCommand command -> execute command
       ShowWindow wName -> getWindowByClass wName >>= mapM_ restore

@@ -9,9 +9,6 @@
 module XEvents where
 
 import           Standard
-import           Polysemy
-import           Polysemy.State
-import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xinerama
 import           Graphics.X11.Xlib.Atom
@@ -27,9 +24,9 @@ import Config
 import Actions.ActionTypes
 
 -- |Called when we want to reparent a window
-reparentWin :: Members '[EventFlags, GlobalX, Log LogData, Property] r
+reparentWin :: Members '[EventFlags, GlobalX, Log LogData, Property] m
        => Window
-       -> Sem r ParentChild
+       -> m ParentChild
 reparentWin window = do
   -- Reparent the window inside of a new one.
   -- Originally, Xest didn't do this but then a bunch of bugs came up
@@ -47,11 +44,11 @@ reparentWin window = do
 deriving instance Show SizeHints
 
 -- |Called when a new top level window wants to exist
-mapWin :: Members (Inputs '[Pointer, Screens]) r
-       => Members [EventFlags, GlobalX, Property, Log LogData, Mover] r
-       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time, DockState]) r
+mapWin :: Members (Inputs '[Pointer, Screens]) m
+       => Members [EventFlags, GlobalX, Property, Log LogData, Mover] m
+       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time, DockState]) m
        => ParentChild
-       -> Sem r ()
+       -> m ()
 mapWin pc@(ParentChild newWin window) = do
   log $ LD "MapWin" "Mapping a window"
   transient <- getTransientFor window
@@ -111,10 +108,9 @@ mapWin pc@(ParentChild newWin window) = do
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
-killed :: Members (States [Tiler, LocCache, Maybe (), Docks]) r
-       => Member GlobalX r
+killed :: Members (GlobalX ': States [Tiler, LocCache, Maybe (), Docks]) m
        => Window 
-       -> Sem r ()
+       -> m ()
 killed window = do
   -- Find the parent in the tree and kill it.
   parentM <- findParent window <$> get
@@ -131,10 +127,10 @@ killed window = do
   modify @Docks $ Docks . mfilter (/= window) . undock
 
 -- |A window is either dying slowly or has been minimized.
-unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe (), Docks]) r
-         => Members [GlobalX, Property] r
+unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe (), Docks]) m
+         => Members [GlobalX, Property] m
          => Window 
-         -> Sem r ()
+         -> m ()
 unmapWin window = do
   put $ Just ()
   -- We need to check if we expected the window to be unmapped. Any window
@@ -152,9 +148,9 @@ unmapWin window = do
 
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
-rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders] r
-           => Members (States [Tiler, Maybe (), Screens, ActiveScreen, [SubTiler]]) r
-           => Sem r ()
+rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders] m
+           => Members (States [Tiler, Maybe (), Screens, ActiveScreen, [SubTiler]]) m
+           => m ()
 rootChange = do
   -- Update the list of screens
   screenInfo <- input @[XineramaScreenInfo]
@@ -176,16 +172,16 @@ rootChange = do
     if notNullOf (at activeScreen) newScreens then activeScreen else fromJust $ headMay (IM.keys newScreens)
 
   -- Put all of the dead monitors into the minimized window stack
-  traverse_ ((fold . map (modify @[SubTiler] . (:)))) $ IM.difference oldScreens newScreens
+  traverse_ ((unwrapMonad . foldMap WrapMonad . map (modify @[SubTiler] . (:)))) $ IM.difference oldScreens newScreens
   put $ Just ()
   
 
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
-newFocus :: Members '[Input Screens, Property, Input Pointer, Log LogData] r
-         => Members (States [Tiler, Maybe (), ActiveScreen, Screens, Time]) r
+newFocus :: Members '[Input Screens, Property, Input Pointer, Log LogData] m
+         => Members (States [Tiler, Maybe (), ActiveScreen, Screens, Time]) m
          => Window
-         -> Sem r ()
+         -> m ()
 newFocus window = do
   -- Change our tree so the focused window is the one we're hovering over
   -- It will get focused next time we redraw
@@ -195,12 +191,12 @@ newFocus window = do
 
 
 -- |On key press, execute some actions
-keyDown :: Members '[Property, Executor] r
-       => Members (Inputs [Conf, Pointer, MouseButtons]) r
-       => Members (States [Tiler, Mode, KeyStatus, Maybe ()]) r
+keyDown :: Members '[Property, Executor] m
+       => Members (Inputs [Conf, Pointer, MouseButtons]) m
+       => Members (States [Tiler, Mode, KeyStatus, Maybe ()]) m
        => KeyCode
        -> EventType
-       -> Sem r [Action]
+       -> m [Action]
 keyDown keycode eventType
   | eventType == keyPress = do
     put $ Just ()
@@ -230,12 +226,12 @@ keyDown keycode eventType
   | otherwise = do
     put $ Just ()
     currentKS <- get @KeyStatus
-    let (newKS_, actions) = fold $ para doRelease currentKS
+    let (newKS_, actions) = (\(a, b) -> (unwrapMonad a, b)) $ foldMap (\(a, b) -> (WrapMonad a, b)) $ para doRelease currentKS
     newKS_
     return actions
-      where doRelease :: Member (State KeyStatus) r
-                      => KeyStatusF (KeyStatus, Maybe (Sem r (), [Action]))
-                      -> Maybe (Sem r (), [Action])
+      where doRelease :: State KeyStatus m
+                      => KeyStatusF (KeyStatus, Maybe (m (), [Action]))
+                      -> Maybe (m (), [Action])
             doRelease = \case
               NewF (_, otherActions) _ watchedKey _ ->
                 case otherActions of
@@ -253,15 +249,15 @@ keyDown keycode eventType
               DefaultF -> Nothing
 
 -- |When the user moves the mouse in resize mode, this events are triggered.
-motion :: Members '[Property] r
-       => Members (Inputs [Pointer, MouseButtons]) r
-       => Members (States [Tiler, MouseButtons, Maybe ()]) r
-       => Sem r ()
+motion :: Members '[Property] m
+       => Members (Inputs [Pointer, MouseButtons]) m
+       => Members (States [Tiler, OldMouseButtons, Maybe ()]) m
+       => m ()
 motion = do
   -- First, let's find the current screen and its dimensions.
   Rect _ _ screenW screenH <- gets @Tiler getScreens
   realButtonState <- input @MouseButtons
-  lastButtonState <- get @MouseButtons
+  OMB lastButtonState <- get @OldMouseButtons
   case (getButtonLoc realButtonState, getButtonLoc lastButtonState) of
     (Just (xNow, yNow), Just (xLast, yLast)) -> do
       let direction = case realButtonState of
@@ -271,7 +267,7 @@ motion = do
        in modify $ applyInput $ map $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
     (_, _) -> return ()
 
-  input @MouseButtons >>= put
+  input @MouseButtons >>= put . OMB
 
   put $ Just ()
 
@@ -321,10 +317,10 @@ changeSize mouseLoc screen (Many mh mods) =
 
 changeSize _ _ t = t
 
-makeFullscreen :: Members '[State Tiler, Property, State DockState, State (Maybe ()), Mover] r
+makeFullscreen :: Members '[State Tiler, Property, State DockState, State (Maybe ()), Mover] m
                => Window
                -> Int
-               -> Sem r ()
+               -> m ()
 makeFullscreen window isSet = do
   put $ Just ()
   -- Get the static parameters on Monitor and IC

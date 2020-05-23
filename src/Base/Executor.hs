@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ConstraintKinds #-}
@@ -11,39 +12,34 @@ module Base.Executor where
 
 import           Standard
 import qualified System.Environment as Env
-import           Polysemy
-import           Polysemy.State
-import           Polysemy.Input
 import           Graphics.X11.Xlib.Types
 import           System.Process
 import Config
 
 
 -- |Actions that modify the world outside of X11 go here
-data Executor m a where
+class Executor m where
   -- |Run a command
-  Execute :: Text -> Executor m ()
+  execute :: Text -> m ()
   -- |Toggle logging
-  ToggleLogs :: Executor m ()
+  toggleLogs :: m ()
   -- |Prints in a controlled way
-  ReloadConf :: Executor m ()
-makeSem ''Executor
+  reloadConf :: m ()
 
 -- |Do it in IO
-runExecutor :: Members [Embed IO, State Bool, State Conf, Input Display] r => Sem (Executor ': r) a -> Sem r a
-runExecutor = interpret $ \case
-  Execute (Text s) -> void . embed @IO $ spawnCommand s
+instance Members [MonadIO, State Bool, State Conf, Input Display] m => Executor m where
+  execute (Text s) = void . liftIO $ spawnCommand s
 
-  ToggleLogs -> do
+  toggleLogs = do
     shouldLog <- get @Bool
     unless shouldLog $
       -- Empty the last run of logging
-      embed @IO $ Standard.writeFile "/tmp/xest.log" ""
+      liftIO $ Standard.writeFile "/tmp/xest.log" ""
     modify not
 
-  ReloadConf -> do
+  reloadConf = do
     display <- input @Display
-    newConf <- embed @IO $ do
+    newConf <- liftIO $ do
       args <- map fromString <$> getArgs
       let displayNumber = fromMaybe "0" $ headMay args
 
