@@ -191,7 +191,7 @@ visualFIndex :: Int -> FocusedList a -> FocusedList a
 visualFIndex i fl@FL {focusOrder = fo } = visualIndex (fo !! i) fl
 
 findNeFocIndex :: FocusedList a -> Int
-findNeFocIndex FL {..} = visualOrder !! (head focusOrder)
+findNeFocIndex FL {..} = fromJust $ find (== head focusOrder) visualOrder
 
 makeFL :: NonEmpty a -> Int -> FocusedList a
 makeFL actualData focIndex = FL { visualOrder = vo

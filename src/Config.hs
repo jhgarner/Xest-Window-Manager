@@ -8,7 +8,7 @@
 
 module Config where
 
-import           Standard
+import           Standard hiding (input)
 import           Dhall
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Types

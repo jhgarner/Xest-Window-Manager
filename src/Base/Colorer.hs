@@ -6,12 +6,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE Strict #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Base.Colorer where
 
 import           Standard
-import           Polysemy
-import           Polysemy.Input
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Display
 import           Graphics.X11.Xlib.Color
@@ -19,29 +18,27 @@ import qualified SDL
 import qualified SDL.Font as Font
 
 -- |Handle any color stuff
-data Colorer m a where
-  GetColor :: Text -> Colorer m Color
-  ChangeColor :: SDL.Window -> (Int, Int, Int) -> Colorer m ()
-  DrawText :: SDL.Window -> Text -> Colorer m ()
-  BufferSwap :: SDL.Window -> Colorer m ()
-makeSem ''Colorer
+class Colorer m where
+  getColor :: Text -> m Color
+  changeColor :: SDL.Window -> (Int, Int, Int) -> m ()
+  drawText :: SDL.Window -> Text -> m ()
+  bufferSwap :: SDL.Window -> m ()
 
 -- |More IO
-runColorer :: Members '[Input Font.Font, Embed IO, Input Display] r => Sem (Colorer ': r) a -> Sem r a
-runColorer = (interpret $ \case
-  GetColor (Text color) -> do
+instance Members '[Input Font.Font, MonadIO, Input Display] m => Colorer m where
+  getColor (Text color) = do
     display <- input @Display
     let colorMap = defaultColormap display (defaultScreen display)
-    embed @IO $ fst <$> allocNamedColor display colorMap color
+    liftIO $ fst <$> allocNamedColor display colorMap color
 
-  ChangeColor w (h, s, v) -> do
-    winSurface <- embed @IO $ SDL.getWindowSurface w
-    embed @IO $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
+  changeColor w (h, s, v) = do
+    winSurface <- liftIO $ SDL.getWindowSurface w
+    liftIO $ SDL.surfaceFillRect winSurface Nothing $ SDL.V4 (fromIntegral h) (fromIntegral s) (fromIntegral v) 0
 
-  DrawText w s -> do
+  drawText w s = do
     font <- input @Font.Font
-    surface <- embed @IO $ Font.blended font (SDL.V4 0 0 0 0) s
-    winSurface <- embed @IO $ SDL.getWindowSurface w
-    void . embed @IO $ SDL.surfaceBlit surface Nothing winSurface Nothing
+    surface <- liftIO $ Font.blended font (SDL.V4 0 0 0 0) s
+    winSurface <- liftIO $ SDL.getWindowSurface w
+    void . liftIO $ SDL.surfaceBlit surface Nothing winSurface Nothing
 
-  BufferSwap w -> embed @IO $ SDL.updateWindowSurface w)
+  bufferSwap w = liftIO $ SDL.updateWindowSurface w

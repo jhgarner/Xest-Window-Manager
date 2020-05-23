@@ -1,3 +1,6 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
@@ -8,9 +11,6 @@
 module Base.Other where
 
 import           Standard
-import           Polysemy
-import           Polysemy.State
-import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xinerama
@@ -24,6 +24,8 @@ import           Foreign.C.String
 import Base.Helpers
 import Tiler.TilerTypes
 import System.Mem.Weak
+import Control.Monad.Trans
+import Control.Monad.Trans.Control 
 
 -- * Fake Inputs
 
@@ -34,70 +36,106 @@ import System.Mem.Weak
 -- point of view.
 
 -- |Gets the current button presses from the Xserver
-runGetButtons :: Members (Inputs [RootWindow, Display]) r 
-              => Member (Embed IO) r
-              => Sem (Input MouseButtons ': r) a -> Sem r a
-runGetButtons = runInputSem $ do
-  d <- input @Display
-  root <- input @RootWindow
-  embed @IO $ do 
-    (_, _, _, px, py, _, _, b) <- queryPointer d root
-    let xLoc = fromIntegral px
-    let yLoc = fromIntegral py
-
-    allowEvents d asyncPointer currentTime
-    return $ case b of
-            _ | b .&. button1Mask /= 0-> LeftButton (xLoc, yLoc)
-              | b .&. button3Mask /= 0-> RightButton (xLoc, yLoc)
-              | otherwise -> None
-
-
-runGetScreens :: Members [Input Display, Embed IO] r
-              => Sem (Input [XineramaScreenInfo] ': r) a -> Sem r a
-runGetScreens = interpret $ \case
-  Input -> do
+newtype FakeMouseButtons m a = FakeMouseButtons { runFakeMouseButtons :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO)
+instance MonadTrans FakeMouseButtons where
+  lift = FakeMouseButtons
+instance MonadTransControl FakeMouseButtons where
+  type instance StT FakeMouseButtons a = a
+  liftWith f = FakeMouseButtons $ f runFakeMouseButtons
+  restoreT = lift
+instance Members (MonadIO ': Inputs [RootWindow, Display]) m => Input MouseButtons (FakeMouseButtons m) where
+  input = do
     d <- input @Display
-    embed $ sync d False
-    embed $ join . toList <$> xineramaQueryScreens d
+    root <- input @RootWindow
+    liftIO $ do 
+      (_, _, _, px, py, _, _, b) <- queryPointer d root
+      let xLoc = fromIntegral px
+      let yLoc = fromIntegral py
+
+      allowEvents d asyncPointer currentTime
+      return $ case b of
+              _ | b .&. button1Mask /= 0-> LeftButton (xLoc, yLoc)
+                | b .&. button3Mask /= 0-> RightButton (xLoc, yLoc)
+                | otherwise -> None
 
 
+newtype FakeScreens m a = FakeScreens { runFakeScreens :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO)
+instance MonadTrans FakeScreens where
+  lift = FakeScreens
+instance MonadTransControl FakeScreens where
+  type instance StT FakeScreens a = a
+  liftWith f = FakeScreens $ f runFakeScreens
+  restoreT = lift
+  
+instance Members [Input Display, MonadIO] m => Input [XineramaScreenInfo] (FakeScreens m) where
+  input = FakeScreens $ do
+    d <- input @Display
+    liftIO $ sync d False
+    liftIO $ join . toList <$> xineramaQueryScreens d
+
+
+newtype FakeBorders m a = FakeBorders { runFakeBorders :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO)
+instance MonadTrans FakeBorders where
+  lift = FakeBorders
+instance MonadTransControl FakeBorders where
+  type instance StT FakeBorders a = a
+  liftWith f = FakeBorders $ f runFakeBorders
+  restoreT = lift
 newtype NewBorders = NewBorders Borders
 newtype XestBorders = XestBorders [Window]
-runNewBorders :: Member (Embed IO) r
-              => Sem (Input NewBorders ': r) a -> Sem r a
-runNewBorders = runInputSem $ do
-  windows <- embed @IO $ replicateM 4 $ SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
-  -- TODO this way of handling borders is a little sketchy...
-  let [lWin, dWin, uWin, rWin] = windows
-  let nb = NewBorders (lWin, dWin, uWin, rWin)
-  embed @IO $ addFinalizer nb $ forM_ windows SDL.destroyWindow >> putStrLn "Finalized"
-  return nb
+instance MonadIO m => Input NewBorders (FakeBorders m) where
+  input = do
+    windows <- liftIO $ replicateM 4 $ SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
+    -- TODO this way of handling borders is a little sketchy...
+    let [lWin, dWin, uWin, rWin] = windows
+    let nb = NewBorders (lWin, dWin, uWin, rWin)
+    liftIO $ addFinalizer nb $ forM_ windows SDL.destroyWindow >> putStrLn "Finalized"
+    return nb
 
+
+newtype FakePointer m a = FakePointer { runFakePointer :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO)
+instance MonadTrans FakePointer where
+  lift = FakePointer
+instance MonadTransControl FakePointer where
+  type instance StT FakePointer a = a
+  liftWith f = FakePointer $ f runFakePointer
+  restoreT = lift
 
 -- |Gets the pointer location
-runGetPointer :: Members (Inputs [RootWindow, Display]) r 
-              => Member (Embed IO) r
-              => Sem (Input (Int32, Int32) ': r) a -> Sem r a
-runGetPointer = runInputSem $ input >>= \d -> do
-  root <- input @RootWindow
-  (_, _, _, px, py, _, _, _) <- embed $ queryPointer d root
-  return (fromIntegral px, fromIntegral py)
+instance Members (MonadIO ': Inputs [RootWindow, Display]) m => Input (Int32, Int32) (FakePointer m) where
+  input = do
+    d <- input
+    root <- input @RootWindow
+    (_, _, _, px, py, _, _, _) <- liftIO $ queryPointer d root
+    return (fromIntegral px, fromIntegral py)
 
 screenError :: a
 screenError = error "Tried to switch to a screen that doesn't exist"
 
-indexedState
-  :: Members [State ActiveScreen, State Screens] r
-  => Sem (State Tiler : r) a
-  -> Sem r a
-indexedState = interpret $ \case
-  Get -> do
+
+newtype FakeTiler m a = FakeTiler { runFakeTiler :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO)
+instance MonadTrans FakeTiler where
+  lift = FakeTiler
+instance MonadTransControl FakeTiler where
+  type instance StT FakeTiler a = a
+  liftWith f = FakeTiler $ f runFakeTiler
+  restoreT = lift
+
+instance Members [State ActiveScreen, State Screens] m => State Tiler (FakeTiler m) where
+  get = do
     activeScreen <- get @ActiveScreen
     fromMaybe screenError . view (at activeScreen) <$> get @Screens
-  Put p -> do
+  put p = do
     activeScreen <- get @ActiveScreen
     modify @Screens $ set (at activeScreen) $ Just p
 
+newtype OldMouseButtons = OMB MouseButtons
+  deriving Show
 data MouseButtons = LeftButton (Int, Int) | RightButton (Int, Int) | None
   deriving Show
 getButtonLoc :: MouseButtons -> Maybe (Int, Int)

@@ -1,6 +1,12 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -43,7 +49,9 @@ module Standard
     ) where
 
 import BasePrelude as All hiding (gunfold, log, tail, head, init, last, fmap, map, show, lazy, arr, uncons, index, String, error, left, right, appendFile, getContents, getLine, interact, putStrLn, putStr, readFile, writeFile, filter, (!!), unlines)
+import Data.IORef
 import qualified BasePrelude
+import Base.Effects as All
 import Data.Text as All (Text, unlines)
 import Control.DeepSeq as All
 import Data.Text.IO as All
@@ -51,28 +59,31 @@ import Data.List.NonEmpty as All (filter, nonEmpty, (!!), (<|), tail, init)
 -- Hiding Text because I define it below with a Complete pragma
 import Data.Text.Lens as All hiding (Text)
 import qualified BasePrelude as BP (fmap)
-import           Colog.Polysemy as All
 import           Data.IntMap.Strict as All (IntMap)
 import           Data.Map.Strict as All (Map)
 import           Data.Set as All (Set)
 import GHC.Stack
 import Control.Monad.Zip as All
 
-import Polysemy.State
-import Polysemy
 import Control.Comonad.Cofree as All (Cofree)
 import qualified Control.Comonad.Cofree as CC (Cofree((:<)))
 import Control.Comonad as All hiding (fmap)
 import qualified Control.Comonad.Trans.Cofree as C hiding (Cofree)
 import Data.Functor.Foldable as All hiding (fold, unfold, embed)
-import Data.Kind (Type)
+import Data.Kind (Type, Constraint)
 import Data.Functor.Foldable.TH as All
 import Data.Bifunctor.TH
 import Control.Monad.Loops as All (untilM_, iterateWhile)
 import Control.Lens as All hiding (para, none, (<|))
 import Data.Functor.Bind as All (Bind)
+import Control.Monad.Reader
+import GHC.TypeLits hiding (Text)
+import Control.Monad.State.Strict (StateT(runStateT))
 
-
+-- instance 
+-- runInputIO :: IO i 
+-- instance MonadIO newM => Input (IO i) (MonadIO) newM i m a where
+--   reduce ioAction m = liftIO ioAction >>
 
 -- TODO I can probably split out a lot of these functions into other places...
 
@@ -186,7 +197,7 @@ journey = cata step
 -- wanted a version of mapFold which used Polysemy instead of the built in
 -- State. TODO Either remove this or add better docs.
 mapFold :: Traversable t => (acc -> a -> (acc, b)) -> acc -> t a -> t b
-mapFold f i ta = snd . run $ runState i $ traverse (\a -> Polysemy.State.get >>= \acc -> let (newAcc, newA) = f acc a in put newAcc >> return newA) ta
+mapFold f i ta = fst $ runIdentity $ flip runStateT i $ traverse (\a -> get >>= \acc -> let (newAcc, newA) = f acc a in put newAcc >> return newA) ta
 
 -- |Like fst and snd but for the third element.
 trd :: (a, b, c) -> c
@@ -239,3 +250,9 @@ error (Text s) = BasePrelude.error s
 pattern Text :: BasePrelude.String -> Text
 pattern Text a <- (view _Text -> a) where
   Text a = review _Text a
+
+instance (Monad m, Semigroup a) => Semigroup (WrappedMonad m a) where
+  (WrapMonad a) <> (WrapMonad b) = WrapMonad $ liftM2 (<>) a b
+  
+instance (Monad m, Monoid a) => Monoid (WrappedMonad m a) where
+  mempty = return mempty

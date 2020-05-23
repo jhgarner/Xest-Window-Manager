@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ConstraintKinds #-}
@@ -10,9 +11,6 @@
 module Base.Global where
 
 import           Standard
-import           Polysemy
-import           Polysemy.State
-import           Polysemy.Input
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Display
@@ -29,18 +27,17 @@ import Tiler.TilerTypes
 
 -- |Anything that doesn't fit somewhere else. This should probably be
 -- split up at some point.
-data GlobalX m a where
-   GetTree :: GlobalX m [Window]
-   NewWindow :: Window -> GlobalX m Window
-   MoveToRoot :: Window -> GlobalX m ()
-   ClearQueue :: GlobalX m ()
-   GetXEvent :: GlobalX m Event
-   CheckXEvent :: GlobalX m Int
+class GlobalX m where
+   getTree :: m [Window]
+   newWindow :: Window -> m Window
+   moveToRoot :: Window -> m ()
+   clearQueue :: m ()
+   getXEvent :: m Event
+   checkXEvent :: m Int
    -- |Bool True == kill softly. False == kill hard
-   Kill :: Bool -> Window -> GlobalX m (Maybe Window)
+   kill :: Bool -> Window -> m (Maybe Window)
    -- If you look into the void, you can find anything
-   Exit :: GlobalX m Void
-makeSem ''GlobalX
+   exit :: m Void
 
 -- |Filter out events we don't care about
 eventFilter :: RootWindow -> Event -> Bool
@@ -50,14 +47,11 @@ eventFilter _ CrossingEvent {ev_detail=detail} = detail /= 2
 eventFilter _ _ = True
 
 -- |IO
-runGlobalX
-  :: (Members [Input RootWindow, Input Conf, State Bool, State Tiler, Property] r)
-  => Interpret GlobalX r a
-runGlobalX = interpret $ \case
-  GetTree -> do
+instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bool, State Tiler, Property] m => GlobalX m where
+  getTree = do
     display <- input @Display
     root    <- input @RootWindow
-    embed @IO $ alloca
+    liftIO $ alloca
       (\numChildrenPtr -> alloca
         (\childrenListPtr -> do
           uselessPtr <- alloca $ \x -> return x
@@ -72,40 +66,40 @@ runGlobalX = interpret $ \case
         )
       )
 
-  NewWindow w -> do
+  newWindow w = do
     d         <- input @Display
     rootWin       <- input @RootWindow
     let defScr = defaultScreen d
     wm_state <- getAtom False "WM_STATE"
     putProperty 32 wm_state w wm_state [1, fromIntegral none]
-    xwin <- embed $ createSimpleWindow d rootWin
+    xwin <- liftIO $ createSimpleWindow d rootWin
       0 0 400 200 0
       (blackPixel d defScr)
       (blackPixel d defScr)
-    embed $ reparentWindow d w xwin 0 0
+    liftIO $ reparentWindow d w xwin 0 0
     return xwin
 
-  MoveToRoot w -> do
+  moveToRoot w = do
     d         <- input @Display
     rootWin       <- input @RootWindow
-    embed $ reparentWindow d w rootWin 0 0
-  ClearQueue -> do
+    liftIO $ reparentWindow d w rootWin 0 0
+  clearQueue = do
     d <- input @Display
-    embed $ sync d True
+    liftIO $ sync d True
 
-  GetXEvent -> do
+  getXEvent = do
     d <- input
     root <- input
-    embed @IO $
+    liftIO $
       iterateWhile (not . eventFilter root) $
         allocaXEvent $ \p -> do
           nextEvent d p
           getEvent p 
 
-  CheckXEvent -> do
+  checkXEvent = do
     d <- input 
     root <- input
-    embed @IO $ do
+    liftIO $ do
       -- Sync ourselves with the server
       sync d False
 
@@ -136,7 +130,7 @@ runGlobalX = interpret $ \case
           -- If P ended at -1, return True because the queue wasn't empty
           readIORef pRef
 
-  Kill isSoft w -> input >>= \d -> embed @IO $ do
+  kill isSoft w = input >>= \d -> liftIO $ do
     deleteName  <- internAtom d "WM_DELETE_WINDOW" False
     protocols <- internAtom d "WM_PROTOCOLS" True
     supportedProtocols <- getWMProtocols d w
@@ -152,5 +146,5 @@ runGlobalX = interpret $ \case
       else if isSoft then destroyWindow d w >> Standard.putStrLn "Deleting using destroy window" >> return (Just w)
       else killClient d w >> Standard.putStrLn "Deleting using killClient" >> return (Just w)
 
-  Exit -> embed exitSuccess
+  exit = liftIO exitSuccess
 
