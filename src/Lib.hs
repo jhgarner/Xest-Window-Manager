@@ -176,18 +176,18 @@ mainLoop = do
   -- A handful of them have slightly more complicated logic.
   flip runReaderT currentScreen $ getXEvent >>= (\x -> log (LD "Event" $ show x) >> return x) >>= \case
     -- Called when a new window is created by someone
-    MapRequestEvent {..} -> do
-      -- First, check if it's a dock which should be unmanaged
-      nwwtd <- getAtom False "_NET_WM_WINDOW_TYPE_DOCK"
-      nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
-      windowType <- getProperty 32 nwwt ev_window
-      if elem nwwtd windowType
-        then
-          addUM ev_window >> put (Just ())
-        else do
-          rootTiler <- get @Tiler
-          unless (findWindow ev_window rootTiler) $
-            reparentWin ev_window >>= mapWin
+    -- MapRequestEvent {..} -> do
+    --   -- First, check if it's a dock which should be unmanaged
+    --   nwwtd <- getAtom False "_NET_WM_WINDOW_TYPE_DOCK"
+    --   nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
+    --   windowType <- getProperty 32 nwwt ev_window
+    --   if elem nwwtd windowType
+    --     then
+    --       addUM ev_window >> put (Just ())
+    --     else do
+    --       rootTiler <- get @Tiler
+    --       unless (findWindow ev_window rootTiler) $
+    --         reparentWin ev_window >>= mapWin
         
     -- Called when a window actually dies.
     DestroyWindowEvent {..} -> killed ev_window
@@ -199,77 +199,77 @@ mainLoop = do
     cre@ConfigureRequestEvent {} -> configureWin cre
     -- This is usually called when a monitor is connected or disconnected.
     ConfigureEvent {} -> rootChange
-    -- The mouse moved from one window to another.
-    CrossingEvent {..} -> do
-      put ev_time
-      root <- input @RootWindow
-      -- Why the if statement? Well we want to focus the root window
-      -- if no other windows are currently focused.
-      if | ev_event_type == enterNotify -> newFocus ev_window
-         | ev_window == root -> newFocus root
-         | otherwise -> return ()
-    -- Button in this case means mouse button. Used to trigger click to focus.
-    ButtonEvent {..} ->
-      put ev_time >> newFocus ev_window
-    -- The pointer moved and we probably want to resize something.
-    MotionEvent {..} -> motion
-    -- A press of the keyboard.
-    KeyEvent {..} -> put ev_time >> keyDown ev_keycode ev_event_type >>= unwrapMonad . foldMap (WrapMonad . executeActions)
-    -- This usually means the keyboard layout changed.
-    MappingNotifyEvent {} -> reloadConf
-    -- Some other window sent us a message. Currently, we only care if they
-    -- ask to be fullscreen.
-    ClientMessageEvent {..} -> do
-      wm_state <- getAtom False "_NET_WM_STATE"
-      full <- fromIntegral <$> getAtom False "_NET_WM_STATE_FULLSCREEN"
-      let isSet = maybe 0 fromIntegral $ headMay ev_data
-      messageType <- fromAtom ev_message_type
+    -- -- The mouse moved from one window to another.
+    -- CrossingEvent {..} -> do
+    --   put ev_time
+    --   root <- input @RootWindow
+    --   -- Why the if statement? Well we want to focus the root window
+    --   -- if no other windows are currently focused.
+    --   if | ev_event_type == enterNotify -> newFocus ev_window
+    --      | ev_window == root -> newFocus root
+    --      | otherwise -> return ()
+    -- -- Button in this case means mouse button. Used to trigger click to focus.
+    -- ButtonEvent {..} ->
+    --   put ev_time >> newFocus ev_window
+    -- -- The pointer moved and we probably want to resize something.
+    -- MotionEvent {..} -> motion
+    -- -- A press of the keyboard.
+    -- KeyEvent {..} -> put ev_time >> keyDown ev_keycode ev_event_type >>= unwrapMonad . foldMap (WrapMonad . executeActions)
+    -- -- This usually means the keyboard layout changed.
+    -- MappingNotifyEvent {} -> reloadConf
+    -- -- Some other window sent us a message. Currently, we only care if they
+    -- -- ask to be fullscreen.
+    -- ClientMessageEvent {..} -> do
+    --   wm_state <- getAtom False "_NET_WM_STATE"
+    --   full <- fromIntegral <$> getAtom False "_NET_WM_STATE_FULLSCREEN"
+    --   let isSet = maybe 0 fromIntegral $ headMay ev_data
+    --   messageType <- fromAtom ev_message_type
 
-      -- messageC <- traverse (fromAtom . fromIntegral) ev_data
-      log $ LD "ClientMessage" $ messageType <> "\n\t[MessageData]" <> show ev_data
-      log $ LD "MessageData" $ show ev_data
+    --   -- messageC <- traverse (fromAtom . fromIntegral) ev_data
+    --   log $ LD "ClientMessage" $ messageType <> "\n\t[MessageData]" <> show ev_data
+    --   log $ LD "MessageData" $ show ev_data
 
-      when (wm_state == ev_message_type && full `elem` ev_data) $
-        makeFullscreen ev_window isSet
+    --   when (wm_state == ev_message_type && full `elem` ev_data) $
+    --     makeFullscreen ev_window isSet
 
 
-    -- 21 == reparent event. If a window decides to reparent itself,
-    -- it's practically unmapped and dead.
-    AnyEvent {ev_event_type = 21, ev_window = window} -> killed window
+    -- -- 21 == reparent event. If a window decides to reparent itself,
+    -- -- it's practically unmapped and dead.
+    -- AnyEvent {ev_event_type = 21, ev_window = window} -> killed window
 
-    _ -> void $ log $ LD "Event" "Got unknown event"
+    -- _ -> void $ log $ LD "Event" "Got unknown event"
 
-  where
+  -- where
     -- Here we have executors for the various actions a user might
     -- have in their config. These go to Actions/Actions.hs
-    executeActions :: Action -> _ ()
-    executeActions action = log (LD "Action" $ show action) >> case action of
-      RunCommand command -> execute command
-      ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
-      HideWindow wName -> getWindowByClass wName >>= mapM_ minimize
-      ZoomInInput -> zoomInInput
-      ZoomOutInput -> zoomOutInput
-      ZoomInMonitor -> zoomInMonitor
-      ZoomOutMonitor -> zoomOutMonitor
-      ZoomMonitorToInput -> zoomMonitorToInput
-      ZoomInputToMonitor -> zoomInputToMonitor
-      ChangeModeTo mode -> changeModeTo mode
-      Move dir -> changeMany $ moveDir dir
-      ChangeNamed (Text name) -> maybe (return ()) (changeMany . changeIndex) $ readMaybe name
-      PopTiler -> popTiler
-      PushTiler -> pushTiler
-      Insert -> insertTiler
-      MoveToFront -> changeMany moveToFront
-      MakeEmpty -> makeEmptySpot
-      KillActive -> killActive
-      ExitNow -> absurd <$> exit
-      ToggleLogging -> toggleLogs
-      ChangeToHorizontal -> changeMany toHoriz
-      ChangeToFloating -> changeMany toFloating
-      ChangeToTwoCols -> changeMany toTwoCols
-      SetRotate -> changeMods Rotate
-      SetFull -> changeMods Full
-      SetNoMod -> changeMods NoMods
-      ToggleDocks -> toggleDocks
+    -- executeActions :: Action -> _ ()
+    -- executeActions action = log (LD "Action" $ show action) >> case action of
+    --   RunCommand command -> execute command
+    --   ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
+    --   HideWindow wName -> getWindowByClass wName >>= mapM_ minimize
+    --   ZoomInInput -> zoomInInput
+    --   ZoomOutInput -> zoomOutInput
+    --   ZoomInMonitor -> zoomInMonitor
+    --   ZoomOutMonitor -> zoomOutMonitor
+    --   ZoomMonitorToInput -> zoomMonitorToInput
+    --   ZoomInputToMonitor -> zoomInputToMonitor
+    --   ChangeModeTo mode -> changeModeTo mode
+    --   Move dir -> changeMany $ moveDir dir
+    --   ChangeNamed (Text name) -> maybe (return ()) (changeMany . changeIndex) $ readMaybe name
+    --   PopTiler -> popTiler
+    --   PushTiler -> pushTiler
+    --   Insert -> insertTiler
+    --   MoveToFront -> changeMany moveToFront
+    --   MakeEmpty -> makeEmptySpot
+    --   KillActive -> killActive
+    --   ExitNow -> absurd <$> exit
+    --   ToggleLogging -> toggleLogs
+    --   ChangeToHorizontal -> changeMany toHoriz
+    --   ChangeToFloating -> changeMany toFloating
+    --   ChangeToTwoCols -> changeMany toTwoCols
+    --   SetRotate -> changeMods Rotate
+    --   SetFull -> changeMods Full
+    --   SetNoMod -> changeMods NoMods
+    --   ToggleDocks -> toggleDocks
       
 

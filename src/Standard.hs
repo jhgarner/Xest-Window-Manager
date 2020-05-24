@@ -74,7 +74,7 @@ import Data.Kind (Type, Constraint)
 import Data.Functor.Foldable.TH as All
 import Data.Bifunctor.TH
 import Control.Monad.Loops as All (untilM_, iterateWhile)
-import Control.Lens as All hiding (para, none, (<|))
+import Control.Lens as All hiding (para, none, (<|), Contains)
 import Data.Functor.Bind as All (Bind)
 import Control.Monad.Reader
 import GHC.TypeLits hiding (Text)

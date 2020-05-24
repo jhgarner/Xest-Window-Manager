@@ -16,16 +16,9 @@ import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Types
 import GHC.TypeLits (Symbol)
 import Control.Monad.State.Strict (runStateT, StateT)
+import Control.Monad.Reader (ReaderT(runReaderT))
 
 
--- infixr 5 :::
--- data HList a where
---     HNil  :: HList '[]
---     (:::) :: a -> HList (b :: [Type]) -> HList (a ': b)
-
-type family TypeMap (f :: a -> b) (xs :: [a]) where
-    TypeMap _ '[]       = '[]
-    TypeMap f (x ': xs) = f x ': TypeMap f xs
 
 type family (++) (a :: [t]) (b :: [t]) where
   (++) '[] b = b
@@ -68,8 +61,16 @@ type States (a :: [Type]) = TypeMap State a
 -- runStates :: HList t -> Sem ((States t) ++ r) a -> Sem r a
 -- runStates = runSeveral evalState
 
-runStateLogged :: forall (name :: Symbol) s a m. (Members '[Log LogData, MonadIO] m) => s -> LoggedState name (StateT s m) a -> m a
-runStateLogged s = map fst . flip runStateT s . runLoggedState
+-- runStateLogged :: forall (name :: Symbol) s a m. (Members '[Log LogData, MonadIO] m) => s -> LoggedState name (ReaderT (IORef s) m) a -> m a
+-- runStateLogged s oldM = do
+--   r <- liftIO $ newIORef s
+--   flip runReaderT r $ runLoggedState oldM
+  
+-- runStateLogged :: forall s a m. (State s m) => s -> m a
+-- runStateLogged = dropAReads
+  -- r <- liftIO $ newIORef s
+  -- flip runReaderT r $ runLoggedState oldM
+          
 
 
 -- |Pretty much everything needs effects when being run. This type alias makes

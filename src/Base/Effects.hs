@@ -22,9 +22,45 @@ import Data.Text.IO (appendFile)
 import Data.Time
 import Data.Time.Format.ISO8601 (iso8601Format, formatShow)
 import Control.Monad.State.Strict (MonadState)
-import GHC.TypeLits (KnownSymbol, symbolVal, Symbol)
+import GHC.TypeLits
 import Data.Proxy (Proxy(Proxy))
 
+type family TypeMap (f :: a -> b) (xs :: [a]) where
+    TypeMap _ '[]       = '[]
+    TypeMap f (x ': xs) = f x ': TypeMap f xs
+
+
+infixr 5 :::
+data HList a where
+    HNil  :: HList '[]
+    (:::) :: a -> HList (b :: [Type]) -> HList (a ': b)
+
+travHList :: (forall a. a -> IO (IORef a)) -> HList ls -> IO (HList (TypeMap IORef ls))
+travHList _ HNil = return HNil
+travHList f (a ::: as) = (:::) <$> f a <*> travHList f as
+
+newtype Reads (ls :: [Type]) m a = Reads { runReads :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO)
+instance MonadTrans (Reads ls) where
+  lift = Reads
+instance MonadTransControl (Reads ls) where
+  type instance StT (Reads ls) a = a
+  liftWith f = Reads $ f runReads
+  restoreT = lift
+
+data TNum = Z | S TNum
+
+type family Where a (ls :: [Type]) where
+  Where a (a ': _) = Z
+  Where a (_ ': as) = S (Where a as)
+
+class Contains a (n :: TNum) (ls :: [Type]) where
+  pullOut :: Proxy n -> HList ls -> a
+
+instance Contains a Z (a ': as) where
+  pullOut _ (a ::: _) = a
+instance Contains b n as => Contains b (S n) (a ': as) where
+  pullOut _ (_ ::: as) = pullOut (Proxy @n) as
 
 type family Members (effects :: [(Type -> Type) -> Constraint]) (m :: Type -> Type) :: Constraint where
   Members '[] m = Monad m
@@ -68,6 +104,30 @@ instance Monad m => State s (S.StateT s m) where
 instance (MonadIO m, Monad m) => State s (ReaderT (IORef s) m) where
   put o = ask >>= \a -> liftIO $ writeIORef a o
   get = ask >>= \a -> liftIO $ readIORef a
+  
+-- instance (MonadIO m, Monad m) => State s (ReaderT (HList (IORef s ': ls)) m) where
+--   put o = ask >>= \(a ::: _) -> liftIO $ writeIORef a o
+--   get = ask >>= \(a ::: _) -> liftIO $ readIORef a
+
+-- instance {-# OVERLAPPABLE #-} (MonadIO m, Monad m, State s (ReaderT (HList ls) m)) => State s (ReaderT (HList (l ': ls)) m) where
+--   put o = ask >>= \(_ ::: ls) -> runReaderT (put o) ls
+--   get = ask >>= \(_ ::: ls) -> runReaderT get ls
+
+-- instance (MonadIO m, Monad m, State s m) => State s (ReaderT (HList '[]) m) where
+--   get = lift get
+--   put = lift . put
+
+instance (Monad m, MonadIO m, Contains (IORef s) (Where (IORef s) ls) ls) => State s (Reads (s ': as) (ReaderT (HList ls) m)) where
+  get = lift $ ask >>= \hls -> liftIO $ readIORef $ pullOut (Proxy @(Where (IORef s) ls)) hls
+  put newA = lift $ ask >>= \hls -> liftIO $  writeIORef (pullOut (Proxy @(Where (IORef s) ls)) hls) newA
+  
+instance {-# OVERLAPPABLE #-} (Monad m, State s (Reads as (ReaderT (HList ls) m))) => State s (Reads (a ': as) (ReaderT (HList ls) m)) where
+  get = Reads $ runReads @as $ get
+  put newA = Reads $ runReads @as $ put newA
+
+dropAReads :: Reads (s ': as) m a -> Reads as m a
+dropAReads = Reads . runReads
+
 
 instance {-# OVERLAPPABLE #-} (MonadTransControl t, State s m, Monad m, Monad (t m)) => State s (t m) where
   get = lift get

@@ -70,7 +70,7 @@ library:
   - -Wno-missing-local-signatures
   - -Wno-monomorphism-restriction
   - -Wno-missing-export-lists
-  - -Wno-partial-type-signatures
+  # - -Wno-partial-type-signatures
   - -Wno-missing-deriving-strategies
   - -j
   - +RTS
