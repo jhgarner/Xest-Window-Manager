@@ -4,7 +4,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE Strict #-}
 
 
 module Base.Effects where
@@ -74,7 +73,9 @@ instance {-# OVERLAPPABLE #-} (MonadTransControl t, State s m, Monad m, Monad (t
   put = lift . put
 
 modify :: State s m => (s -> s) -> m ()
-modify f = put . f =<< get
+modify f = do
+  s' <- get
+  put $! f s'
 
 gets :: State s m => (s -> a) -> m a
 gets f = f <$> get
