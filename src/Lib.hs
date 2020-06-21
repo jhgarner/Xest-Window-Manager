@@ -43,8 +43,9 @@ startWM = do
   -- We grab it based on the arguments passed to Xest.
   -- By default we pick 1 since that seems to be what GDM offers most
   -- of the time. If you launch it with startx, you probably want 0.
+  displayEnv <- Text . fromJust . tailMay <$> Env.getEnv "DISPLAY"
   args <- map Text <$> getArgs
-  let displayNumber = fromMaybe "1" $ headMay args
+  let displayNumber = fromMaybe displayEnv $ headMay args
   display <- openDisplay . view _Text $ ":" <> displayNumber
 
   -- Read the config file from the user's home directory.
@@ -157,7 +158,6 @@ startWM = do
 -- find a better way to do this.
 mainLoop :: _ ()
 mainLoop = do
-  liftIO $ print "IN MAIN LOOP"
   -- These debug lines have saved me countless times.
   log $ LD "Loop" "\n\n========================"
 
@@ -271,5 +271,3 @@ mainLoop = do
       SetFull -> changeMods Full
       SetNoMod -> changeMods NoMods
       ToggleDocks -> toggleDocks
-      
-

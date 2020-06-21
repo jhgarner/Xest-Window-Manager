@@ -24,9 +24,6 @@ module Base.DoAll
 where
 
 import           Standard
--- import           Control.Monad.State
--- import           Polysemy.State
--- import           Polysemy.Input
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Types
@@ -47,15 +44,14 @@ import           Tiler.TilerTypes
 import           Tiler.ParentChild
 import           Config
 import           Actions.ActionTypes
-import           Colog.Core
 import qualified SDL.Font as Font
-import Data.Time
-import Data.Time.Format.ISO8601
 import Control.Monad.State.Strict (runStateT, StateT)
 import Control.Monad.Reader (ReaderT(runReaderT))
+import Graphics.X11.Xinerama (XineramaScreenInfo)
 
 
 type LostWindow = Map Window [ParentChild]
+
 
 -- Want to do everything in IO? Use this!
 doAll

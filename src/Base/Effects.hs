@@ -13,7 +13,6 @@ import Data.IORef
 import Control.Monad.Reader
 import Control.DeepSeq
 import qualified Control.Monad.State.Strict as S
-import Control.Monad.Except
 import Control.Monad.Trans.Control
 import Data.Kind (Constraint, Type)
 import Data.Text
@@ -24,6 +23,8 @@ import Control.Monad.State.Strict (MonadState)
 import GHC.TypeLits (KnownSymbol, symbolVal, Symbol)
 import Data.Proxy (Proxy(Proxy))
 
+-- This module, and the others in Base, implement a Tagless final interface.
+-- Unfortunately, the compiler really hates this unless I compilet with -O0
 
 type family Members (effects :: [(Type -> Type) -> Constraint]) (m :: Type -> Type) :: Constraint where
   Members '[] m = Monad m

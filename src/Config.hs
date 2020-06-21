@@ -57,11 +57,11 @@ data KeyTrigger a = KeyTrigger { key     :: a
 -- | A simple function to open a config file and parse it.
 readConfig :: Display -> Text -> IO Conf
 readConfig display fileName = do
-  x <- detailed $ input (autoWith $ defaultInterpretOptions {singletonConstructors = Bare}) fileName
+  x <- detailed $ input (genericAutoWith $ defaultInterpretOptions {singletonConstructors = Bare}) fileName
   confToType display x False
 
 -- | Reloads an existing config
 reloadConfig :: Display -> Text -> IO Conf
 reloadConfig display fileName = do
-  x <- detailed $ input (autoWith $ defaultInterpretOptions {singletonConstructors = Bare}) fileName
+  x <- detailed $ input (genericAutoWith $ defaultInterpretOptions {singletonConstructors = Bare}) fileName
   confToType display x True

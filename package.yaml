@@ -41,16 +41,11 @@ dependencies:
 - vector-sized
 - sdl2
 - sdl2-ttf
-# - polysemy
 - deepseq
 - mtl
-# - polysemy-plugin
-# - polysemy-zoo
 - template-haskell
 - bifunctors
 - monad-loops
-- co-log-core
-# - co-log-polysemy
 - lens
 - time
 - semigroupoids
@@ -78,15 +73,15 @@ library:
   - -n2m
   - -RTS
   # - -fplugin=Polysemy.Plugin
-  - -O2
+  # - -O0
   # - -flate-specialise
   # - -fspecialise-aggressively
 
   default-extensions:
     - DataKinds
-    - Strict
+    # - Strict
     - FlexibleInstances
-    - StrictData
+    # - StrictData
     - FlexibleContexts
     - GADTs
     - LambdaCase
