@@ -48,6 +48,9 @@ dependencies:
 - monad-loops
 - lens
 - time
+- capability
+- transformers
+- generic-lens
 - semigroupoids
 
 library:
@@ -73,9 +76,10 @@ library:
   - -n2m
   - -RTS
   # - -fplugin=Polysemy.Plugin
-  # - -O0
-  # - -flate-specialise
-  # - -fspecialise-aggressively
+  # - -O1
+  - -flate-specialise
+  - -fexpose-all-unfoldings
+  - -fspecialise-aggressively
 
   default-extensions:
     - DataKinds

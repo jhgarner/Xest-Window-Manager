@@ -34,7 +34,7 @@ instance Members [MonadIO, State Bool, State Conf, Input Display] m => Executor 
     unless shouldLog $
       -- Empty the last run of logging
       liftIO $ Standard.writeFile "/tmp/xest.log" ""
-    modify not
+    modify @Bool not
 
   reloadConf = do
     display <- input @Display
@@ -47,4 +47,4 @@ instance Members [MonadIO, State Bool, State Conf, Input Display] m => Executor 
       if displayNumber == "0" || displayNumber == "1"
           then reloadConfig display $ homeDir <> "/.config/xest/config.dhall"
           else reloadConfig display $ homeDir <> "/.config/xest/config." <> displayNumber <> ".dhall"
-    put newConf
+    put @Conf newConf

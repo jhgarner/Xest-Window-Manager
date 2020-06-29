@@ -1,0 +1,184 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.1.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: dd34dd1a6e86b885abe7d2c6135aff812ff4d7cc8d93bd944ba0927549adcb51
+
+name:           xest
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/neXtWM#readme>
+homepage:       https://github.com/githubuser/neXtWM#readme
+bug-reports:    https://github.com/githubuser/neXtWM/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/neXtWM
+
+library
+  exposed-modules:
+      Actions.Actions
+      Actions.ActionTypes
+      Base.Colorer
+      Base.DoAll
+      Base.Effects
+      Base.EventFlags
+      Base.Executor
+      Base.Global
+      Base.Helpers
+      Base.Minimizer
+      Base.Mover
+      Base.Other
+      Base.Property
+      Base.Unmanaged
+      Config
+      Core
+      FocusList
+      Lib
+      Standard
+      TH
+      Tiler.ManyHelpers
+      Tiler.ParentChild
+      Tiler.Sized
+      Tiler.Tiler
+      Tiler.TilerTypes
+      Tiler.TreeCombo
+      Tiler.WithRect
+      XEvents
+  other-modules:
+      Paths_xest
+  hs-source-dirs:
+      src
+  default-extensions: DataKinds FlexibleInstances FlexibleContexts GADTs LambdaCase PolyKinds RankNTypes ScopedTypeVariables TypeApplications TypeOperators TypeFamilies NoImplicitPrelude BlockArguments DeriveFunctor DeriveFoldable DeriveTraversable DeriveGeneric DerivingStrategies
+  ghc-options: -Weverything -Wno-implicit-prelude -Wno-orphans -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-missing-export-lists -Wno-partial-type-signatures -Wno-missing-deriving-strategies -j +RTS -A128m -n2m -RTS -flate-specialise -fexpose-all-unfoldings -fspecialise-aggressively
+  build-depends:
+      QuickCheck
+    , X11
+    , base >=4.7 && <5
+    , base-prelude
+    , bifunctors
+    , capability
+    , chunked-data
+    , comonad
+    , containers
+    , deepseq
+    , deriving-compat
+    , dhall
+    , free
+    , generic-arbitrary
+    , generic-lens
+    , lens
+    , monad-control
+    , monad-loops
+    , mtl
+    , process
+    , quickcheck-instances
+    , recursion-schemes
+    , sdl2
+    , sdl2-ttf
+    , semigroupoids
+    , template-haskell
+    , text
+    , text-show
+    , time
+    , transformers
+    , vector
+    , vector-sized
+  default-language: Haskell2010
+
+executable xest-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_xest
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
+  build-depends:
+      QuickCheck
+    , X11
+    , base >=4.7 && <5
+    , base-prelude
+    , bifunctors
+    , capability
+    , chunked-data
+    , comonad
+    , containers
+    , deepseq
+    , deriving-compat
+    , dhall
+    , free
+    , generic-arbitrary
+    , generic-lens
+    , lens
+    , monad-control
+    , monad-loops
+    , mtl
+    , process
+    , quickcheck-instances
+    , recursion-schemes
+    , sdl2
+    , sdl2-ttf
+    , semigroupoids
+    , template-haskell
+    , text
+    , text-show
+    , time
+    , transformers
+    , vector
+    , vector-sized
+    , xest
+  default-language: Haskell2010
+
+test-suite xest-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_xest
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall
+  build-depends:
+      QuickCheck
+    , X11
+    , base >=4.7 && <5
+    , base-prelude
+    , bifunctors
+    , capability
+    , chunked-data
+    , comonad
+    , containers
+    , deepseq
+    , deriving-compat
+    , dhall
+    , free
+    , generic-arbitrary
+    , generic-lens
+    , lens
+    , monad-control
+    , monad-loops
+    , mtl
+    , process
+    , quickcheck-instances
+    , recursion-schemes
+    , sdl2
+    , sdl2-ttf
+    , semigroupoids
+    , template-haskell
+    , text
+    , text-show
+    , time
+    , transformers
+    , vector
+    , vector-sized
+    , xest
+  default-language: Haskell2010

@@ -23,6 +23,7 @@ import           Base.DoAll
 import           Tiler.Tiler
 import qualified System.Environment as Env
 import qualified Data.Map                      as M
+import qualified Data.IntMap                      as IM
 import XEvents
 import Actions.ActionTypes
 import Actions.Actions
@@ -80,19 +81,8 @@ startWM = do
     >> changeWindowAttributes display ewmhWin cWOverrideRedirect wa
   mapWindow display ewmhWin
 
-  -- Here we have our first look at Polysemy. All those flip evalStateT calls
-  -- might seem weird, but they're just setting up the caching environment
-  -- that the property effects like to use. All of this ceremony is just
-  -- needed to initialize all of the ewmh code.
-  flip runReaderT display
-    $ flip runReaderT root
-    $ flip evalStateT (M.empty @Text @Atom)
-    $ flip evalStateT (M.empty @Atom @[Int])
-    $ flip evalStateT (M.empty @Window @XRect)
-    $ flip evalStateT False
-    $ flip evalStateT c
-    $ initEwmh root ewmhWin
-
+  logHistory <- newIORef []
+  
   -- Find and register ourselves with the root window
   -- These masks allow us to intercept various Xorg events useful for a WM
   selectInput display root
@@ -106,29 +96,12 @@ startWM = do
     .|. keyPressMask
     .|. keyReleaseMask
 
-  -- Grabs the initial keybindings and screen list.
-  -- Once again we have a lot of Polysemy stuff going on which can
-  -- be safely ignored. The only interesting finction is the last one
-  -- in the chain.
-  screens <-
-    flip runReaderT c
-    $ flip runReaderT display
-    $ flip runReaderT root
-    $ flip evalStateT (mempty :: Map Text Atom)
-    $ flip evalStateT (mempty :: Map Atom [Int])
-    $ flip evalStateT (mempty :: Map Window XRect)
-    $ flip evalStateT (mempty :: IntMap Tiler)
-    $ flip evalStateT ([] @SubTiler)
-    $ flip (evalStateT @_ @Tiler) (InputController (error "Don't read this") Nothing)
-    $ flip evalStateT (Nothing @())
-    $ flip evalStateT (0 :: Int)
-    $ flip evalStateT False
-    $ flip evalStateT c
-    $ runFakeScreens
-    $ runFakeBorders
-    $ runFakeMover
-    $ rebindKeys startingMode startingMode >> rootChange >> get @Screens
-  print ("Got Screens" <> show screens)
+  -- Grabs the initial keybindings and screen list while also setting up EWMH
+  screens <- doAll logHistory IM.empty c startingMode display root font $ do
+    initEwmh root ewmhWin
+    rebindKeys startingMode startingMode
+    rootChange
+    get @Screens
 
   -- Normally, Xlib will crash on any error. Calling this function 
   -- asks Xlib to print recoverable errors instead of crashing on them.
@@ -141,8 +114,6 @@ startWM = do
   -- Execute the main loop. Will never return unless Xest exits
   -- The finally makes sure we write the last 100 log messages on exit to the
   -- err file.
-  logHistory <- newIORef []
-  return ()
   E.catch (doAll logHistory screens c startingMode display root font (forever mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
     let header = "Xest crashed with the exception: " <> show e <> "\n"
@@ -151,14 +122,8 @@ startWM = do
 
 
 -- | Performs the main logic. Does it all!
--- NOTE: Because I'm using a wildcard, mainLoop tends to completely blow up on
--- any kind of type error. If that happens and you can't figure out what is
--- actually wrong, you need to figure out the type of doAll and paste that in
--- here. Once you've finished debugging, you can replace it with the _ again or
--- find a better way to do this.
-mainLoop :: _ ()
+mainLoop :: M ()
 mainLoop = do
-  -- These debug lines have saved me countless times.
   log $ LD "Loop" "\n\n========================"
 
   -- Check how many events are in the queue and whether someone
@@ -167,14 +132,10 @@ mainLoop = do
   refreshRequested <- isJust <$> get @(Maybe ())
   when (numEvents && refreshRequested) refresh
   
-  -- Note that this doesn't correspond to an X11 screen but to an
-  -- Xrandr or Xinerama screen.
-  currentScreen <- get @ActiveScreen
-
   -- Here we have the bulk of the program. Most of the events given to us
   -- by the server are just handed off to something in the XEvents file.
   -- A handful of them have slightly more complicated logic.
-  flip runReaderT currentScreen $ getXEvent >>= (\x -> log (LD "Event" $ show x) >> return x) >>= \case
+  getXEvent >>= (\x -> log (LD "Event" $ show x) >> return x) >>= \case
     -- Called when a new window is created by someone
     MapRequestEvent {..} -> do
       -- First, check if it's a dock which should be unmanaged
@@ -183,7 +144,7 @@ mainLoop = do
       windowType <- getProperty 32 nwwt ev_window
       if elem nwwtd windowType
         then
-          addUM ev_window >> put (Just ())
+          addUM ev_window >> put @(Maybe ()) (Just ())
         else do
           rootTiler <- get @Tiler
           unless (findWindow ev_window rootTiler) $
@@ -201,7 +162,7 @@ mainLoop = do
     ConfigureEvent {} -> rootChange
     -- The mouse moved from one window to another.
     CrossingEvent {..} -> do
-      put ev_time
+      put @OldTime $ OldTime ev_time
       root <- input @RootWindow
       -- Why the if statement? Well we want to focus the root window
       -- if no other windows are currently focused.
@@ -210,11 +171,11 @@ mainLoop = do
          | otherwise -> return ()
     -- Button in this case means mouse button. Used to trigger click to focus.
     ButtonEvent {..} ->
-      put ev_time >> newFocus ev_window
+      put @OldTime (OldTime ev_time) >> newFocus ev_window
     -- The pointer moved and we probably want to resize something.
     MotionEvent {..} -> motion
     -- A press of the keyboard.
-    KeyEvent {..} -> put ev_time >> keyDown ev_keycode ev_event_type >>= unwrapMonad . foldMap (WrapMonad . executeActions)
+    KeyEvent {..} -> put @OldTime (OldTime ev_time) >> keyDown ev_keycode ev_event_type >>= unwrapMonad . foldMap (WrapMonad . executeActions)
     -- This usually means the keyboard layout changed.
     MappingNotifyEvent {} -> reloadConf
     -- Some other window sent us a message. Currently, we only care if they

@@ -18,7 +18,7 @@
 
 module Standard
     ( module All
-    , mapFold
+    , modify
     , Beam (..)
     , BeamF (..)
     , Path (..)
@@ -79,6 +79,9 @@ import Data.Functor.Bind as All (Bind)
 import Control.Monad.Reader
 import GHC.TypeLits hiding (Text)
 import Control.Monad.State.Strict (StateT(runStateT))
+import Capability.State as All hiding (zoom, modify)
+import Capability.Sink as All hiding (yield)
+import Capability.Source as All
 
 -- instance 
 -- runInputIO :: IO i 
@@ -196,8 +199,8 @@ journey = cata step
 -- |I'm not totally sure I need this function. I think I made it because I
 -- wanted a version of mapFold which used Polysemy instead of the built in
 -- State. TODO Either remove this or add better docs.
-mapFold :: Traversable t => (acc -> a -> (acc, b)) -> acc -> t a -> t b
-mapFold f i ta = fst $ runIdentity $ flip runStateT i $ traverse (\a -> get >>= \acc -> let (newAcc, newA) = f acc a in put newAcc >> return newA) ta
+-- mapFold :: Traversable t => (acc -> a -> (acc, b)) -> acc -> t a -> t b
+-- mapFold f i ta = fst $ runIdentity $ flip runStateT i $ traverse (\a -> get >>= \acc -> let (newAcc, newA) = f acc a in put newAcc >> return newA) ta
 
 -- |Like fst and snd but for the third element.
 trd :: (a, b, c) -> c
@@ -256,3 +259,6 @@ instance (Monad m, Semigroup a) => Semigroup (WrappedMonad m a) where
   
 instance (Monad m, Monoid a) => Monoid (WrappedMonad m a) where
   mempty = return mempty
+
+modify :: forall a m. HasState a a m => (a -> a) -> m ()
+modify = modify' @a

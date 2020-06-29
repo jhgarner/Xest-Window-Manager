@@ -121,11 +121,11 @@ instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ In
       )
 
   getAtom shouldCreate name@(Text sName) = input >>= \d -> do
-    maybeAtom <- (M.!? name) <$> get
+    maybeAtom <- (M.!? name) <$> get @(Map Text Atom)
     case maybeAtom of
       Nothing -> do
         atom <- liftIO $ internAtom d sName shouldCreate
-        modify $ M.insert name atom
+        modify @(Map Text Atom) $ M.insert name atom
         return atom
       Just atom -> return atom
 

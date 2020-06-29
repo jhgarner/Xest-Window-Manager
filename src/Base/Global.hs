@@ -46,7 +46,10 @@ eventFilter _ CrossingEvent {ev_detail=detail} = detail /= 2
 eventFilter _ _ = True
 
 -- |IO
+-- instance Members [State Bool, State Tiler] m => GlobalX m where
 instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bool, State Tiler, Property] m => GlobalX m where
+-- instance Members '[Input RootWindow, Input Conf, Input Display, Input Bool, Input RootWindow, Input (IntMap Tiler), Input (Int32, Int32), Property] m => GlobalX m where
+-- instance Members '[] m => GlobalX m where
   getTree = do
     display <- input @Display
     root    <- input @RootWindow
@@ -82,6 +85,7 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
     d         <- input @Display
     rootWin       <- input @RootWindow
     liftIO $ reparentWindow d w rootWin 0 0
+
   clearQueue = do
     d <- input @Display
     liftIO $ sync d True
@@ -129,21 +133,22 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
           -- If P ended at -1, return True because the queue wasn't empty
           readIORef pRef
 
-  kill isSoft w = input >>= \d -> liftIO $ do
-    deleteName  <- internAtom d "WM_DELETE_WINDOW" False
-    protocols <- internAtom d "WM_PROTOCOLS" True
-    supportedProtocols <- getWMProtocols d w
-    -- Thanks Xmonad for the kill window code
-    if deleteName `elem` supportedProtocols
-      then allocaXEvent $ \ev -> do
-              Standard.putStrLn "Deleting using protocol"
-              setEventType ev clientMessage
-              setClientMessageEvent ev w protocols 32 deleteName currentTime
-              sendEvent d w False noEventMask ev
-              flush d
-              return Nothing
-      else if isSoft then destroyWindow d w >> Standard.putStrLn "Deleting using destroy window" >> return (Just w)
-      else killClient d w >> Standard.putStrLn "Deleting using killClient" >> return (Just w)
+  kill isSoft w = do
+    d <- input @Display
+    liftIO $ do
+      deleteName <- internAtom d "WM_DELETE_WINDOW" False
+      protocols <- internAtom d "WM_PROTOCOLS" True
+      supportedProtocols <- getWMProtocols d w
+      -- Thanks Xmonad for the kill window code
+      if deleteName `elem` supportedProtocols
+        then allocaXEvent $ \ev -> do
+                setEventType ev clientMessage
+                setClientMessageEvent ev w protocols 32 deleteName currentTime
+                sendEvent d w False noEventMask ev
+                flush d
+                return Nothing
+        else if isSoft then destroyWindow d w >> return (Just w)
+        else killClient d w >> return (Just w)
 
   exit = liftIO exitSuccess
 

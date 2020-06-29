@@ -32,7 +32,7 @@ import qualified SDL (Window)
 -- need to move.
 refresh :: Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged] m
         => Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo]]) m
-        => Members (States [Tiler, Mode, [SubTiler], Maybe (), Time, Screens, DockState, Docks]) m
+        => Members (States [Tiler, Mode, [SubTiler], Maybe (), OldTime, Screens, DockState, Docks]) m
         => m ()
 refresh = do
     log $ LD "Refreshing" "Has started"
@@ -49,7 +49,7 @@ refresh = do
         Just (XineramaScreenInfo _ x y w h) -> do
           newRect <- constrainRect $ Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
           modify @Screens $ over (at i) (map $ putScreens newRect)
-        Nothing -> put $ Just ()
+        Nothing -> put @(Maybe ()) $ Just ()
     -- Write the path to the upper border
     writePath
 
@@ -72,7 +72,7 @@ refresh = do
     -- Do some EWMH stuff
     setClientList
     writeActiveWindow
-    get >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (map (getDesktopState . unfix))
+    get @Tiler >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (map (getDesktopState . unfix))
     -- clearQueue
     log $ LD "Refreshing" "Has finished"
 
@@ -105,7 +105,7 @@ placeWindow root =
               let wrapTrans = if mods == Rotate then Spin trans else trans
                   placed lSize size t = Sized size (Slide (Rect lSize 0 size 1) wrapTrans, depth+1, t)
 
-              in Horiz $ fromVis fl . mapFold (\lSize (Sized s t) -> (lSize + s, placed lSize s t)) 0 $ vOrder fl
+              in Horiz $ fromVis fl . snd . mapAccumL (\lSize (Sized s t) -> (lSize + s, placed lSize s t)) 0 $ vOrder fl
 
             (_, TwoCols colSize fl) ->
               let numWins = fromIntegral $ flLength fl - 1
@@ -251,7 +251,7 @@ writePath = do
 
 -- |Focus the window our Tilers are focusing
 xFocus
-  :: Members [State Tiler, Mover, Input Window, State Time] m
+  :: Members [State Tiler, Mover, Input Window, State OldTime] m
   => m ()
 xFocus = do
   root <- get @Tiler
@@ -329,7 +329,7 @@ writeActiveWindow :: Members '[State Tiler, Input Window, Property] m
               => m ()
 writeActiveWindow = do
   root <- input
-  tilers <- gets Fix
+  tilers <- gets @Tiler Fix
   naw <- getAtom False "_NET_ACTIVE_WINDOW"
   putProperty 32 naw root wINDOW [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
     where makeList (Fix (Wrap (ParentChild _ w))) = EndF . Just $ fromIntegral w

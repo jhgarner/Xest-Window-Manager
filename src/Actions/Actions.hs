@@ -37,7 +37,7 @@ zoomInInput
   :: State Tiler m
   => m ()
 zoomInInput =
-  modify $ unfix . cata \case
+  modify @Tiler $ unfix . cata \case
     t@(InputController _ (Just (Wrap _))) -> Fix t
     InputController bords (Just (Monitor loc Nothing)) -> Monitor loc . Just $ InputController bords Nothing
     InputController bords (Just (Fix t)) -> Fix $ modFocused (Fix . InputController bords . Just) t
@@ -133,14 +133,14 @@ zoomOutMonitor = do
 changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] m => Mode -> m ()
 changeModeTo newM = do
   -- Unbind the keys from the old mode and bind the ones for the new mode.
-  currentMode  <- get
+  currentMode  <- get @Mode
   rebindKeys currentMode newM
 
   -- If this mode supports mouse actions, also capture the mouse.
   -- This is needed because while we've captured the mouse, no one else can
   -- use it.
   selectButtons newM
-  put newM
+  put @Mode newM
 
   -- Whatever key is on top of the KeyStatus stack should be New instead
   -- of Temp.
@@ -154,7 +154,7 @@ changeMany
   => (ManyHolder SubTiler -> ManyHolder SubTiler)
   -> m ()
 changeMany f =
-  modify $ applyInput $ map \case
+  modify @Tiler $ applyInput $ map \case
     Many mh mods -> Many (f mh) mods
     t -> t
 
@@ -175,7 +175,7 @@ changeMods :: State Tiler m
            => ManyMods
            -> m ()
 changeMods newMod =
-  modify $ applyInput $ map \case
+  modify @Tiler $ applyInput $ map \case
     Many mh _ -> Many mh newMod
     t -> t
 
@@ -223,10 +223,10 @@ popTiler
   :: Members (States '[Tiler, [SubTiler]]) m
   => m ()
 popTiler = do
-  root <- get
+  root <- get @Tiler
 
   sequence_ $ onInput (map (modify @[SubTiler] . (:))) root
-  modify $ applyInput $ const Nothing
+  modify @Tiler $ applyInput $ const Nothing
 
 -- |Move a tiler from the stack into the tree. Should be the inverse
 -- of popTiler.
@@ -238,11 +238,11 @@ pushTiler = do
 
   case popped of
     (uncleanT : ts) -> do
-      put ts
+      put @[SubTiler] ts
       case cleanTiler $ coerce uncleanT of
         Just t ->
           -- TODO These coercions are probably a sign that I should change something
-          modify $ applyInput $ coerce $ \tiler -> map (add t) tiler <|> Just (coerce t)
+          modify @Tiler $ applyInput $ coerce $ \tiler -> map (add t) tiler <|> Just (coerce t)
         Nothing -> return ()
     [] -> return ()
     where cleanTiler :: Tiler -> Maybe SubTiler
@@ -290,10 +290,10 @@ killActive = do
       return $ map (, parent) shouldKill
     Nothing -> return Nothing
   case l of
-    Nothing               -> put (Nothing @())
+    Nothing               -> put @(Maybe ()) (Nothing @())
     Just (killed, parent) -> do
       _ <- kill True parent
-      modify $ ripOut killed
+      modify @Tiler $ ripOut killed
  where
   makeList (Wrap (ParentChild window w')) = EndF $ Just (window, w')
   makeList (InputControllerOrMonitor _ (Just t)  ) = ContinueF $ coerce t

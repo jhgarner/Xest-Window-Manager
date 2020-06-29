@@ -46,7 +46,7 @@ deriving instance Show SizeHints
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer, Screens]) m
        => Members [EventFlags, GlobalX, Property, Log LogData, Mover] m
-       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, Time, DockState]) m
+       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, OldTime, DockState]) m
        => ParentChild
        -> m ()
 mapWin pc@(ParentChild newWin window) = do
@@ -72,7 +72,7 @@ mapWin pc@(ParentChild newWin window) = do
           | otherwise -> modify @LostWindow (M.insertWith (++) parent [pc])
 
     Nothing -> do
-      modify $ applyInput $ coerce $ \tiler -> map (add tWin) tiler <|> Just (coerce tWin)
+      modify @Tiler $ applyInput $ coerce $ \tiler -> map (add tWin) tiler <|> Just (coerce tWin)
       newFocus newWin
 
       -- Make the window full screen if needed
@@ -113,11 +113,11 @@ killed :: Members (GlobalX ': States [Tiler, LocCache, Maybe (), Docks]) m
        -> m ()
 killed window = do
   -- Find the parent in the tree and kill it.
-  parentM <- findParent window <$> get
+  parentM <- findParent window <$> get @Tiler
   case parentM of
     Just parent -> do
       kill True parent
-      put (Just ())
+      put @(Maybe ()) (Just ())
     Nothing -> return ()
   -- Remove the window from our cache
   modify @LocCache $ M.delete window
@@ -132,7 +132,7 @@ unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe (), Docks]) m
          => Window 
          -> m ()
 unmapWin window = do
-  put $ Just ()
+  put @(Maybe ()) $ Just ()
   -- We need to check if we expected the window to be unmapped. Any window
   -- we explicitly minimized ends up in a set (Thanks XMonad for the idea).
   -- If the window is in the set, we don't need to do anything.
@@ -165,7 +165,7 @@ rootChange = do
                   , IM.findWithDefault defaultTiler (fromIntegral name) $ oldScreens
                   )
               ) screenInfo
-  put newScreens
+  put @Screens newScreens
 
   -- Update the active screen if that monitor got disconnected
   modify @ActiveScreen $ \activeScreen ->
@@ -173,13 +173,13 @@ rootChange = do
 
   -- Put all of the dead monitors into the minimized window stack
   traverse_ ((unwrapMonad . foldMap WrapMonad . map (modify @[SubTiler] . (:)))) $ IM.difference oldScreens newScreens
-  put $ Just ()
+  put @(Maybe ()) $ Just ()
   
 
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
 newFocus :: Members '[Input Screens, Property, Input Pointer, Log LogData] m
-         => Members (States [Tiler, Maybe (), ActiveScreen, Screens, Time]) m
+         => Members (States [Tiler, Maybe (), ActiveScreen, Screens, OldTime]) m
          => Window
          -> m ()
 newFocus window = do
@@ -187,7 +187,7 @@ newFocus window = do
   -- It will get focused next time we redraw
   modify @Tiler \tiler -> fromMaybe tiler $ focusWindow window tiler
   setScreenFromMouse
-  put $ Just ()
+  put @(Maybe ()) $ Just ()
 
 
 -- |On key press, execute some actions
@@ -199,7 +199,7 @@ keyDown :: Members '[Property, Executor] m
        -> m [Action]
 keyDown keycode eventType
   | eventType == keyPress = do
-    put $ Just ()
+    put @(Maybe ()) $ Just ()
     Conf bindings _ _ _ <- input @Conf
     mode <- get @Mode
     -- Is keycode (the key that was pressed) equal to k (the bound key)
@@ -224,7 +224,7 @@ keyDown keycode eventType
                 return actions
 
   | otherwise = do
-    put $ Just ()
+    put @(Maybe ()) $ Just ()
     currentKS <- get @KeyStatus
     let (newKS_, actions) = (\(a, b) -> (unwrapMonad a, b)) $ foldMap (\(a, b) -> (WrapMonad a, b)) $ para doRelease currentKS
     newKS_
@@ -264,12 +264,12 @@ motion = do
                         LeftButton _ -> Left
                         RightButton _ -> Right
           change = direction (xNow - xLast, yNow - yLast)
-       in modify $ applyInput $ map $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
+       in modify @Tiler $ applyInput $ map $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
     (_, _) -> return ()
 
-  input @MouseButtons >>= put . OMB
+  input @MouseButtons >>= put @OldMouseButtons . OMB
 
-  put $ Just ()
+  put @(Maybe ()) $ Just ()
 
 -- |Helper function for motion.
 -- TODO This function probably belongs in Tiler.
@@ -322,7 +322,7 @@ makeFullscreen :: Members '[State Tiler, Property, State DockState, State (Maybe
                -> Int
                -> m ()
 makeFullscreen window isSet = do
-  put $ Just ()
+  put @(Maybe ()) $ Just ()
   -- Get the static parameters on Monitor and IC
   loc <- gets @Tiler $ fromMaybe (error "Lost Mon") . cata \case
     Monitor loc _ -> Just loc

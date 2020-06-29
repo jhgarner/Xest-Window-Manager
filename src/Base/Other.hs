@@ -43,8 +43,8 @@ instance MonadTransControl FakeMouseButtons where
   type instance StT FakeMouseButtons a = a
   liftWith f = FakeMouseButtons $ f runFakeMouseButtons
   restoreT = lift
-instance Members (MonadIO ': Inputs [RootWindow, Display]) m => Input MouseButtons (FakeMouseButtons m) where
-  input = do
+instance Members (MonadIO ': Inputs [RootWindow, Display]) m => HasSource MouseButtons MouseButtons (FakeMouseButtons m) where
+  await_ _ = FakeMouseButtons do
     d <- input @Display
     root <- input @RootWindow
     liftIO $ do 
@@ -68,8 +68,8 @@ instance MonadTransControl FakeScreens where
   liftWith f = FakeScreens $ f runFakeScreens
   restoreT = lift
   
-instance Members [Input Display, MonadIO] m => Input [XineramaScreenInfo] (FakeScreens m) where
-  input = FakeScreens $ do
+instance Members [Input Display, MonadIO] m => HasSource [XineramaScreenInfo] [XineramaScreenInfo] (FakeScreens m) where
+  await_ _ = FakeScreens $ do
     d <- input @Display
     liftIO $ sync d False
     liftIO $ join . toList <$> xineramaQueryScreens d
@@ -85,8 +85,8 @@ instance MonadTransControl FakeBorders where
   restoreT = lift
 newtype NewBorders = NewBorders Borders
 newtype XestBorders = XestBorders [Window]
-instance MonadIO m => Input NewBorders (FakeBorders m) where
-  input = do
+instance MonadIO m => HasSource NewBorders NewBorders (FakeBorders m) where
+  await_ _ = do
     windows <- liftIO $ replicateM 4 $ SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
     -- TODO this way of handling borders is a little sketchy...
     let [lWin, dWin, uWin, rWin] = windows
@@ -105,8 +105,8 @@ instance MonadTransControl FakePointer where
   restoreT = lift
 
 -- |Gets the pointer location
-instance Members (MonadIO ': Inputs [RootWindow, Display]) m => Input (Int32, Int32) (FakePointer m) where
-  input = do
+instance Members (MonadIO ': Inputs [RootWindow, Display]) m => HasSource (Int32, Int32) (Int32, Int32) (FakePointer m) where
+  await_ _ = FakePointer do
     d <- input
     root <- input @RootWindow
     (_, _, _, px, py, _, _, _) <- liftIO $ queryPointer d root
@@ -125,13 +125,20 @@ instance MonadTransControl FakeTiler where
   liftWith f = FakeTiler $ f runFakeTiler
   restoreT = lift
 
-instance Members [State ActiveScreen, State Screens] m => State Tiler (FakeTiler m) where
-  get = do
-    activeScreen <- get @ActiveScreen
-    fromMaybe screenError . view (at activeScreen) <$> get @Screens
-  put p = do
+instance Members [State ActiveScreen, State Screens] m => HasSink Tiler Tiler (FakeTiler m) where
+  yield_ _ p = FakeTiler do
     activeScreen <- get @ActiveScreen
     modify @Screens $ set (at activeScreen) $ Just p
+instance Members [State ActiveScreen, State Screens] m => HasSource Tiler Tiler (FakeTiler m) where
+  await_ _ = FakeTiler do
+    activeScreen <- get @ActiveScreen
+    fromMaybe screenError . view (at activeScreen) <$> get @Screens
+instance Members [State ActiveScreen, State Screens] m => HasState Tiler Tiler (FakeTiler m) where
+  state_ p s = do
+    oldState <- await_ p
+    let (a, newState) = s oldState
+    yield_ p newState
+    pure a
 
 newtype OldMouseButtons = OMB MouseButtons
   deriving Show

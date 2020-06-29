@@ -7,6 +7,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Base.DoAll
   ( module Base.Helpers
@@ -46,12 +48,80 @@ import           Config
 import           Actions.ActionTypes
 import qualified SDL.Font as Font
 import Control.Monad.State.Strict (runStateT, StateT)
-import Control.Monad.Reader (ReaderT(runReaderT))
+import Control.Monad.Trans.Reader (ReaderT(runReaderT), Reader)
+import qualified Control.Monad.Reader as R
 import Graphics.X11.Xinerama (XineramaScreenInfo)
+import Capability.Reader
+import Capability.State
+import Data.Generics.Product.Fields
 
+data Ctx = Ctx
+  { shouldLog :: IORef (Bool)
+  , logHistory :: IORef [Text]
+  , activeMode :: IORef Mode
+  , minimizedWindows :: IORef (S.Set Window)
+  , screenList :: IORef Screens
+  , keyStatus :: IORef  KeyStatus
+  , yankBuffer :: IORef  [SubTiler]
+  , oldMouseButtons :: IORef  OldMouseButtons
+  , atomNameCache :: IORef  (M.Map Text Atom)
+  , atomValueCache :: IORef  (M.Map Atom [Int])
+  , focusedWindow :: IORef  FocusedCache
+  , borderLocations :: IORef  (M.Map SDL.Window XRect)
+  , windowLocations :: IORef  (M.Map Window XRect)
+  , windowChildren :: IORef  (M.Map Window [ParentChild])
+  , stackCache :: IORef  [Window]
+  , shouldRedraw :: IORef  (Maybe ())
+  , configuration :: IORef  Conf
+  , activeScreen :: IORef  ActiveScreen
+  , lastTime :: IORef  OldTime
+  , knownDocks :: IORef  Docks
+  , dockState :: IORef  DockState
+  , rootWindow :: Window
+  , display :: Display
+  , fontChoice :: Font.Font
+  } deriving (Generic)
+
+type Logged name s = LoggedSink name s (ReaderIORef ((Rename name (Field name () (MonadReader (ReaderT Ctx IO)))))) M
+type From name = ReaderIORef ((Rename name (Field name () (MonadReader (ReaderT Ctx IO)))))
+type FromInput name = Rename name (Field name () (MonadReader (ReaderT Ctx IO)))
+type ShouldRedraw = Maybe ()
+
+newtype M a = M { runM :: ReaderT Ctx IO a }
+  deriving (Functor, Applicative, Monad, MonadIO, R.MonadReader Ctx)
+  deriving (Input Mode, Output Mode, State Mode) via (Logged "activeMode" Mode)
+  deriving (Input  [Text], Output [Text], State [Text]) via (From "logHistory")
+  deriving (Input Bool, Output Bool, State Bool) via (From "shouldLog")
+  deriving (Input (Set Window), Output (Set Window), State (Set Window)) via (Logged "minimizedWindows" (Set Window))
+  deriving (Input Screens, Output Screens, State Screens) via (Logged "screenList" Screens)
+  deriving (Input [SubTiler], Output [SubTiler], State [SubTiler]) via (Logged "yankBuffer" [SubTiler])
+  deriving (Input OldMouseButtons, Output OldMouseButtons, State OldMouseButtons) via (Logged "oldMouseButtons" OldMouseButtons)
+  deriving (Input (M.Map Text Atom), Output (M.Map Text Atom), State (M.Map Text Atom)) via (Logged "atomNameCache" (M.Map Text Atom))
+  deriving (Input (M.Map Atom [Int]), Output (M.Map Atom [Int]), State (M.Map Atom [Int])) via (Logged "atomValueCache" (M.Map Atom [Int]))
+  deriving (Input [Window], Output [Window], State [Window]) via (Logged "stackCache" [Window])
+  deriving (Input FocusedCache, Output FocusedCache, State FocusedCache) via (Logged "focusedWindow" FocusedCache)
+  deriving (Input (M.Map SDL.Window XRect), Output (M.Map SDL.Window XRect), State (M.Map SDL.Window XRect)) via (Logged "borderLocations" (M.Map SDL.Window XRect))
+  deriving (Input (M.Map Window XRect), Output (M.Map Window XRect), State (M.Map Window XRect)) via (Logged "windowLocations" (M.Map Window XRect))
+  deriving (Input (M.Map Window [ParentChild]), Output (M.Map Window [ParentChild]), State (M.Map Window [ParentChild])) via (Logged "windowChildren" (M.Map Window [ParentChild]))
+  deriving (Input ShouldRedraw, Output ShouldRedraw, State ShouldRedraw) via (Logged "shouldRedraw" ShouldRedraw)
+  deriving (Input Conf, Output Conf, State Conf) via (Logged "configuration" Conf)
+  deriving (Input ActiveScreen, Output ActiveScreen, State ActiveScreen) via (Logged "activeScreen" ActiveScreen)
+  deriving (Input OldTime, Output OldTime, State OldTime) via (Logged "lastTime" OldTime)
+  deriving (Input Docks, Output Docks, State Docks) via (Logged "knownDocks" Docks)
+  deriving (Input DockState, Output DockState, State DockState) via (Logged "dockState" DockState)
+  deriving (Input KeyStatus, Output KeyStatus, State KeyStatus) via (Logged "keyStatus" KeyStatus)
+  deriving (Input Tiler, Output Tiler, State Tiler) via FakeTiler M
+  deriving (Input NewBorders) via FakeBorders M
+  deriving (Input MouseButtons) via FakeMouseButtons M
+  deriving (Input (Int32, Int32)) via FakePointer M
+  deriving (Input [XineramaScreenInfo]) via FakeScreens M
+  deriving (Input SubTiler, Output SubTiler, State SubTiler) via Coerce SubTiler M
+  deriving (Input RootWindow) via (FromInput "rootWindow")
+  deriving (Input Display) via (FromInput "display")
+  deriving (Input Font.Font) via (FromInput "fontChoice")
+  deriving (Log LogData) via (Logger M)
 
 type LostWindow = Map Window [ParentChild]
-
 
 -- Want to do everything in IO? Use this!
 doAll
@@ -62,75 +132,34 @@ doAll
   -> Display
   -> Window
   -> Font.Font
-  -> _ -- The super long Monad which GHC can figure out on its own
-  -> IO ()
+  -> M a -- The super long Monad which GHC can figure out on its own
+  -> IO a
 doAll ioref t c m d w f mon = do
-  bIORef <- newIORef False
-  void
-    . flip runReaderT bIORef
-    . flip runReaderT ioref
-    . flip runStateT ([] :: [Text])
-    . runLogger
-    . runStateLogged @"Mode" @Mode m
-    . runStateLogged @"Minimized set" (S.empty @Window)
-    . runStateLogged @"KeyStatus" Default
-    . runStateLogged @"Screens" t
-    . runStateLogged @"Popped Tilers" ([] @SubTiler)
-    . runStateLogged @"Mouse Button" (OMB None)
-    . runStateLogged @"name->Atom" (M.empty @Text @Atom)
-    . runStateLogged @"Atom->value" (M.empty @Atom @[Int])
-    . runStateLogged @"Focused window" (FocusedCache 0)
-    . runStateLogged @"SDL->location" (M.empty @SDL.Window @XRect)
-    . runStateLogged @"Window->location" (M.empty @Window @XRect)
-    . runStateLogged @"Window->transients" (M.empty @Window @[ParentChild])
-    . runStateLogged @"Window stack" ([] @Window)
-    . runStateLogged @"Redraw Flag" (Just ())
-    . runStateLogged @"Config" c
-    . runStateLogged @"Active screen" (0 :: ActiveScreen)
-    . runStateLogged @"Time" currentTime
-    . runStateLogged @"Docks" (Docks [])
-    . runStateLogged @"Dock State" Visible
-    . flip runReaderT w
-    . flip runReaderT d
-    . flip runReaderT f
-    . runFakeBorders
-    . runFakeTiler
-    . runFakePointer
-    . runFakeScreens
-    . runFakeMouseButtons
-    $ mon
-    -- . stateToInput @Conf
-    -- . stateToInput @Screens
-    -- . runNewBorders
-    -- . runGetScreens
-    -- . indexedState
-    -- . runGetButtons
-    -- . runGetPointer
-    -- . runExecutor
-    -- . runProperty
-    -- . runEventFlags
-    -- . runGlobalX
-    -- . runMinimizer
-    -- . runMover
-    -- . runColorer
-    -- . runUnmanaged
- where
-  -- logger :: Members '[State Bool, State [Text],  IO] r => LogAction (Sem r) LogData
-  -- logger = LogAction $ \(LD prefix msg) -> do
-  --   timeZone <- embed getCurrentTimeZone
-  --   timeUtc <- embed getCurrentTime
-  --   let timeStamp = "[" <> Text (formatShow iso8601Format (utcToLocalTime timeZone timeUtc)) <> "]"
-  --       prefixWrap = "[" <> prefix <> "]"
-  --       fullMsg:: Text = prefixWrap <> timeStamp <> msg
-  --   modify' @[Text] $ force . take 100 . (:) fullMsg
-  --   shouldLog <- get @Bool
-  --   when shouldLog $
-  --     embed @IO $ appendFile "/tmp/xest.log" (fullMsg <> "\n")
-  -- {-# INLINE logger #-}
-
-
-instance Monad m => Input a (StateT a m) where
-    input = get
+  shouldLog <- newIORef False
+  logHistory <- pure ioref
+  activeMode <- newIORef m
+  minimizedWindows <- newIORef S.empty
+  yankBuffer <- newIORef [] 
+  oldMouseButtons <- newIORef $ OMB None
+  atomNameCache <- newIORef M.empty
+  atomValueCache <- newIORef M.empty
+  focusedWindow <- newIORef $ FocusedCache 0
+  borderLocations <- newIORef M.empty
+  windowLocations <- newIORef M.empty
+  windowChildren <- newIORef M.empty
+  shouldRedraw <- newIORef $ Just ()
+  configuration <- newIORef c
+  activeScreen <- newIORef 0
+  lastTime <- newIORef $ OldTime currentTime
+  knownDocks <- newIORef $ Docks []
+  dockState <- newIORef Visible
+  keyStatus <- newIORef Default
+  stackCache <- newIORef []
+  screenList <- newIORef t
+  rootWindow <- pure w
+  display <- pure d
+  fontChoice <- pure f
+  runReaderT (runM mon) $ Ctx {..}
 
 data TempType = FromMod | NotMod
   deriving Show

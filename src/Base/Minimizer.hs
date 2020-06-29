@@ -35,7 +35,7 @@ instance Members (States '[Set Window, Tiler] ++ [Property, Executor, Input Disp
     mappedWin <- liftIO
       $ either (const waIsUnmapped) wa_map_state <$> try @SomeException (getWindowAttributes d win)
     when (mappedWin /= waIsUnmapped) $ do
-      modify $ S.insert win
+      modify @(Set Window) $ S.insert win
       liftIO $ unmapWindow d win
       wm_state           <- getAtom False "WM_STATE"
       -- win_state :: [Int] <- getProperty 32 wm_state win
@@ -48,7 +48,7 @@ instance Members (States '[Set Window, Tiler] ++ [Property, Executor, Input Disp
     mappedWin <- liftIO
       $ either (const waIsViewable) wa_map_state <$> try @SomeException (getWindowAttributes d win)
     when (mappedWin == waIsUnmapped) $ do
-      modify $ S.delete win
+      modify @(Set Window) $ S.delete win
       liftIO $ mapWindow d win
       wm_state           <- getAtom False "WM_STATE"
       -- win_state :: [Int] <- getProperty 32 wm_state win

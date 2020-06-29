@@ -44,7 +44,7 @@ newtype FocusedCache = FocusedCache Window
   deriving (Eq, Show)
 
 -- Move windows using IO
-instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCache, Time] ++ '[Minimizer, Executor, Property, Input RootWindow, MonadIO, Input Display]) m => Mover m where
+instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCache, OldTime] ++ '[Minimizer, Executor, Property, Input RootWindow, MonadIO, Input Display]) m => Mover m where
   changeLocation (ParentChild p c) r@(Rect x y h w) = do
     -- Every window will have change location called every "frame".
     -- The cache makes sure we don't send more wark to X than we need.
@@ -85,7 +85,7 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
       -- Otherwise, SDL won't draw the parts of the border which are
       -- temporarily under another window.
       void . liftIO $ restackWindows d wins >> sync d False
-    put wins
+    put @[Window] wins
 
 
   configureWin ConfigureRequestEvent {..} = do
@@ -114,7 +114,7 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
   setFocus (ParentChild p c) = input @Display >>= \d -> do
     root <- get @Tiler
     rootWin <- input @RootWindow
-    time <- get @Time
+    OldTime time <- get @OldTime
     wm_take_focus <- getAtom False "WM_TAKE_FOCUS"
     wm_protocols <- getAtom False "WM_PROTOCOLS"
     protocols <- liftIO $ getWMProtocols d c
@@ -134,7 +134,7 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
             restore c
             liftIO $ setInputFocus d c revertToNone currentTime
         liftIO $ cata (grabOthers d c) root
-        put $ FocusedCache c
+        put @FocusedCache $ FocusedCache c
     liftIO $ allowEvents d replayPointer currentTime >> sync d False
    where
     grabOthers d target (Wrap (ParentChild parent child))
