@@ -22,14 +22,11 @@ import qualified SDL.Font as Font
 import           Base.DoAll
 import           Tiler.Tiler
 import qualified System.Environment as Env
-import qualified Data.Map                      as M
 import qualified Data.IntMap                      as IM
 import XEvents
 import Actions.ActionTypes
 import Actions.Actions
 import qualified Control.Exception as E
-import Control.Monad.State.Strict (evalStateT)
-import Control.Monad.Reader (ReaderT(runReaderT))
 
 -- | Starting point of the program. This function should never return
 startWM :: IO ()
@@ -128,9 +125,9 @@ mainLoop = do
 
   -- Check how many events are in the queue and whether someone
   -- has asked us to replace the windows.
-  numEvents <- (== 0) <$> checkXEvent
+  -- numEvents <- (== 0) <$> checkXEvent
   refreshRequested <- isJust <$> get @(Maybe ())
-  when (numEvents && refreshRequested) refresh
+  when refreshRequested refresh
   
   -- Here we have the bulk of the program. Most of the events given to us
   -- by the server are just handed off to something in the XEvents file.
@@ -203,7 +200,7 @@ mainLoop = do
   where
     -- Here we have executors for the various actions a user might
     -- have in their config. These go to Actions/Actions.hs
-    executeActions :: Action -> _ ()
+    executeActions :: Action -> M ()
     executeActions action = log (LD "Action" $ show action) >> case action of
       RunCommand command -> execute command
       ShowWindow wName -> getWindowByClass wName >>= mapM_ restore

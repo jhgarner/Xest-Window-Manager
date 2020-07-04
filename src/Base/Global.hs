@@ -30,9 +30,7 @@ class GlobalX m where
    getTree :: m [Window]
    newWindow :: Window -> m Window
    moveToRoot :: Window -> m ()
-   clearQueue :: m ()
    getXEvent :: m Event
-   checkXEvent :: m Int
    -- |Bool True == kill softly. False == kill hard
    kill :: Bool -> Window -> m (Maybe Window)
    -- If you look into the void, you can find anything
@@ -45,11 +43,7 @@ eventFilter _ ButtonEvent {ev_button=button} = button `notElem` [button5, button
 eventFilter _ CrossingEvent {ev_detail=detail} = detail /= 2
 eventFilter _ _ = True
 
--- |IO
--- instance Members [State Bool, State Tiler] m => GlobalX m where
 instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bool, State Tiler, Property] m => GlobalX m where
--- instance Members '[Input RootWindow, Input Conf, Input Display, Input Bool, Input RootWindow, Input (IntMap Tiler), Input (Int32, Int32), Property] m => GlobalX m where
--- instance Members '[] m => GlobalX m where
   getTree = do
     display <- input @Display
     root    <- input @RootWindow
@@ -86,52 +80,14 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
     rootWin       <- input @RootWindow
     liftIO $ reparentWindow d w rootWin 0 0
 
-  clearQueue = do
-    d <- input @Display
-    liftIO $ sync d True
-
   getXEvent = do
     d <- input
     root <- input
     liftIO $
-      iterateWhile (not . eventFilter root) $
+      iterateWhile (not . eventFilter root) $ do
         allocaXEvent $ \p -> do
           nextEvent d p
           getEvent p 
-
-  checkXEvent = do
-    d <- input 
-    root <- input
-    liftIO $ do
-      -- Sync ourselves with the server
-      sync d False
-
-      -- If p > 0, getting the next event won't block
-      -- and that would be true except we filter out Configure notifications.
-      -- So if the queue were full of configure notifications, we would still
-      -- end up blocking.
-      p <- eventsQueued d queuedAfterFlush
-
-      -- I decided to write this super imperitively.
-      -- Basically, we want to remove the top p events if they would be filtered
-      pRef <- newIORef $ fromIntegral p :: IO (IORef Int)
-      -- If p < 1, we get to take the easy way out.
-      if p < 1 
-         then return 0
-         else do
-          -- Otherwise, we loop for a while
-          _ <- iterateWhile (>0) $ allocaXEvent $ \e -> do
-            event <- peekEvent d e >> getEvent e
-            if eventFilter root event 
-               -- We got something that won't be filtered so stop looping.
-              then writeIORef pRef (-1)
-              -- We got something that will be filtered so drop it.
-              else nextEvent d e >> allowEvents d replayPointer currentTime >> (eventsQueued d queuedAfterReading
-                      >>= (writeIORef pRef . fromIntegral))
-            readIORef pRef
-
-          -- If P ended at -1, return True because the queue wasn't empty
-          readIORef pRef
 
   kill isSoft w = do
     d <- input @Display
