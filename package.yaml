@@ -25,10 +25,8 @@ dependencies:
 - X11
 - text
 - monad-control
-- text-show
 - process
 - dhall
-- vector
 - recursion-schemes
 - free
 - comonad
@@ -38,20 +36,15 @@ dependencies:
 - generic-arbitrary
 - quickcheck-instances
 - chunked-data
-- vector-sized
 - sdl2
 - sdl2-ttf
-- deepseq
 - mtl
 - template-haskell
 - bifunctors
-- monad-loops
 - lens
 - time
 - capability
 - transformers
-- generic-lens
-- semigroupoids
 
 library:
   source-dirs: src

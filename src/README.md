@@ -7,41 +7,35 @@ this readme is to provide some guidance on what's going on it the various files.
 
 ## Standard.hs
 
-This module provides our prelude replacement. Most of the interesting work was
-done by Classy Prelude which completely re-imagines the container hierarchy.
-If you scroll down far enough, you'll find some custom made functions and data
-types that seem useful enough to have in every file.
-
-The more I use Classy Prelude, the less I'm sure that MonoTraversable is the
-right way to represent containers.
+This module provides the prelude replacement. It probably needs to be split up
+into smaller pieces.
 
 ## Config.hs
 
-A fairly simple function which defines some of the data types used in the config
-file provided by the user.
+A fairly simple module which defines some of the data types and functions used
+in the config file provided by the user.
 
 ## Lib.hs
 
 This is the starting point for Xest. There's a lot of initialization code as
-well as the main loop. This file should be fairly simple as most of the
-complicated stuff is deferred to the other files.
+well as the main loop. If you're trying to understand the app's control flow,
+start here.
 
 ## Core.hs
 
 A bunch of Xlib functions that don't really belong as events or actions. If you
 want to know how we actually draw the tree, look in here for the refresh
-function. Other than drawing, Core.hs does a lot of EWMH stuff.
+function. Other than drawing, Core.hs does a lot of EWMH stuff. This should
+probably be split up.
 
 ## XEvents.hs
 
-Functions to be run when certain X11 events come in. Originally, there was a
-giant "handler" function which pattern matched on all of the event types. Since
-then, that's been broken up. All of these are called by Lib.hs.
+Functions to be run when certain X11 events come in. All of these are called by
+Lib.hs in the main loop.
 
 ## Tiler/
 
-The files in here contain a lot of non-effectful code. Since there's no
-Polysemy, it's also much closer to "boring Haskell". The craziest thing is the
+The files in here contain a lot of non-effectful code. The craziest thing is the
 TilerF data type. Almost all of the constructors used are actually pattern
 synonyms wrapping the versions with F appended to them. These cool smart
 constructors will automatically apply the Fix/unfix functions as needed. The
@@ -51,23 +45,17 @@ explicit signatures everywhere GHC will let you. I've found that those
 signatures force GHC to localize its error much more. From there it's easier to
 see where things went wrong.
 
+## Actions/
+
+The two files in here provide the actions that users can bind to keys. A lot of
+them involve interesting tree traversals.
+
 ## Base/
 
-The files in here define all of the Polysemy code. I've tried to break things up
-into reasonable pieces but there are probably still improvements to make. Other
-than Lib.hs, the files in here are the only ones that can do actual IO.
-
-## NonEmpty.hs
-
-This file probably shouldn't exist as it just re-implements non empty lists. Why
-have it then?  Classy Prelude provides a NonNull data type but that won't work
-for me because it doesn't implement things like Functor. The NonEmpty type from
-Base would be cool but a lot of work would be needed to make it import nicely
-with all of the Classy Prelude functions and type classes.
-
-If you look inside, there won't be any real comments but it all uses pretty
-boring Haskell so hopefully it doesn't look too bad. Any time spent adding
-comments should probably be spent moving to Base's NonEmpty instead.
+The files in here define all of the low level X11 code. I've tried to break
+things up into reasonable pieces but there are probably still improvements to
+make. Other than Lib.hs, the files in here are the only ones that can do actual
+IO.
 
 ## FocusList.hs
 

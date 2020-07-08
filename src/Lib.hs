@@ -17,7 +17,8 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
-import           SDL hiding (get, Window, Display, trace, Mode)
+import           Graphics.X11.Xlib.Types
+import           SDL hiding (get, Window, Display, trace, Mode, Event)
 import qualified SDL.Font as Font
 import           Base.DoAll
 import           Tiler.Tiler
@@ -64,6 +65,11 @@ startWM = do
   -- X orders windows like a tree.
   -- This gets the root of said tree.
   let root = defaultRootWindow display
+  
+  -- Set the cursor for the root window
+  -- 132 is the magic number for the normal arrow
+  cursor <- createFontCursor display 132
+  defineCursor display root cursor
 
   -- EWMH wants us to create an extra window to verify we really
   -- can handle some of the EWMH spec. This window does that.
@@ -111,7 +117,7 @@ startWM = do
   -- Execute the main loop. Will never return unless Xest exits
   -- The finally makes sure we write the last 100 log messages on exit to the
   -- err file.
-  E.catch (doAll logHistory screens c startingMode display root font (forever mainLoop)) \(e :: SomeException) -> do
+  E.catch (doAll logHistory screens c startingMode display root font (getXEvents >>= overStream mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
     let header = "Xest crashed with the exception: " <> show e <> "\n"
     writeFile "/tmp/xest.err" $ header <> lastLog <> "\n"
@@ -119,20 +125,15 @@ startWM = do
 
 
 -- | Performs the main logic. Does it all!
-mainLoop :: M ()
-mainLoop = do
+mainLoop :: Event -> M ()
+mainLoop event = do
   log $ LD "Loop" "\n\n========================"
 
-  -- Check how many events are in the queue and whether someone
-  -- has asked us to replace the windows.
-  -- numEvents <- (== 0) <$> checkXEvent
-  refreshRequested <- isJust <$> get @(Maybe ())
-  when refreshRequested refresh
-  
   -- Here we have the bulk of the program. Most of the events given to us
   -- by the server are just handed off to something in the XEvents file.
   -- A handful of them have slightly more complicated logic.
-  getXEvent >>= (\x -> log (LD "Event" $ show x) >> return x) >>= \case
+  log (LD "Event" $ show event)
+  case event of
     -- Called when a new window is created by someone
     MapRequestEvent {..} -> do
       -- First, check if it's a dock which should be unmanaged
@@ -196,6 +197,11 @@ mainLoop = do
     AnyEvent {ev_event_type = 21, ev_window = window} -> killed window
 
     _ -> void $ log $ LD "Event" "Got unknown event"
+
+  -- Move all of the windows based on how our internal state changed
+  refreshRequested <- isJust <$> get @(Maybe ())
+  when refreshRequested refresh
+  
 
   where
     -- Here we have executors for the various actions a user might

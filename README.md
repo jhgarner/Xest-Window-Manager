@@ -51,7 +51,7 @@ ICCCM and EWMH are protocols built on top of X11 and tend to get sprinkled
 around the src/XEvents.hs code. The official documentations for those protocols
 are probably the best resources for learning about them.
 
-If you're looking at the code that interfaces with the X server, you will
-probably run into Polysemy. Polysemy has pretty good official docs although you
-can safely ignore a lot of the more complicated concepts like higher order
-effects as Xest doesn't use them.
+Xest uses an effect system library called "Capability". The "src/Base/DoAll.hs"
+file contains the scary bits needed for that library. Code that needs to run
+some kind of effect asks for it as a constraint on the Monad that gets returned.
+You can see this in the "src/XEvents.hs" and "src/Actions/Actions.hs" files.

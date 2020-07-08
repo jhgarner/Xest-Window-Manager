@@ -30,7 +30,7 @@ class GlobalX m where
    getTree :: m [Window]
    newWindow :: Window -> m Window
    moveToRoot :: Window -> m ()
-   getXEvent :: m Event
+   getXEvents :: m (Stream m Event)
    -- |Bool True == kill softly. False == kill hard
    kill :: Bool -> Window -> m (Maybe Window)
    -- If you look into the void, you can find anything
@@ -80,14 +80,13 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
     rootWin       <- input @RootWindow
     liftIO $ reparentWindow d w rootWin 0 0
 
-  getXEvent = do
-    d <- input
-    root <- input
-    liftIO $
-      iterateWhile (not . eventFilter root) $ do
-        allocaXEvent $ \p -> do
-          nextEvent d p
-          getEvent p 
+  getXEvents = do
+    d <- input @Display
+    root <- input @RootWindow
+    filterStream (eventFilter root) =<< repeatStream do
+      liftIO $ allocaXEvent $ \p -> do
+        nextEvent d p
+        getEvent p 
 
   kill isSoft w = do
     d <- input @Display

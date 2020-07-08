@@ -24,6 +24,10 @@ module Standard
     , Path (..)
     , PathF (..)
     , journey
+    , Stream (..)
+    , filterStream
+    , repeatStream
+    , overStream
     , pattern CofreeF
     , pattern Cofree
     , RectA(..)
@@ -53,7 +57,6 @@ import Data.IORef
 import qualified BasePrelude
 import Base.Effects as All
 import Data.Text as All (Text, unlines)
-import Control.DeepSeq as All
 import Data.Text.IO as All
 import Data.List.NonEmpty as All (filter, nonEmpty, (!!), (<|), tail, init)
 -- Hiding Text because I define it below with a Complete pragma
@@ -73,9 +76,7 @@ import Data.Functor.Foldable as All hiding (fold, unfold, embed)
 import Data.Kind (Type, Constraint)
 import Data.Functor.Foldable.TH as All
 import Data.Bifunctor.TH
-import Control.Monad.Loops as All (untilM_, iterateWhile)
 import Control.Lens as All hiding (para, none, (<|))
-import Data.Functor.Bind as All (Bind)
 import Control.Monad.Reader
 import GHC.TypeLits hiding (Text)
 import Control.Monad.State.Strict (StateT(runStateT))
@@ -196,11 +197,19 @@ journey = cata step
         step (RoadF result) = result
 
 
--- |I'm not totally sure I need this function. I think I made it because I
--- wanted a version of mapFold which used Polysemy instead of the built in
--- State. TODO Either remove this or add better docs.
--- mapFold :: Traversable t => (acc -> a -> (acc, b)) -> acc -> t a -> t b
--- mapFold f i ta = fst $ runIdentity $ flip runStateT i $ traverse (\a -> get >>= \acc -> let (newAcc, newA) = f acc a in put newAcc >> return newA) ta
+data Stream m a = Stream a (m (Stream m a))
+  -- deriving (Functor, Foldable, Traversable)
+
+filterStream :: Monad m => (a -> Bool) -> Stream m a -> m (Stream m a)
+filterStream p (Stream a m)
+  | p a = return $ Stream a (filterStream p =<< m)
+  | otherwise = filterStream p =<< m
+
+repeatStream :: Functor m => m a -> m (Stream m a)
+repeatStream m = fmap (\a -> Stream a $ repeatStream m) m
+
+overStream :: Monad m => (a -> m b) -> Stream m a -> m c
+overStream f (Stream a m) = f a >> m >>= overStream f
 
 -- |Like fst and snd but for the third element.
 trd :: (a, b, c) -> c

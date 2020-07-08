@@ -12,7 +12,6 @@ module Base.Effects where
 
 import Prelude hiding (appendFile, log)
 import Control.Monad.Reader
-import Control.DeepSeq
 import Data.Kind (Constraint, Type)
 import Data.Text
 import Data.Text.IO (appendFile)
@@ -87,7 +86,7 @@ instance Members '[Input Bool, State [Text], MonadIO] m => HasSink k LogData (Lo
     let timeStamp = "[" <> pack (formatShow iso8601Format (utcToLocalTime timeZone timeUtc)) <> "]"
         prefixWrap = "[" <> prefix <> "]"
         fullMsg = prefixWrap <> timeStamp <> msg
-    modify @[Text] $ force . Prelude.take 100 . (:) fullMsg
+    modify @[Text] $ Prelude.take 100 . (:) fullMsg
     shouldLog <- input @Bool
     when shouldLog $
       liftIO $ appendFile "/tmp/xest.log" (fullMsg <> "\n")

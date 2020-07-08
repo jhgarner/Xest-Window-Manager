@@ -53,7 +53,6 @@ import qualified Control.Monad.Reader as R
 import Graphics.X11.Xinerama (XineramaScreenInfo)
 import Capability.Reader
 import Capability.State
-import Data.Generics.Product.Fields
 
 data Ctx = Ctx
   { shouldLog :: IORef (Bool)
