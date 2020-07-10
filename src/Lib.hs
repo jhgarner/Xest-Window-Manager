@@ -100,7 +100,7 @@ startWM = do
     .|. keyReleaseMask
 
   -- Grabs the initial keybindings and screen list while also setting up EWMH
-  screens <- doAll logHistory IM.empty c startingMode display root font $ do
+  screens <- doAll logHistory IM.empty c startingMode display root font cursor $ do
     initEwmh root ewmhWin
     rebindKeys startingMode startingMode
     rootChange
@@ -117,7 +117,7 @@ startWM = do
   -- Execute the main loop. Will never return unless Xest exits
   -- The finally makes sure we write the last 100 log messages on exit to the
   -- err file.
-  E.catch (doAll logHistory screens c startingMode display root font (getXEvents >>= overStream mainLoop)) \(e :: SomeException) -> do
+  E.catch (doAll logHistory screens c startingMode display root font cursor (getXEvents >>= overStream mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
     let header = "Xest crashed with the exception: " <> show e <> "\n"
     writeFile "/tmp/xest.err" $ header <> lastLog <> "\n"

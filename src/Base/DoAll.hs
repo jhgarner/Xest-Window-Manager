@@ -47,12 +47,11 @@ import           Tiler.ParentChild
 import           Config
 import           Actions.ActionTypes
 import qualified SDL.Font as Font
-import Control.Monad.State.Strict (runStateT, StateT)
-import Control.Monad.Trans.Reader (ReaderT(runReaderT), Reader)
 import qualified Control.Monad.Reader as R
 import Graphics.X11.Xinerama (XineramaScreenInfo)
-import Capability.Reader
-import Capability.State
+import Capability.Reader ()
+import Capability.State ()
+
 
 data Ctx = Ctx
   { shouldLog :: IORef (Bool)
@@ -73,20 +72,21 @@ data Ctx = Ctx
   , shouldRedraw :: IORef  (Maybe ())
   , configuration :: IORef  Conf
   , activeScreen :: IORef  ActiveScreen
-  , lastTime :: IORef  OldTime
-  , knownDocks :: IORef  Docks
-  , dockState :: IORef  DockState
+  , lastTime :: IORef OldTime
+  , knownDocks :: IORef Docks
+  , dockState :: IORef DockState
   , rootWindow :: Window
   , display :: Display
   , fontChoice :: Font.Font
+  , cursor :: XCursor
   } deriving (Generic)
 
-type Logged name s = LoggedSink name s (ReaderIORef ((Rename name (Field name () (MonadReader (ReaderT Ctx IO)))))) M
-type From name = ReaderIORef ((Rename name (Field name () (MonadReader (ReaderT Ctx IO)))))
-type FromInput name = Rename name (Field name () (MonadReader (ReaderT Ctx IO)))
+type Logged name s = LoggedSink name s (ReaderIORef ((Rename name (Field name () (MonadReader M))))) M
+type From name = ReaderIORef ((Rename name (Field name () (MonadReader M))))
+type FromInput name = Rename name (Field name () (MonadReader M))
 type ShouldRedraw = Maybe ()
 
-newtype M a = M { runM :: ReaderT Ctx IO a }
+newtype M a = M { runM :: R.ReaderT Ctx IO a }
   deriving (Functor, Applicative, Monad, MonadIO, R.MonadReader Ctx)
   deriving (Input Mode, Output Mode, State Mode) via (Logged "activeMode" Mode)
   deriving (Input  [Text], Output [Text], State [Text]) via (From "logHistory")
@@ -118,6 +118,7 @@ newtype M a = M { runM :: ReaderT Ctx IO a }
   deriving (Input RootWindow) via (FromInput "rootWindow")
   deriving (Input Display) via (FromInput "display")
   deriving (Input Font.Font) via (FromInput "fontChoice")
+  deriving (Input XCursor) via (FromInput "cursor")
   deriving (Log LogData) via (Logger M)
 
 type LostWindow = Map Window [ParentChild]
@@ -131,9 +132,10 @@ doAll
   -> Display
   -> Window
   -> Font.Font
+  -> Cursor
   -> M a -- The super long Monad which GHC can figure out on its own
   -> IO a
-doAll ioref t c m d w f mon = do
+doAll ioref t c m d w f cur mon = do
   shouldLog <- newIORef False
   logHistory <- pure ioref
   activeMode <- newIORef m
@@ -158,7 +160,8 @@ doAll ioref t c m d w f mon = do
   rootWindow <- pure w
   display <- pure d
   fontChoice <- pure f
-  runReaderT (runM mon) $ Ctx {..}
+  cursor <- pure $ XCursor cur
+  R.runReaderT (runM mon) $ Ctx {..}
 
 data TempType = FromMod | NotMod
   deriving Show

@@ -18,6 +18,8 @@ import           Graphics.X11.Xlib.Misc
 import Actions.ActionTypes
 import Base.Helpers
 import Config
+import Tiler.Tiler
+import Base.Other
 
 
 
@@ -38,24 +40,40 @@ class EventFlags m where
              -> Mode -- ^ The mode we want to bind keys for
              -> m ()
 
+newtype XCursor = XCursor Cursor
 -- |Runs the event using IO
-instance Members (MonadIO ': Inputs [RootWindow, Conf, Display]) m => EventFlags m where
-  selectFlags w flags = input >>= \d -> liftIO $
+instance Members (MonadIO ': State Screens ': Inputs [RootWindow, Conf, Display, XCursor]) m => EventFlags m where
+  selectFlags w flags = input >>= \d -> liftIO $ do
+    sync d False
     selectInput d w flags
-    -- This is just grabs button presses on a window
-    -- TODO why was I doing this here?
 
   selectButtons NewMode {hasButtons = hb} = do
       d <- input @Display
       root <- input @RootWindow
+      XCursor cursor <- input @XCursor
+      allWindows <- gets @Screens $ concatMap getAllParents . map snd . itoList
+      forM_ allWindows \window -> selectFlags window
+        $   substructureNotifyMask
+        .|. substructureRedirectMask
+        .|. structureNotifyMask
+        .|. buttonPressMask
+        .|. buttonReleaseMask
       -- If the current mode wants to listen to the mouse, let it.
       -- Otherwise, don't because capturing the mouse prevents everyone
       -- else from using it.
       void . liftIO $
         if not hb
            then ungrabPointer d currentTime
-           else void $ grabPointer d root False pointerMotionMask grabModeAsync
-                                   grabModeAsync root none currentTime
+           else void $ grabPointer d root True buttonMotionMask grabModeAsync
+                                   grabModeAsync root cursor currentTime
+      forM_ allWindows \window -> selectFlags window
+        $   substructureNotifyMask
+        .|. substructureRedirectMask
+        .|. structureNotifyMask
+        .|. leaveWindowMask
+        .|. enterWindowMask
+        .|. buttonPressMask
+        .|. buttonReleaseMask
 
   rebindKeys oldMode activeMode = do
     Conf kb _ _ _ <- input @Conf

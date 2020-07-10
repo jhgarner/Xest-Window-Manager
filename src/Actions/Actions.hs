@@ -132,14 +132,16 @@ zoomOutMonitor = do
 -- from Insert mode to Normal mode.
 changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] m => Mode -> m ()
 changeModeTo newM = do
-  -- Unbind the keys from the old mode and bind the ones for the new mode.
-  currentMode  <- get @Mode
-  rebindKeys currentMode newM
 
   -- If this mode supports mouse actions, also capture the mouse.
   -- This is needed because while we've captured the mouse, no one else can
   -- use it.
   selectButtons newM
+
+  -- Unbind the keys from the old mode and bind the ones for the new mode.
+  currentMode  <- get @Mode
+  rebindKeys currentMode newM
+
   put @Mode newM
 
   -- Whatever key is on top of the KeyStatus stack should be New instead

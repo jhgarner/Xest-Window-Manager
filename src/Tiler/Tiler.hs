@@ -275,6 +275,12 @@ findParent w = cata step
                                    | otherwise = Nothing
   step t = foldl' (<|>) Nothing t
 
+-- |Get all parents from the tree
+getAllParents :: Tiler -> [Window]
+getAllParents = cata \case
+  Wrap (ParentChild p _) -> pure p
+  t -> fold t
+
 -- |Do some geometry to figure out which screen we're on. What's up with the
 -- Functor f getting tossed around? Well sometimes we want the actual screen
 -- that's focused and other times we want just the index. This function can do

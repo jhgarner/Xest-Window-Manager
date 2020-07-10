@@ -30,16 +30,27 @@ import qualified SDL (Window)
 -- called every literal frame; Xest doesn't have to do anything if it's
 -- children want to change their contents. Xest only gets involved when they
 -- need to move.
-refresh :: Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged] m
+refresh :: Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged, EventFlags] m
         => Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo]]) m
         => Members (States [Tiler, Mode, [SubTiler], Maybe (), OldTime, Screens, DockState, Docks]) m
         => m ()
 refresh = do
+    -- Unbind the crossing events during the rerendering
+
+    allWindows <- gets @Screens $ concatMap getAllParents . map snd . itoList
+    forM_ allWindows \window -> selectFlags window
+      $   substructureNotifyMask
+      .|. substructureRedirectMask
+      .|. structureNotifyMask
+      .|. buttonPressMask
+      .|. buttonReleaseMask
     log $ LD "Refreshing" "Has started"
     put @(Maybe ()) Nothing
 
     -- Fix the Monitor if the Input Controller moved in a weird way
     modify @Tiler fixMonitor
+
+
 
     -- Update the Monitors in case docks were created
     oldScreens <- gets @Screens $ map fst . itoList
@@ -75,6 +86,15 @@ refresh = do
     get @Tiler >>= writeWorkspaces . fromMaybe (["Nothing"], 0) . onInput (map (getDesktopState . unfix))
     -- clearQueue
     log $ LD "Refreshing" "Has finished"
+
+    forM_ allWindows \window -> selectFlags window
+      $   substructureNotifyMask
+      .|. substructureRedirectMask
+      .|. structureNotifyMask
+      .|. leaveWindowMask
+      .|. enterWindowMask
+      .|. buttonPressMask
+      .|. buttonReleaseMask
 
 
 -- | Places a tiler somewhere on the screen without actually placing it. The
@@ -174,17 +194,17 @@ render = do
   minimized <- get @[SubTiler]
   traverse_ (snd . cata draw . map (first toScreenCoord) . placeWindow . unfix) minimized
 
-  return $ join winOrder
+  return $ join $ map (uncurry (++)) winOrder
 
        -- The main part of this function.
- where draw :: Base (Cofree TilerF (XRect, Int)) ([ParentChild], m ()) -> ([ParentChild], m ())
-       draw (CofreeF (Rect {..}, _) (Wrap pc)) = ([pc],
+ where draw :: Base (Cofree TilerF (XRect, Int)) (([ParentChild], [ParentChild]), m ()) -> (([ParentChild], [ParentChild]), m ())
+       draw (CofreeF (Rect {..}, _) (Wrap pc)) = (([], [pc]),
            changeLocation pc $ Rect x y (abs w) (abs h))
        
        -- The InputController places the SDL window borders around the focused
        -- Tiler if you're in a mode that wants borders.
        draw (CofreeF (Rect{..}, depth) (InputController (l, u, r, d) t)) =
-           (maybe [] fst t, do
+           (maybe ([], []) fst t, do
               -- Do the movements requested by the children.
               mapM_ snd t
 
@@ -216,16 +236,16 @@ render = do
            )
 
        -- Draw the background with the floating windows on top.
-       draw (CofreeF _ (Many mh _)) =
+       draw (CofreeF _ tiler@(Many mh _)) =
          case mh of
            Floating fl ->
-             let (bottom, tops) = pop (Left Front) $ map (fst . extract) fl
-              in (join $ maybe [] (toList . fOrder) tops ++ [bottom], mapM_ (snd . extract) fl)
+             let ((bottomTops, bottoms), tops) = pop (Left Front) $ map (fst . extract) fl
+              in ((join (maybe [] (toList . fOrder . map (uncurry (++))) tops) ++ bottomTops, bottoms), mapM_ (snd . extract) fl)
            _ ->
-             (foldFl mh $ join . toList . fOrder . map (fst . extract), foldFl mh $ mapM_ (snd . extract))
+             (foldFl mh $ foldMap (fst . extract) . fOrder, mapM_ snd tiler)
 
        -- Everything else just needs to draw it's children
-       draw (CofreeF _ tiler) = (concatMap fst tiler, mapM_ snd tiler)
+       draw (CofreeF _ tiler) = (foldMap fst tiler, mapM_ snd tiler)
 
        hsvToRgb :: Double -> Double -> Double -> (Int, Int, Int)
        hsvToRgb h s v = let c = v * s
