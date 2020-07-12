@@ -168,8 +168,11 @@ mainLoop event = do
          | ev_window == root -> newFocus root
          | otherwise -> return ()
     -- Button in this case means mouse button. Used to trigger click to focus.
-    ButtonEvent {..} ->
-      put @OldTime (OldTime ev_time) >> newFocus ev_window
+    ButtonEvent {..} -> do
+      put @OldTime (OldTime ev_time)
+      when (ev_event_type == buttonRelease) $
+        put @OldMouseButtons $ OMB None
+      newFocus ev_window
     -- The pointer moved and we probably want to resize something.
     MotionEvent {..} -> motion
     -- A press of the keyboard.

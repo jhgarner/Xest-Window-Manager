@@ -264,12 +264,13 @@ motion = do
                         LeftButton _ -> Left
                         RightButton _ -> Right
           change = direction (xNow - xLast, yNow - yLast)
-       in modify @Tiler $ applyInput $ map $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
+       in do
+            modify @Tiler $ applyInput $ map $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
+            put @(Maybe ()) $ Just ()
     (_, _) -> return ()
 
   input @MouseButtons >>= put @OldMouseButtons . OMB
 
-  put @(Maybe ()) $ Just ()
 
 -- |Helper function for motion.
 -- TODO This function probably belongs in Tiler.

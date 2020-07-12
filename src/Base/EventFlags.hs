@@ -42,7 +42,7 @@ class EventFlags m where
 
 newtype XCursor = XCursor Cursor
 -- |Runs the event using IO
-instance Members (MonadIO ': State Screens ': Inputs [RootWindow, Conf, Display, XCursor]) m => EventFlags m where
+instance Members (MonadIO ': States [Screens, OldMouseButtons] ++ Inputs [RootWindow, Conf, Display, XCursor]) m => EventFlags m where
   selectFlags w flags = input >>= \d -> liftIO $ do
     sync d False
     selectInput d w flags
@@ -52,6 +52,7 @@ instance Members (MonadIO ': State Screens ': Inputs [RootWindow, Conf, Display,
       root <- input @RootWindow
       XCursor cursor <- input @XCursor
       allWindows <- gets @Screens $ concatMap getAllParents . map snd . itoList
+      put @OldMouseButtons $ OMB None
       forM_ allWindows \window -> selectFlags window
         $   substructureNotifyMask
         .|. substructureRedirectMask
@@ -64,8 +65,9 @@ instance Members (MonadIO ': State Screens ': Inputs [RootWindow, Conf, Display,
       void . liftIO $
         if not hb
            then ungrabPointer d currentTime
-           else void $ grabPointer d root True buttonMotionMask grabModeAsync
-                                   grabModeAsync root cursor currentTime
+           else void $ grabPointer d root True pointerMotionMask grabModeAsync
+                          grabModeAsync root cursor currentTime
+            --  grabButton d (button1 .|. button2) anyModifier root True buttonReleaseMask grabModeAsync grabModeAsync cursor currentTime
       forM_ allWindows \window -> selectFlags window
         $   substructureNotifyMask
         .|. substructureRedirectMask
