@@ -56,13 +56,14 @@ import BasePrelude as All hiding (gunfold, log, tail, head, init, last, fmap, ma
 import Data.IORef
 import qualified BasePrelude
 import Base.Effects as All
+import Control.Monad.Trans.Maybe
 import Data.Text as All (Text, unlines)
 import Data.Text.IO as All
 import Data.List.NonEmpty as All (filter, nonEmpty, (!!), (<|), tail, init)
 -- Hiding Text because I define it below with a Complete pragma
 import Data.Text.Lens as All hiding (Text)
 import qualified BasePrelude as BP (fmap)
-import           Data.IntMap.Strict as All (IntMap)
+import           Data.IntMap.Strict as All (IntMap, (!), update)
 import           Data.Map.Strict as All (Map)
 import           Data.Set as All (Set)
 import GHC.Stack

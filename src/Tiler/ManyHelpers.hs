@@ -55,8 +55,8 @@ foldFl (TwoCols _ fl) f = f fl
 
 -- |Converts a holder of Floating things into one of horizontal things.
 toFloating :: ManyHolder a -> ManyHolder a
-toFloating (Horiz fl) = Floating $ map (WithRect (Rect 0 0 500 500) . extract) fl
-toFloating (TwoCols _ fl) = Floating $ map (WithRect (Rect 0 0 500 500) . extract) fl
+toFloating (Horiz fl) = Floating $ map (WithRect (Rect (-1) (-1) (-1) (-1)) . extract) fl
+toFloating (TwoCols _ fl) = Floating $ map (WithRect (Rect (-1) (-1) (-1) (-1)) . extract) fl
 toFloating mh@(Floating _) = mh
 
 -- |Like the above but in reverse.

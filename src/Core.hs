@@ -31,7 +31,7 @@ import qualified SDL (Window)
 -- children want to change their contents. Xest only gets involved when they
 -- need to move.
 refresh :: Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged, EventFlags] m
-        => Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo]]) m
+        => Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo], ActiveScreen]) m
         => Members (States [Tiler, Mode, [SubTiler], Maybe (), OldTime, Screens, DockState, Docks]) m
         => m ()
 refresh = do
@@ -48,7 +48,7 @@ refresh = do
     put @(Maybe ()) Nothing
 
     -- Fix the Monitor if the Input Controller moved in a weird way
-    modify @Tiler fixMonitor
+    modify @Tiler $ fixFloating . fixMonitor
 
 
 
@@ -95,7 +95,6 @@ refresh = do
       .|. enterWindowMask
       .|. buttonPressMask
       .|. buttonReleaseMask
-
 
 -- | Places a tiler somewhere on the screen without actually placing it. The
 -- Cofree thing just means every node in our Tiler tree also contains
@@ -174,27 +173,29 @@ getWindowByClass wName = do
 -- |Moves windows around based on where they are in the tiler.
 render
   :: forall m.
-     ( Members (Inputs [Pointer, Screens]) m
+     ( Members (Inputs [Pointer, Screens, ActiveScreen]) m
      , Members (States [Tiler, Mode, [SubTiler]]) m
      , Members [Mover, Colorer, GlobalX, Log LogData, Minimizer, Property] m
      )
   => m [ParentChild]
 render = do
   screens <- input @Screens
+  activeScreen <- input @ActiveScreen
 
-  let locations :: [(Cofree TilerF (XRect, Int))] =
-        toList $ map (map (first toScreenCoord) . placeWindow) screens
+  let locations = map (map (first toScreenCoord) . placeWindow) screens
+  let topMost = locations ! activeScreen
+  let theRest = toList $ update (const Nothing) activeScreen locations
 
   -- Draw the tiler we've been given. winOrder will be used by restackWindows
   -- while io coantains the io action which moves the windows.
-  let (winOrder, io) = unzip . toList $ map (cata draw) locations
+  let (winOrder, io) = unzip . toList $ map (cata draw) $ topMost : theRest
   sequence_ io
 
   -- Hide all of the popped tilers
   minimized <- get @[SubTiler]
   traverse_ (snd . cata draw . map (first toScreenCoord) . placeWindow . unfix) minimized
 
-  return $ join $ map (uncurry (++)) winOrder
+  return $ (uncurry (++)) $ fold winOrder
 
        -- The main part of this function.
  where draw :: Base (Cofree TilerF (XRect, Int)) (([ParentChild], [ParentChild]), m ()) -> (([ParentChild], [ParentChild]), m ())

@@ -149,6 +149,5 @@ getButtonLoc (LeftButton l) = Just l
 getButtonLoc (RightButton l) = Just l
 getButtonLoc _ = Nothing
 
-type Screens = IntMap Tiler
 type ActiveScreen = Int
 type Pointer = (Int32, Int32)

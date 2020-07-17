@@ -55,7 +55,7 @@ add w (Many mh mods) = Many newMh mods
     newMh =
       case mh of
         Horiz ne -> Horiz $ push Back Focused (Sized 0 w) ne
-        Floating ne -> Floating $ push Back Focused (WithRect (Rect 0 0 500 500) w) ne
+        Floating ne -> Floating $ push Back Focused (WithRect (Rect (-1) (-1) (-1) (-1)) w) ne
         TwoCols size ne -> TwoCols size $ push Back Focused (Identity w) ne
 add w t = Many (Horiz (makeFL ((Sized 0.5 $ Fix t) :| [Sized 0.5 w]) 0)) NoMods
 
@@ -319,3 +319,27 @@ putScreens :: XRect -> Tiler -> Tiler
 putScreens xRect = unfix . cata \case
   Monitor _ t -> Monitor xRect t
   t -> Fix t
+
+getTilerFromScreen :: (Tiler -> Bool) -> Screens -> Maybe Tiler
+getTilerFromScreen p screens =
+  find (para (\t -> any snd t || p (map (Fix . fst) t))) $ map snd $ itoList screens
+
+getTilerWithWindow :: Window -> Screens -> Maybe Tiler
+getTilerWithWindow w = getTilerFromScreen \case
+  Wrap (ParentChild p c) -> p == w || c == w
+  _ -> False
+
+screensToTilers :: Screens -> [Tiler]
+screensToTilers = map snd . itoList
+
+fixFloating :: Tiler -> Tiler
+fixFloating root = unfix $ flip cata root \case
+  Many (Floating fl) mods ->
+    Many (Floating (map fixRect fl)) mods
+  t -> Fix t
+  where Just (Rect{..}) = flip cata root \case
+          Monitor r _ -> Just $ bimap fromIntegral fromIntegral r
+          t -> asum t
+        fixRect (WithRect (Rect (-1) (-1) (-1) (-1)) t) =
+          WithRect (Rect (x + w / 4) (y + h / 4) (w / 2) (h / 2)) t
+        fixRect wr = wr

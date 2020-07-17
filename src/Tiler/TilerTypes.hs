@@ -134,3 +134,5 @@ type Reparenter = Maybe SubTiler -> Tiler
 -- the tree, it could have been reduced to nothing.
 type Unparented = Maybe Tiler
 
+-- |Each screen has an index and an associated Tiler.
+type Screens = IntMap Tiler

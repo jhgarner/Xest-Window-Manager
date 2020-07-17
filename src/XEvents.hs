@@ -22,6 +22,8 @@ import qualified Data.IntMap as IM
 import           Graphics.X11.Xlib.Extras
 import Config
 import Actions.ActionTypes
+import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Class
 
 -- |Called when we want to reparent a window
 reparentWin :: Members '[EventFlags, GlobalX, Log LogData, Property] m
@@ -46,20 +48,20 @@ deriving instance Show SizeHints
 -- |Called when a new top level window wants to exist
 mapWin :: Members (Inputs '[Pointer, Screens]) m
        => Members [EventFlags, GlobalX, Property, Log LogData, Mover] m
-       => Members (States [Tiler, Maybe (), ActiveScreen, Screens, LostWindow, OldTime, DockState]) m
+       => Members (States [Screens, Tiler, Maybe (), ActiveScreen, Screens, LostWindow, OldTime, DockState]) m
        => ParentChild
        -> m ()
 mapWin pc@(ParentChild newWin window) = do
   log $ LD "MapWin" "Mapping a window"
-  transient <- getTransientFor window
+  let tWin :: SubTiler = Wrap pc
 
-  let tWin :: SubTiler = Wrap $ ParentChild newWin window
-
-  -- If a window wants to be transient for itself, just make it a normal window
-  case if transient == Just window then Nothing else transient of
-    Just parent -> do
-      log $ LD "MapWin" "Found a transient window!"
+  wasTransient <- runMaybeT $ do
+    parent <- MaybeT $ getTransientFor window
+    guard $ parent /= window
+    setScreenFromWindow parent
+    MaybeT do
       root <- get @Tiler
+      log $ LD "MapWin" "Found a transient window!"
       SizeHints{..} <- getSizeHints window
       let idealSize = fromMaybe (500, 500) sh_min_size
       let tilerParent = Wrap $ ParentChild parent parent
@@ -70,25 +72,26 @@ mapWin pc@(ParentChild newWin window) = do
           | worked -> put @Tiler newRoot >> newFocus newWin
           | workedAlt -> put @Tiler altNewRoot >> newFocus newWin
           | otherwise -> modify @LostWindow (M.insertWith (++) parent [pc])
+      return $ Just ()
 
-    Nothing -> do
-      modify @Tiler $ applyInput $ coerce $ \tiler -> map (add tWin) tiler <|> Just (coerce tWin)
-      newFocus newWin
+  unless (isJust wasTransient) do
+    -- If a window wants to be transient for itself, just make it a normal window
+    modify @Tiler $ applyInput $ coerce $ \tiler -> map (add tWin) tiler <|> Just (coerce tWin)
+    newFocus newWin
 
-      -- Make the window full screen if needed
-      wm_state <- getAtom False "_NET_WM_STATE"
-      full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
-      isFullScreen <- (== Just full_screen) . headMay <$> getProperty 32 wm_state window
-      when isFullScreen $
-        makeFullscreen window 1
+    -- Make the window full screen if needed
+    wm_state <- getAtom False "_NET_WM_STATE"
+    full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
+    isFullScreen <- (== Just full_screen) . headMay <$> getProperty 32 wm_state window
+    when isFullScreen $
+      makeFullscreen window 1
 
-
-
-  -- Were any lost children expecting to find this window?
-  lostChildren <- view (at window) <$> get @LostWindow
-  traverse_ (traverse_ mapWin) lostChildren
+    -- Were any lost children expecting to find this window?
+    lostChildren <- view (at window) <$> get @LostWindow
+    traverse_ (traverse_ mapWin) lostChildren
 
   where 
+    -- Yikes to these two functions
     usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
     usingFloating (newW, newH) t newTiler = coerce . cata (\case
       oldT@(Many (Floating fl) mods) ->
@@ -108,12 +111,12 @@ mapWin pc@(ParentChild newWin window) = do
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.
-killed :: Members (GlobalX ': States [Tiler, LocCache, Maybe (), Docks]) m
+killed :: Members (GlobalX ': States [Screens, LocCache, Maybe (), Docks]) m
        => Window 
        -> m ()
 killed window = do
   -- Find the parent in the tree and kill it.
-  parentM <- findParent window <$> get @Tiler
+  parentM <- asum . map (findParent window) <$> gets @Screens screensToTilers
   case parentM of
     Just parent -> do
       kill True parent
@@ -122,12 +125,12 @@ killed window = do
   -- Remove the window from our cache
   modify @LocCache $ M.delete window
   -- Remove the window from the tree.
-  modify @Tiler $ ripOut window
+  modify @Screens $ map (ripOut window)
   -- Remove the window from the docks cache.
   modify @Docks $ Docks . mfilter (/= window) . undock
 
 -- |A window is either dying slowly or has been minimized.
-unmapWin :: Members (States [Tiler, Set Window, LocCache, Maybe (), Docks]) m
+unmapWin :: Members (States [Screens, Set Window, LocCache, Maybe (), Docks]) m
          => Members [GlobalX, Property] m
          => Window 
          -> m ()
@@ -137,9 +140,9 @@ unmapWin window = do
   -- we explicitly minimized ends up in a set (Thanks XMonad for the idea).
   -- If the window is in the set, we don't need to do anything.
   minimized <- get @(Set Window)
-  root <- get @Tiler
+  roots <- get @Screens
 
-  unless (view (contains window) minimized || not (findWindow window root)) $ do
+  unless (view (contains window) minimized || isNothing (getTilerWithWindow window roots)) $ do
     -- Windows that weren't minimized but were unmapped are probably dying.
     -- We need to move the window onto the root so that we can kill the parent
     -- and it can die in its own time.
@@ -149,7 +152,7 @@ unmapWin window = do
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
 rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders] m
-           => Members (States [Tiler, Maybe (), Screens, ActiveScreen, [SubTiler]]) m
+           => Members (States [Maybe (), Screens, ActiveScreen, [SubTiler]]) m
            => m ()
 rootChange = do
   -- Update the list of screens
@@ -179,14 +182,14 @@ rootChange = do
 -- |Called when the mouse moves between windows or when the user
 -- clicks a window.
 newFocus :: Members '[Input Screens, Property, Input Pointer, Log LogData] m
-         => Members (States [Tiler, Maybe (), ActiveScreen, Screens, OldTime]) m
+         => Members (States [Screens, Tiler, Maybe (), ActiveScreen, Screens, OldTime]) m
          => Window
          -> m ()
 newFocus window = do
   -- Change our tree so the focused window is the one we're hovering over
   -- It will get focused next time we redraw
+  runMaybeT $ setScreenFromWindow window <|> lift setScreenFromMouse
   modify @Tiler \tiler -> fromMaybe tiler $ focusWindow window tiler
-  setScreenFromMouse
   put @(Maybe ()) $ Just ()
 
 
@@ -318,12 +321,13 @@ changeSize mouseLoc screen (Many mh mods) =
 
 changeSize _ _ t = t
 
-makeFullscreen :: Members '[State Tiler, Property, State DockState, State (Maybe ()), Mover] m
+makeFullscreen :: Members '[State Screens, State Tiler, Property, State ActiveScreen, State DockState, State (Maybe ()), Mover] m
                => Window
                -> Int
                -> m ()
 makeFullscreen window isSet = do
   put @(Maybe ()) $ Just ()
+  runMaybeT $ setScreenFromWindow window
   -- Get the static parameters on Monitor and IC
   loc <- gets @Tiler $ fromMaybe (error "Lost Mon") . cata \case
     Monitor loc _ -> Just loc
@@ -359,3 +363,9 @@ makeFullscreen window isSet = do
       putProperty 32 wm_state window aTOM $ map fromIntegral (mfilter (/= wm_full) currentState)
       changeLocation (ParentChild window window) $ Rect 1 1 1 1
       put @DockState Visible
+
+setScreenFromWindow :: Members '[State Screens, State ActiveScreen] m => Window -> MaybeT m ()
+setScreenFromWindow window = do
+  tilers <- lift $ gets @Screens $ zip [0..] . screensToTilers
+  (i, _) <- MaybeT $ return $ find snd $ map (second $ findWindow window) tilers
+  lift $ put @ActiveScreen i
