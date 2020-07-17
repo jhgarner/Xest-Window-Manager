@@ -264,11 +264,5 @@ pattern Text :: BasePrelude.String -> Text
 pattern Text a <- (view _Text -> a) where
   Text a = review _Text a
 
-instance (Monad m, Semigroup a) => Semigroup (WrappedMonad m a) where
-  (WrapMonad a) <> (WrapMonad b) = WrapMonad $ liftM2 (<>) a b
-  
-instance (Monad m, Monoid a) => Monoid (WrappedMonad m a) where
-  mempty = return mempty
-
 modify :: forall a m. HasState a a m => (a -> a) -> m ()
 modify = modify' @a

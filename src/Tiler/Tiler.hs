@@ -343,3 +343,9 @@ fixFloating root = unfix $ flip cata root \case
         fixRect (WithRect (Rect (-1) (-1) (-1) (-1)) t) =
           WithRect (Rect (x + w / 4) (y + h / 4) (w / 2) (h / 2)) t
         fixRect wr = wr
+
+removeDangerous :: Tiler -> Maybe SubTiler
+removeDangerous = cata \case
+  Monitor _ t -> join t
+  InputController _ t -> join t
+  t -> coerce reduce t

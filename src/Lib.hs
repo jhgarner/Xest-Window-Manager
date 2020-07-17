@@ -176,7 +176,7 @@ mainLoop event = do
     -- The pointer moved and we probably want to resize something.
     MotionEvent {..} -> motion
     -- A press of the keyboard.
-    KeyEvent {..} -> put @OldTime (OldTime ev_time) >> keyDown ev_keycode ev_event_type >>= unwrapMonad . foldMap (WrapMonad . executeActions)
+    KeyEvent {..} -> put @OldTime (OldTime ev_time) >> keyDown ev_keycode ev_event_type >>= foldMap executeActions
     -- This usually means the keyboard layout changed.
     MappingNotifyEvent {} -> reloadConf
     -- Some other window sent us a message. Currently, we only care if they

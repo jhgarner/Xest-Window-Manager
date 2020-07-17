@@ -132,7 +132,7 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
           else do
             restore p
             restore c
-            liftIO $ setInputFocus d c revertToNone currentTime
+            liftIO $ setInputFocus d c revertToPointerRoot currentTime
         liftIO $ cata (grabOthers d c) root
         put @FocusedCache $ FocusedCache c
     liftIO $ allowEvents d replayPointer currentTime >> sync d False

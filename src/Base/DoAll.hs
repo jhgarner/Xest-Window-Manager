@@ -121,6 +121,12 @@ newtype M a = M { runM :: R.ReaderT Ctx IO a }
   deriving (Input XCursor) via (FromInput "cursor")
   deriving (Log LogData) via (Logger M)
 
+instance Semigroup a => Semigroup (M a) where
+  a <> b = liftM2 (<>) a b
+  
+instance Monoid a => Monoid (M a) where
+  mempty = return mempty
+
 type LostWindow = Map Window [ParentChild]
 
 -- Want to do everything in IO? Use this!

@@ -152,7 +152,7 @@ unmapWin window = do
 -- |If we get a configure window event on the root, it probably means the user
 -- connected a new monitor or removed an old one.
 rootChange :: Members '[Input [XineramaScreenInfo], Input NewBorders] m
-           => Members (States [Maybe (), Screens, ActiveScreen, [SubTiler]]) m
+           => Members (States [Maybe (), Screens, ActiveScreen, [SubTiler], FocusedCache]) m
            => m ()
 rootChange = do
   -- Update the list of screens
@@ -175,7 +175,11 @@ rootChange = do
     if notNullOf (at activeScreen) newScreens then activeScreen else fromJust $ headMay (IM.keys newScreens)
 
   -- Put all of the dead monitors into the minimized window stack
-  traverse_ ((unwrapMonad . foldMap WrapMonad . map (modify @[SubTiler] . (:)))) $ IM.difference oldScreens newScreens
+  -- TODO is there a function that does nested traversals for me?
+  traverse_ (traverse_ (modify @[SubTiler] . (:)) . removeDangerous) $ IM.difference oldScreens newScreens
+
+  -- Ask Xest to redraw and refocus
+  put @FocusedCache $ FocusedCache 0
   put @(Maybe ()) $ Just ()
   
 
@@ -197,6 +201,7 @@ newFocus window = do
 keyDown :: Members '[Property, Executor] m
        => Members (Inputs [Conf, Pointer, MouseButtons]) m
        => Members (States [Tiler, Mode, KeyStatus, Maybe ()]) m
+       => Monoid (m ())
        => KeyCode
        -> EventType
        -> m [Action]
@@ -229,7 +234,7 @@ keyDown keycode eventType
   | otherwise = do
     put @(Maybe ()) $ Just ()
     currentKS <- get @KeyStatus
-    let (newKS_, actions) = (\(a, b) -> (unwrapMonad a, b)) $ foldMap (\(a, b) -> (WrapMonad a, b)) $ para doRelease currentKS
+    let (newKS_, actions) = (\(a, b) -> (a, b)) $ foldMap (\(a, b) -> (a, b)) $ para doRelease currentKS
     newKS_
     return actions
       where doRelease :: State KeyStatus m
