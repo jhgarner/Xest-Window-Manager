@@ -25,7 +25,7 @@ packager='Jack Garner'
 arch='x86_64'
 license='BSD3'
 
-build() {
+package() {
   cd "$pkgname-$pkgver"
   out=$pkgdir
   install.sh
