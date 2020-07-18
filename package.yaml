@@ -32,9 +32,6 @@ dependencies:
 - comonad
 - deriving-compat
 - containers
-- QuickCheck
-- generic-arbitrary
-- quickcheck-instances
 - chunked-data
 - sdl2
 - sdl2-ttf
@@ -45,6 +42,7 @@ dependencies:
 - time
 - capability
 - transformers
+- directory
 
 library:
   source-dirs: src
@@ -123,3 +121,6 @@ tests:
     - -Wall
     dependencies:
     - xest
+    - QuickCheck
+    - generic-arbitrary
+    - quickcheck-instances
