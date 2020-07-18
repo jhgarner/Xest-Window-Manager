@@ -1,14 +1,14 @@
 ----------Useful Environment Settings----------
-let terminal = "termite"
+let terminal = "/etc/xest/sensible-terminal.sh"
 --^ The command used to launch your terminal
-let fontLoc = "/usr/share/fonts/OTF/Fira Code Regular Nerd Font Complete.otf"
---^ The fonts Xest will use in its UI
-let launcher = "rofi -show drun"
+let fontLoc = "/usr/share/fonts/TTF/DejaVuSans.ttf"
+--^ The font Xest will use in its UI
+let launcher = "/etc/xest/sensible-launcher.sh"
 --^ The command you use to launch other apps
 
 
 ----------Action File Helpers----------
-let Actions = ./actions.dhall
+let Actions = /etc/xest/actions.dhall
 let Action = Actions.Actions
 let Back = Actions.Direction.Back
 let Front = Actions.Direction.Front
@@ -27,14 +27,16 @@ let mkDesktops = \(n: Natural) ->
 
 
 ----------Keybinding Modes----------
-let Normal = { modeName = "Normal", hasButtons = False, hasBorders = True }
-let NormalS = { modeName = "NormalS", hasButtons = False, hasBorders = True }
-let Resize = { modeName = "Resize", hasButtons = True, hasBorders = True }
+let Normal = { modeName = "Normal", hasButtons = True, hasBorders = True }
+let NormalS = { modeName = "NormalS", hasButtons = True, hasBorders = True }
 let Insert = { modeName = "Insert", hasButtons = False, hasBorders = False }
 
 
 in {
-  startupScript = "~/.config/xest/startup.sh",
+  startupScript = "/etc/xest/startup.sh",
+  --^ Replace with your startup script which launches things like compton
+  -- Or modify the one in /etc/
+
   initialMode = Insert,
   fontLocation = fontLoc,
 
@@ -47,7 +49,6 @@ in {
     newKey Normal (
       [ {key = "Escape", actions = [Action.ChangeModeTo Insert]}
       , {key = "Shift_L", actions = [Action.ChangeModeTo NormalS]}
-      , {key = "r", actions = [Action.ChangeModeTo Resize]}
       , {key = "Return", actions = [Action.RunCommand terminal]}
       , {key = "space", actions = [Action.RunCommand launcher]}
       , {key = "f", actions = [Action.ToggleDocks]}
@@ -76,9 +77,5 @@ in {
       , {key = "x", actions = [Action.KillActive]}
       , {key = "b", actions = [Action.ExitNow]}
       , {key = "z", actions = [Action.ZoomInMonitor]}
-      ]
-    #
-    newKey Resize
-      [ {key = "Escape", actions = [Action.ChangeModeTo Normal]}
       ]
 }
