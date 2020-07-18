@@ -1,4 +1,5 @@
-pkgname='Xest-Window-Manager-git'
+# Maintainer: Jack Garner <jgarner@mymail.mines.edu>
+pkgname='xest-window-manager-git'
 
 pkgver=r142.3176112
 pkgver() {
@@ -17,20 +18,36 @@ optdepends=('compton: A compositor'
             'rofi: Program launcher'
             'dunst: Notifications')
 
-backup=('etc/xest/config.dhall' 'etc/xest/config.99.dhall' 'etc/xest/startup.sh' 'etc/xest/actions.dhall')
+backup=('etc/xest/config.dhall' 'etc/xest/config.99.dhall' 'etc/xest/startup.sh')
 
 source=('git+https://github.com/jhgarner/Xest-Window-Manager')
 # source=('https://github.com/jhgarner/Xest-Window-Manager/releases/download/')
 md5sums=('SKIP')
 pkgdesc='The zesty window manager'
 url='https://github.com/jhgarner/Xest-Window-Manager'
-packager='Jack Garner'
 arch=('x86_64')
 license=('BSD3')
 
 package() {
   cd "Xest-Window-Manager"
   git checkout arch
-  out=$pkgdir
-  bash ./install.sh
+  stack build
+  stack install --local-bin-path "$pkgdir"/usr/bin/
+
+  desktop=$(cat <<END
+[Desktop Entry]
+Name=Xest
+Comment=The zesty window manager
+Exec=/usr/bin/xest-exe
+TryExec=/usr/bin/env
+Type=Application
+DesktopName=Xest
+END
+)
+
+  mkdir -p "$pkgdir"/usr/share/xsessions/
+  echo "$desktop" > "$pkgdir"/usr/share/xsessions/xest.desktop
+
+  mkdir -p "$pkgdir"/etc/xest/
+  cp config/* "$pkgdir"/etc/xest/
 }
