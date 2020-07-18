@@ -1,1 +1,1 @@
-rofi -show drun || dunst
+rofi -show drun || dmenu_run
