@@ -85,13 +85,15 @@ instance MonadTransControl FakeBorders where
   restoreT = lift
 newtype NewBorders = NewBorders Borders
 newtype XestBorders = XestBorders [Window]
-instance MonadIO m => HasSource NewBorders NewBorders (FakeBorders m) where
+instance (MonadIO m, Input Display m) => HasSource NewBorders NewBorders (FakeBorders m) where
   await_ _ = do
+    display <- lift $ input @Display
     windows <- liftIO $ replicateM 4 $ SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
     -- TODO this way of handling borders is a little sketchy...
     let [lWin, dWin, uWin, rWin] = windows
     let nb = NewBorders (lWin, dWin, uWin, rWin)
     liftIO $ addFinalizer nb $ forM_ windows SDL.destroyWindow >> putStrLn "Finalized"
+    liftIO $ sync display False
     return nb
 
 

@@ -66,10 +66,12 @@ refresh = do
 
     -- restack all of the windows
     Docks topWindows <- get @Docks
+    borderWins <- getWindowByClass "xest-exe"
     log $ LD "TOP WINDOWS" $ show topWindows
+    log $ LD "BORDER WINDOWS" $ show borderWins
     log $ LD "Rendering" "Has started"
     middleWins <- render
-    restack $ topWindows ++ map getParent middleWins
+    restack $ borderWins ++ topWindows ++ map getParent middleWins
     allBorders <- inputs @Screens $ map getBorders . toList
     forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
     log $ LD "Rendering" "Has finished"
@@ -162,11 +164,13 @@ placeWindow root =
 -- showing or hiding a window. TODO Can I just ask the user to use some random
 -- bash utility instead?
 getWindowByClass
-  :: Members [Property, GlobalX] m
+  :: Members [Property, GlobalX, Log LogData] m
   => Text
   -> m [Window]
 getWindowByClass wName = do
   childrenList <- getTree
+  names <- traverse getClassName childrenList
+  log $ LD "WBC" $ show names
   filterM findWindow' childrenList
   where findWindow' win = (== wName) <$> getClassName win
 

@@ -30,9 +30,8 @@ license=('BSD3')
 
 package() {
   cd "Xest-Window-Manager"
-  git checkout arch
-  stack build
-  stack install --local-bin-path "$pkgdir"/usr/bin/
+  stack --no-nix build
+  stack --no-nix install --local-bin-path "$pkgdir"/usr/bin/
 
   desktop=$(cat <<END
 [Desktop Entry]
