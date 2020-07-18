@@ -15,6 +15,8 @@ import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Types
 import           Actions.ActionTypes
 import           System.Process
+import qualified System.Environment as Env
+import System.Directory
 
 -- |A config file. It contains a list of startup scripts, a command to run, and
 -- an initial mode. The a type decides how you want to represent keys.
@@ -54,14 +56,26 @@ data KeyTrigger a = KeyTrigger { key     :: a
                              }
   deriving (Generic, Show, Interpret, Functor, Traversable, Foldable)
 
+findConfFile :: IO Text
+findConfFile = do
+  displayNumber <- fromJust . tailMay <$> Env.getEnv "DISPLAY"
+  homeDir <- Env.getEnv "HOME"
+  let baseDirs = [homeDir ++ "/.config", "/etc"]
+  let suffixes = [displayNumber ++ ".dhall", "dhall"]
+  print $ baseDirs ++ suffixes
+  Just configLoc <- findMOf each doesFileExist [ base <> "/xest/config." <> suffix | base <- baseDirs, suffix <- suffixes]
+  return $ Text configLoc
+
 -- | A simple function to open a config file and parse it.
-readConfig :: Display -> Text -> IO Conf
-readConfig display fileName = do
+readConfig :: Display -> IO Conf
+readConfig display = do
+  fileName <- findConfFile
   x <- detailed $ input (genericAutoWith $ defaultInterpretOptions {singletonConstructors = Bare}) fileName
   confToType display x False
 
 -- | Reloads an existing config
-reloadConfig :: Display -> Text -> IO Conf
-reloadConfig display fileName = do
+reloadConfig :: Display -> IO Conf
+reloadConfig display = do
+  fileName <- findConfFile
   x <- detailed $ input (genericAutoWith $ defaultInterpretOptions {singletonConstructors = Bare}) fileName
   confToType display x True

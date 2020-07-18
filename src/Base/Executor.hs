@@ -10,7 +10,6 @@
 module Base.Executor where
 
 import           Standard
-import qualified System.Environment as Env
 import           Graphics.X11.Xlib.Types
 import           System.Process
 import Config
@@ -38,13 +37,5 @@ instance Members [MonadIO, State Bool, State Conf, Input Display] m => Executor 
 
   reloadConf = do
     display <- input @Display
-    newConf <- liftIO $ do
-      args <- map fromString <$> getArgs
-      let displayNumber = fromMaybe "0" $ headMay args
-
-      -- Read the config file
-      homeDir <- fromString <$> Env.getEnv "HOME"
-      if displayNumber == "0" || displayNumber == "1"
-          then reloadConfig display $ homeDir <> "/.config/xest/config.dhall"
-          else reloadConfig display $ homeDir <> "/.config/xest/config." <> displayNumber <> ".dhall"
+    newConf <- liftIO $ reloadConfig display
     put @Conf newConf
