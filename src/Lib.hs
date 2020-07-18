@@ -23,6 +23,7 @@ import qualified SDL.Font as Font
 import           Base.DoAll
 import           Tiler.Tiler
 import qualified System.Environment as Env
+import System.Directory
 import qualified Data.IntMap                      as IM
 import XEvents
 import Actions.ActionTypes
@@ -42,23 +43,22 @@ startWM = do
   -- We grab it based on the arguments passed to Xest.
   -- By default we pick 1 since that seems to be what GDM offers most
   -- of the time. If you launch it with startx, you probably want 0.
-  displayEnv <- Text . fromJust . tailMay <$> Env.getEnv "DISPLAY"
-  args <- map Text <$> getArgs
+  displayEnv <- fromJust . tailMay <$> Env.getEnv "DISPLAY"
+  args <- getArgs
   let displayNumber = fromMaybe displayEnv $ headMay args
   display <- openDisplay . view _Text $ ":" <> displayNumber
 
-  -- Read the config file from the user's home directory.
-  -- If using display number 0 or 1, you're probably launching a real
-  -- environment using startx or some display manager. In that case,
-  -- we just launch the config.dhall file. If you run Xest on a different
-  -- display, it likely means you're testing and want a slightly different
-  -- config. For example, my testing config uses Alt instead of the Super
-  -- (Windows) key.
-  homeDir <- Text <$> Env.getEnv "HOME"
-  print displayNumber
-  c <- if displayNumber == "0" || displayNumber == "1"
-          then readConfig display $ homeDir <> "/.config/xest/config.dhall"
-          else readConfig display $ homeDir <> "/.config/xest/config." <> displayNumber <> ".dhall"
+  -- Read the config file from the user's home directory or /etc/ If you run
+  -- Xest on a different display, it likely means you're testing and want a
+  -- slightly different config. For example, my testing config uses Alt instead
+  -- of the Super (Windows) key.
+  homeDir <- Env.getEnv "HOME"
+  let baseDirs = [homeDir ++ "/.config", "/etc"]
+  let suffixes = [displayNumber ++ ".dhall", "dhall"]
+  print $ baseDirs ++ suffixes
+  Just configLoc <- findMOf each doesFileExist [ base <> "/xest/config." <> suffix | base <- baseDirs, suffix <- suffixes]
+  c <- readConfig display $ Text configLoc
+
   let startingMode = initialMode c
   font <- Font.load (view _Text $ fontLocation c) 18
 

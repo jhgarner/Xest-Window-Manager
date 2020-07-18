@@ -1,16 +1,23 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 
-export PATH="$coreutils/bin"
+# git clone "https://github.com/jhgarner/Xest-Window-Manager"
+# cd Xest-Window-Manager
 
->&2 echo $bin
+stack build
+stack install --local-bin-path $out/bin/
 
-# mkdir -p $out/share/xsessions/
-# cp $desktop $out/share/xsessions/xest.desktop
+desktop="
+[Desktop Entry]
+Name=Xest
+Comment=The zesty window manager
+Exec=/usr/bin/xest-exe
+TryExec=/usr/bin/env
+Type=Application
+DesktopName=Xest
+"
 
-mkdir -p $out/bin/
-cp $bin $out/bin/xest
+mkdir -p $out/share/xsessions/
+echo $desktop > $out/share/xsessions/xest.desktop
 
-# mkdir -p $out/etc/xest/
-# cp $config/* $out/etc/xest/
-
-# exit 1
+mkdir -p $out/etc/xest/
+cp config/* $out/etc/xest/

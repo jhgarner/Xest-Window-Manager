@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: bc3b0f05c4e2562acff04817ec5461db1acb840e569dba46ac95f4f6b5f521b3
+-- hash: 1e2c553ad85de61ea40d2ccda0b261400ca647a410f6805579f6e6718ed509c2
 
 name:           xest
 version:        0.1.0.0
@@ -62,8 +62,7 @@ library
   default-extensions: DataKinds FlexibleInstances FlexibleContexts GADTs LambdaCase PolyKinds RankNTypes ScopedTypeVariables TypeApplications TypeOperators TypeFamilies NoImplicitPrelude BlockArguments DeriveFunctor DeriveFoldable DeriveTraversable DeriveGeneric DerivingStrategies
   ghc-options: -Weverything -Wno-implicit-prelude -Wno-orphans -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-missing-export-lists -Wno-partial-type-signatures -Wno-missing-deriving-strategies -j +RTS -A128m -n2m -RTS -flate-specialise -fexpose-all-unfoldings -fspecialise-aggressively
   build-depends:
-      QuickCheck
-    , X11
+      X11
     , base >=4.7 && <5
     , base-prelude
     , bifunctors
@@ -73,13 +72,12 @@ library
     , containers
     , deriving-compat
     , dhall
+    , directory
     , free
-    , generic-arbitrary
     , lens
     , monad-control
     , mtl
     , process
-    , quickcheck-instances
     , recursion-schemes
     , sdl2
     , sdl2-ttf
@@ -97,8 +95,7 @@ executable xest-exe
       app
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
   build-depends:
-      QuickCheck
-    , X11
+      X11
     , base >=4.7 && <5
     , base-prelude
     , bifunctors
@@ -108,13 +105,12 @@ executable xest-exe
     , containers
     , deriving-compat
     , dhall
+    , directory
     , free
-    , generic-arbitrary
     , lens
     , monad-control
     , mtl
     , process
-    , quickcheck-instances
     , recursion-schemes
     , sdl2
     , sdl2-ttf
@@ -145,6 +141,7 @@ test-suite xest-test
     , containers
     , deriving-compat
     , dhall
+    , directory
     , free
     , generic-arbitrary
     , lens
