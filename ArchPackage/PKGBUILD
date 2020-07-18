@@ -1,16 +1,17 @@
-pkgname='xest'
+pkgname='Xest-Window-Manager-git'
 
+pkgver=r142.3176112
 pkgver() {
-  cd "$pkgname"
+  cd "Xest-Window-Manager"
   ( set -o pipefail
     git describe --long 2>/dev/null | sed 's/\([^-]*-g\)/r\1/;s/-/./g' ||
     printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
   )
 }
-pkgrel='1'
+pkgrel=1
 
-makedepends=('git' 'stack-static' 'gcc' 'zlib')
-depends=('sdl2_ttf' 'libxss' 'libxinerama' 'libxrandr')
+makedepends=('git' 'stack' 'gcc' 'zlib')
+depends=('sdl2_ttf' 'libxss' 'libxinerama' 'libxrandr' 'ttf-dejavu')
 optdepends=('compton: A compositor'
             'polybar: System bar'
             'rofi: Program launcher'
@@ -18,15 +19,18 @@ optdepends=('compton: A compositor'
 
 backup=('etc/xest/config.dhall' 'etc/xest/config.99.dhall' 'etc/xest/startup.sh' 'etc/xest/actions.dhall')
 
-source='git+https://github.com/jhgarner/Xest-Window-Manager'
+source=('git+https://github.com/jhgarner/Xest-Window-Manager')
+# source=('https://github.com/jhgarner/Xest-Window-Manager/releases/download/')
+md5sums=('SKIP')
 pkgdesc='The zesty window manager'
 url='https://github.com/jhgarner/Xest-Window-Manager'
 packager='Jack Garner'
-arch='x86_64'
-license='BSD3'
+arch=('x86_64')
+license=('BSD3')
 
 package() {
-  cd "$pkgname-$pkgver"
+  cd "Xest-Window-Manager"
+  git checkout arch
   out=$pkgdir
-  install.sh
+  bash ./install.sh
 }
