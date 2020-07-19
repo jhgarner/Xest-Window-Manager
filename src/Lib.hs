@@ -17,7 +17,6 @@ import           Graphics.X11.Xlib.Event
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Misc
 import           Graphics.X11.Xlib.Window
-import           Graphics.X11.Xlib.Types
 import           SDL hiding (get, Window, Display, trace, Mode, Event)
 import qualified SDL.Font as Font
 import           Base.DoAll
@@ -26,12 +25,23 @@ import qualified Data.IntMap                      as IM
 import XEvents
 import Actions.ActionTypes
 import Actions.Actions
+import Text.Regex (mkRegex, subRegex)
 import qualified Control.Exception as E
 import qualified System.Environment as Env
 
--- | Starting point of the program. This function should never return
+-- | Wraps Xest in some basic logging and error handling.
 startWM :: IO ()
 startWM = do
+  -- This should only get filled if some part of initialization fails
+  E.catch runWM \(e :: SomeException) -> do
+    writeFile "/tmp/xest_init.err" $ Text $ filterAnsi $ displayException e
+  where ansiRegex = mkRegex "\\[[0-9;?]+m" 
+        filterAnsi line = subRegex ansiRegex stripped ""
+          where stripped = mfilter (/= '\ESC') line
+
+-- | Starting point of the program. This function should never return
+runWM :: IO ()
+runWM = do
   -- We want antialiasing on our text and normal Xlib can't give us that.
   -- We use SDL for the window borders to get around that problem.
   -- Here we initialize SDL and its cool fonts.
@@ -43,7 +53,6 @@ startWM = do
   -- By default we pick 1 since that seems to be what GDM offers most
   -- of the time. If you launch it with startx, you probably want 0.
   displayNumber <- fromJust . tailMay <$> Env.getEnv "DISPLAY"
-  args <- getArgs
   display <- openDisplay . view _Text $ ":" <> displayNumber
 
   -- Read the config file from the user's home directory or /etc/ If you run
@@ -112,7 +121,7 @@ startWM = do
   -- err file.
   E.catch (doAll logHistory screens c startingMode display root font cursor (getXEvents >>= overStream mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
-    let header = "Xest crashed with the exception: " <> show e <> "\n"
+    let header = "Xest crashed with the exception: " <> Text (displayException e) <> "\n"
     writeFile "/tmp/xest.err" $ header <> lastLog <> "\n"
 
 

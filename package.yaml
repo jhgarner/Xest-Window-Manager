@@ -43,6 +43,7 @@ dependencies:
 - capability
 - transformers
 - directory
+- regex-compat
 
 library:
   source-dirs: src

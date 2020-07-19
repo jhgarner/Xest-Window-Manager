@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1e2c553ad85de61ea40d2ccda0b261400ca647a410f6805579f6e6718ed509c2
+-- hash: b5dfad8775f3edf7e47c6c0eff54896f27e2436bd801f3a9bd3fb07cfbb10acf
 
 name:           xest
 version:        0.1.0.0
@@ -79,6 +79,7 @@ library
     , mtl
     , process
     , recursion-schemes
+    , regex-compat
     , sdl2
     , sdl2-ttf
     , template-haskell
@@ -112,6 +113,7 @@ executable xest-exe
     , mtl
     , process
     , recursion-schemes
+    , regex-compat
     , sdl2
     , sdl2-ttf
     , template-haskell
@@ -150,6 +152,7 @@ test-suite xest-test
     , process
     , quickcheck-instances
     , recursion-schemes
+    , regex-compat
     , sdl2
     , sdl2-ttf
     , template-haskell
