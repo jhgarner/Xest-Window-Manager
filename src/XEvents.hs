@@ -4,6 +4,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE OverloadedLists #-}
 
 
 module XEvents where
@@ -55,59 +56,55 @@ mapWin pc@(ParentChild newWin window) = do
   log $ LD "MapWin" "Mapping a window"
   let tWin :: SubTiler = Wrap pc
 
-  wasTransient <- runMaybeT $ do
-    parent <- MaybeT $ getTransientFor window
-    guard $ parent /= window
-    setScreenFromWindow parent
-    MaybeT do
-      root <- get @Tiler
-      log $ LD "MapWin" "Found a transient window!"
-      SizeHints{..} <- getSizeHints window
-      let idealSize = fromMaybe (500, 500) sh_min_size
-      let tilerParent = Wrap $ ParentChild parent parent
-          -- TODO Yikes lines
-          (worked, newRoot) = usingFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
-          (workedAlt, altNewRoot) = makeFloating (bimap fromIntegral fromIntegral idealSize) tilerParent tWin root
-      if
-          | worked -> put @Tiler newRoot >> newFocus newWin
-          | workedAlt -> put @Tiler altNewRoot >> newFocus newWin
-          | otherwise -> modify @LostWindow (M.insertWith (++) parent [pc])
-      return $ Just ()
+  void $ runMaybeT $
+    do
+      parent <- MaybeT $ getTransientFor window
+      guard $ parent /= window
+      setScreenFromWindow parent
+      MaybeT do
+        root <- get @Tiler
+        log $ LD "MapWin" "Found a transient window!"
+        SizeHints{..} <- getSizeHints window
+        let idealSize = maybe (-1, -1) (over both fromIntegral) sh_min_size
+        let tilerParent = Wrap $ ParentChild parent parent
+            newRoot = foldMap1 (\f -> f idealSize tilerParent tWin root)
+                        $ usingFloating :| [makeFloating]
+        extract $ 
+          map (\t -> put @Tiler t >> newFocus newWin) newRoot <>
+          Succeeded (modify @LostWindow (M.insertWith (++) parent [pc]))
+        return $ Just ()
+    <|> lift do
+      -- If a window wants to be transient for itself, just make it a normal window
+      modify @Tiler $ applyInput $ coerce $ \tiler -> map (add tWin) tiler <|> Just (coerce tWin)
+      newFocus newWin
+      -- Make the window full screen if needed
+      wm_state <- getAtom False "_NET_WM_STATE"
+      full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
+      isFullScreen <- (== Just full_screen) . headMay <$> getProperty 32 wm_state window
+      when isFullScreen $
+        makeFullscreen window 1
 
-  unless (isJust wasTransient) do
-    -- If a window wants to be transient for itself, just make it a normal window
-    modify @Tiler $ applyInput $ coerce $ \tiler -> map (add tWin) tiler <|> Just (coerce tWin)
-    newFocus newWin
-
-    -- Make the window full screen if needed
-    wm_state <- getAtom False "_NET_WM_STATE"
-    full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
-    isFullScreen <- (== Just full_screen) . headMay <$> getProperty 32 wm_state window
-    when isFullScreen $
-      makeFullscreen window 1
-
-    -- Were any lost children expecting to find this window?
-    lostChildren <- view (at window) <$> get @LostWindow
-    traverse_ (traverse_ mapWin) lostChildren
+      -- Were any lost children expecting to find this window?
+      lostChildren <- view (at window) <$> get @LostWindow
+      traverse_ (traverse_ mapWin) lostChildren
 
   where 
     -- Yikes to these two functions
-    usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
-    usingFloating (newW, newH) t newTiler = coerce . cata (\case
+    usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> Tagged Tiler
+    usingFloating (newW, newH) t newTiler = coerce . cata \case
       oldT@(Many (Floating fl) mods) ->
         let bottom = fst $ pop (Left Front) fl
-         in if (False, t) == extract bottom
-              then (True, Many (Floating $ push Back Focused (WithRect (Rect 0 0 newW newH) newTiler) $ map (map snd) fl) mods)
-              else (any fst oldT, Fix $ map snd oldT)
-      oldT -> (any fst oldT, Fix $ map snd oldT))
+         in if Failed t == extract bottom
+              then Succeeded $ Many (Floating $ push Back Focused (WithRect (Rect 0 0 newW newH) newTiler) $ map (map extract) fl) mods
+              else Fix <$> sequenceA oldT
+      oldT -> Fix <$> sequenceA oldT
 
-    makeFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> (Bool, Tiler)
-    makeFloating (newW, newH) t newTiler = coerce . cata (\oldTAndB ->
-      let oldT = map snd oldTAndB
-          wasFound = any fst oldTAndB
+    makeFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> Tagged Tiler
+    makeFloating (newW, newH) t newTiler = coerce . cata \oldTAndB ->
+      let oldT = map extract oldTAndB
        in if oldT == unfix t
-            then (True, Many (Floating $ makeFL (WithRect (Rect 0 0 500 500) (Fix oldT) :| [WithRect (Rect 0 0 newW newH) newTiler]) 1) NoMods)
-            else (wasFound, Fix oldT))
+            then Succeeded $ Many (Floating $ makeFL (WithRect (Rect (-1) (-1) (-1) (-1)) (Fix oldT) :| [WithRect (Rect 0 0 newW newH) newTiler]) 1) NoMods
+            else Fix <$> sequenceA oldTAndB
 
 -- |A window was killed and no longer exists. Remove everything that
 -- was related to it.

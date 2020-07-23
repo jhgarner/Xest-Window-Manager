@@ -340,7 +340,7 @@ fixFloating root = unfix $ flip cata root \case
   where Just (Rect{..}) = flip cata root \case
           Monitor r _ -> Just $ bimap fromIntegral fromIntegral r
           t -> asum t
-        fixRect (WithRect (Rect (-1) (-1) (-1) (-1)) t) =
+        fixRect (WithRect (Rect _ _ (-1) (-1)) t) =
           WithRect (Rect (x + w / 4) (y + h / 4) (w / 2) (h / 2)) t
         fixRect wr = wr
 

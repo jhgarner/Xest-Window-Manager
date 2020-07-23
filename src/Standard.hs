@@ -50,6 +50,7 @@ module Standard
     , remove
     , error
     , pattern Text
+    , Tagged (..)
     ) where
 
 import BasePrelude as All hiding (gunfold, log, tail, head, init, last, fmap, map, show, lazy, arr, uncons, index, String, error, left, right, appendFile, getContents, getLine, interact, putStrLn, putStr, readFile, writeFile, filter, (!!), unlines)
@@ -84,6 +85,7 @@ import Control.Monad.State.Strict (StateT(runStateT))
 import Capability.State as All hiding (zoom, modify)
 import Capability.Sink as All hiding (yield)
 import Capability.Source as All
+import Data.Semigroup.Foldable as All
 
 -- instance 
 -- runInputIO :: IO i 
@@ -266,3 +268,23 @@ pattern Text a <- (view _Text -> a) where
 
 modify :: forall a m. HasState a a m => (a -> a) -> m ()
 modify = modify' @a
+
+-- TODO This feels like something there should be a library for
+data Tagged a = Failed a | Succeeded a
+  deriving (Show, Eq, Read, Functor, Foldable, Traversable)
+
+instance Semigroup (Tagged a) where
+  Failed _ <> a = a
+  a <> _ = a
+
+instance Applicative Tagged where
+  pure a = Failed a
+  Succeeded f <*> ta = pure $ f $ extract ta
+  Failed f <*> ta = fmap f ta
+
+instance Comonad Tagged where
+  extract (Failed a) = a
+  extract (Succeeded a) = a
+
+  duplicate (Failed a) = Failed $ Failed a
+  duplicate (Succeeded a) = Succeeded $ Succeeded a
