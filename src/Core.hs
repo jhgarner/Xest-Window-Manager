@@ -70,10 +70,13 @@ refresh = do
     log $ LD "TOP WINDOWS" $ show topWindows
     log $ LD "BORDER WINDOWS" $ show borderWins
     log $ LD "Rendering" "Has started"
+    
     middleWins <- render
-    restack $ borderWins ++ topWindows ++ map getParent middleWins
     allBorders <- inputs @Screens $ map getBorders . toList
     forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
+
+    restack $ topWindows ++ borderWins ++ map getParent middleWins
+
     log $ LD "Rendering" "Has finished"
 
     -- tell X to focus whatever we're focusing

@@ -35,7 +35,7 @@ class EventFlags m where
   selectButtons :: Mode -- ^ The mode we want to bind buttons for
                 -> m ()
 
-  -- |Grab all of the key evetns on the root window
+  -- |Grab all of the key events on the root window
   rebindKeys :: Mode -- ^ The mode we want to unbind keys for
              -> Mode -- ^ The mode we want to bind keys for
              -> m ()
