@@ -3,20 +3,32 @@ title: Home
 date: 2015-1-1
 ---
 
-What is Xest?
-=============
+Using Xest
+==========
 
-Xest is an X11 Window Manager with both tiling and floating support. It is
-inspired by other projects like i3 and XMonad.
-
-The defining characteristic of Xest is its explicit, tree-like nesting. Xest
-isn't unique because it represents layouts and windows like a tree; i3 does that
-already.  What makes Xest unique is the direct control users have over the tree.
-This increase in control allows you to work with things like nested workspaces.
+While the user guide covers the technical documentation for how everything
+works, this guide covers best practices for how to actually use Xest.
 
 
-What does this mean in practice?
+
+Startup
 ================================
+
+After installing Xest, you should be thrown into a mostly blank environment. The
+first thing you'll want to do is press the super key.
+
+
+The pink border that appeared signifies that you've entered normal mode.
+Previously, you were in insert mode. You can reenter insert mode by pressing
+escape.
+
+Press and release the super key to enter normal mode, then press and release the
+enter key. This should open up a terminal on your system.
+
+Notice the text on the border. The @ symbol represents the monitor's location.
+Anything to the right of the monitor is considered inside of it and rendered.
+The * represents the input controller. The borders you see are drawn around
+whatever 
 
 Imagine there are two projects you're working on. One of them is a
 research paper and the other is some kind of coding project.
@@ -76,3 +88,4 @@ manager, more work will be needed. Look at the Arch package and try to get the
 non-binary files into the right places.
 
 Check out the other pages on this site for information on using Xest.
+

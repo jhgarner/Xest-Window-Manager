@@ -89,7 +89,7 @@ mapWin pc@(ParentChild newWin window) = do
       traverse_ (traverse_ mapWin) lostChildren
 
   where 
-    -- Yikes to these two functions
+    -- TODO Yikes to these two functions
     usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> Tagged Tiler
     usingFloating (newW, newH) t newTiler = coerce . cata \case
       oldT@(Many (Floating fl) mods) ->
@@ -123,7 +123,7 @@ killed window = do
   modify @LocCache $ M.delete window
   -- Remove the window from the tree.
   modify @Screens $ map (ripOut window)
-  -- Remove the window from the docks cache.
+  -- Remove the window from the dock's cache.
   modify @Docks $ Docks . mfilter (/= window) . undock
 
 -- |A window is either dying slowly or has been minimized.

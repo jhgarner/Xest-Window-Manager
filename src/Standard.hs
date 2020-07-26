@@ -279,7 +279,7 @@ instance Semigroup (Tagged a) where
 
 instance Applicative Tagged where
   pure a = Failed a
-  Succeeded f <*> ta = pure $ f $ extract ta
+  Succeeded f <*> ta = Succeeded $ f $ extract ta
   Failed f <*> ta = fmap f ta
 
 instance Comonad Tagged where

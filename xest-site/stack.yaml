@@ -1,3 +1,9 @@
 resolver: lts-14.16
+nix:
+  enable: true
+  packages:
+    # - xss-lock
+    - gcc
+    - zlib
 extra-deps:
 - hakyll-4.13.0.1
