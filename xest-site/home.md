@@ -74,14 +74,17 @@ goes wrong. All logs get output there.
 I want to try it out!
 =====================
 
-If you're using arch, check out the package in the release section of the Github
-project. You can install it using "pacman -U <path to tar.gz file>" Once you do
-that, follow the instructions in the user guide.
+If you're using arch, you can grab the package from the AUR at
+https://aur.archlinux.org/packages/xest-window-manager-git/. You can install it
+using yay with "yay -S xest-window-manager-git". Since it builds the package
+from source, the first install might take a while. Updates will go much faster.
 
-If you want to run Xest from source, clone 
-https://github.com/jhgarner/Xest-Window-Manager and install nix. The stack build
-tool should make the binary. For actually creating the menus in your display
-manager, more work will be needed. Look at the Arch package and try to get the
-non-binary files into the right places.
+If you want to run Xest from source, clone
+https://github.com/jhgarner/Xest-Window-Manager and either install nix or setup
+the dependencies yourself. The stack build tool should make the binary. For
+actually creating the menus in your display manager, more work will be needed.
+Look at the Arch package and try to get the non-binary files into the right
+places. I can probably throw together a package for your distro if you send a
+message on the Matrix chat.
 
-Check out the other pages on this site for information on using Xest.
+If you're interested in Xest, check out the user guide and join the Matrix chat.
