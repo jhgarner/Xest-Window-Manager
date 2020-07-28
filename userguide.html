@@ -5,6 +5,7 @@
         <meta http-equiv="x-ua-compatible" content="ie=edge">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Xest Window Manager - User guide</title>
+        <link rel="icon" href="./images/xestlogo.png">
         <link rel="stylesheet" href="./css/default.css" />
     </head>
     <body>
@@ -17,62 +18,82 @@
                 <a href="./">Home</a>
                 <a href="https://github.com/jhgarner/Xest-Window-Manager">Github</a>
                 <a href="./userguide.html">User Guide</a>
+                <a href="https://app.element.io/#/room/!iaDRSCyjeRToGSBZfL:matrix.org?via=matrix.org">Chat</a>
             </nav>
         </header>
 
         <main role="main">
-            <h1 id="post-install">Post Install</h1>
-<p>Xest will crash if it can’t find a config file in your home directory. If you installed the Arch package, you should be able to copy the contents of the “/etc/xest/config/ folder into”~/.config/xest/config/“. Once you do that, you will need to edit the config files.”config.dhall" is kind of messy right now, but it should have most of what you need. Just make sure to change any hard-coded strings for your system. Most likely you’ll need to change the terminal from “kitty/termite” to something else. You also probably need to change the startup file and font locations. The “startup.sh” will also need some changes. Add whatever you want to run on boot and remove the things that you don’t have. Use “&amp;” to make sure it doesn’t get hung up on any lines that spawn long running commands.</p>
-<h1 id="using-xest">Using Xest</h1>
-<p>The following key bindings assumes you’re using the default config.dhall (after performing the post install instructions).</p>
-<h2 id="modes-and-keys">Modes and Keys</h2>
-<p>Once you’ve launched Xest, you should see your desktop wallpaper and not much else. Begin by pressing the Super/Windows key. A pink border should have appeared around your desktop. This border signifies that you are in normal mode. The color and position of the border tell you where you are in Xest’s tree. You can also look at the text on the border to get an idea for where you are. The “@” sign tells you where the monitor is and the “*” tells you where the input controller is. Those will be explained more below.</p>
-<p>Pressing “t” should launch your terminal while “d” should launch your launcher.</p>
-<p>At some point, you probably want to leave normal mode. You can do that using the escape key. Pressing 3 keys (windows, d, escape) every time you want to launch a program seems kind of long. Although this mode based system has it’s advantages on longer commands, it tends to be less efficient when you just want to perform one action.</p>
-<p>Thankfully, Xest has a solution. You can hold down any key that changes your mode to temporarily switch into it. As soon as you release that key, you go back to the mode you were in before. How does Xest identify between temporarily entering a mode and permanently entering one? If you press another bound key while holding down the one that changed your mode, Xest will assume you want it to be temporary. If you let go of the mode key before pressing another, Xest assumes you want to remain in the new mode.</p>
-<p>Basically, this is an extremely long winded way to say you can press “Super+d” like you would in i3 to launch rofi/dmenu or “Super+t” to launch the terminal. Any key press in Xest supports temporary and permanent modes.</p>
-<p>One of the cool implications of this is the NormalS mode in the default config. In Xest, binding the “I” key is the exact same as binding the “i” key. This might seem like a problem, until you realize that Shift is just another key that can be bound. The NormalS mode is triggered when you press the Shift key while in Normal mode. Because of how temporary modes work, this essentially emulates being able to bind both “I” and “i”.</p>
-<p>If NormalS is just a mode, what happens if I press and release the Shift key without hitting anything else? In that case, you enter NormalS mode permanently and can hit a string of capital letters with ease. You can move back to Normal mode by pressing escape. To get back into Insert mode, hit escape again. None of this is hard-coded into Xest. You can find all of this logic in the config.dhall file.</p>
-<p>Keys in Xest can be bound to things called actions. This will be covered more in the configuring Xest section.</p>
+            <h1 id="walkthrough">Walkthrough</h1>
+<p>This walkthrough will cover the basic aspects of Xest in a way that lets you follow along. There will also be plenty of videos along the way.</p>
+<h2 id="first-actions">First Actions</h2>
+<p>If you installed the Arch package, Xest should have everything it needs to run. Reboot and using your display manager, select Xest from the list that appears and log in. If everything worked, you should see a blank screen. At this point, you should press the windows/super key. Ignoring the wallpaper, compton, and polybar that I’ve configured, your screen should look like the one below.</p>
+<p><img src="images/blank.png" width="/"></p>
+<p>The pink border that appeared signifies that you’ve entered normal mode. Previously, you were in insert mode. You can reenter insert mode by pressing escape.</p>
+<p>Press and release the super key to enter normal mode, then press and release the enter key. This should open up a terminal on your system.</p>
+<video playsinline autoplay muted loop>
+<source src="./images/launchterminal.mp4">
+</video>
+<p>Notice the text on the border. The @ symbol represents the monitor’s location. Anything to the right of the monitor is rendered. The * represents the input controller. The borders you see are drawn around whatever is just to the right of the input controller. The word “Window” shows that there is a window in the tree.</p>
+<p>Typing out 3 keys to launch a terminal is kind of slow. Clicking and releasing the Windows key triggers a “permanent” switch to normal mode. If you only want to temporarily enter normal mode and launch a terminal: hold the windows key, press enter, and release both. In other words, use the windows key the same way you would when typing out a keyboard shortcut in almost any other program.</p>
+<p>If you haven’t already, open a second terminal. The text above should have changed to “<span class="citation" data-cites="*">@*</span>|H-2-2|Window”. The new part is “|H-2-2|”. The bars are just there to tell you that everything in between them is a single “unit” or tiler. This specific tiler is called the “Many” tiler. The “H” tells you that your windows are tiled horizontally. The first “2” tells you how many windows are in the tiler, and the second “2” tells you which of those is currently focused.</p>
+<p>The Monitor, Input Controller, and Window are other tilers.</p>
+<p>While in normal mode, try typing the numbers 1 and 2 on your keyboard. That should have let you change the focused window. Focus will also follow the mouse.</p>
+<video playsinline autoplay muted loop>
+<source src="./images/switchterm.mp4">
+</video>
+<h2 id="modifiers">Modifiers</h2>
+<p>Once again in normal mode, press the m key. Whatever terminal was focused should now be taking up the entire screen. The Many tiler should now have “f-” prepended to it. The “f” stands for the fullscreen modifier. You can also press “v” to trigger the vertical modifier and “c” to clear all modifiers. Also notice how, no matter the modifier, the number keys still change the focus in the way you would expect.</p>
+<p>In addition to modifiers, you can also change the type of arrangement the Many tiler will make. Pressing Shift then t switches to the two column arrangement. Try adding more windows and see where they get added. Pressing Shift then f switches to the floating arrangement. You can move those using the mouse in normal mode. Finally, pressing Shift then n puts you back in the horizontal arrangement. Try playing around with the left and right mouse buttons in the different arrangements.</p>
+<video playsinline autoplay muted loop>
+<source src="./images/floating.mp4">
+</video>
+<p>Technically, Xest doesn’t actually have support for binding capital letters. Instead, the shift key triggers a mode change. If you hold down shift then click another bound key, you’ll only enter the shift mode temporarily and it will act like you bound a capital letter. If you just click the shift key on its own, you can press escape to reenter normal mode and escape again to reenter insert mode.</p>
+<h2 id="zooming">Zooming</h2>
+<p>With our Many tiler set with the fullscreen modifier, things act a lot like workspaces in other environments. Launching new terminals places them in new workspaces. If you want to launch a terminal in the current workspace, you’ll need to use zooming. Instead of having an example follow an explanation, I’ll start with the example:</p>
+<video playsinline autoplay muted loop>
+<source src="./images/zooming.mp4">
+</video>
+<p>Xest is based on the idea of nested tilers. To navigate that nesting, you use the “i” and “o” keys to zoom in and out respectively. Zooming in means moving the input controller one tiler to the right. Zooming out moves it to the left. The border colors change based on the current depth of the input controller. Since new windows get added to whatever comes to the right of the input controller, zooming in let us add the new terminal to the current workspace. If we want to jump to the other workspace, we need to zoom back out.</p>
+<p>You may be wondering what would happen if you added the fullscreen modifier to the inner Many tiler. Well, that gets you nested workspaces!</p>
+<h1 id="cutpaste">Cut/Paste</h1>
+<p>The last feature we’ll cover here is moving tilers from one location to another. From normal mode, click the shift key. Next, click the d key to cut the tiler to the right of the input controller and place it in the cut stack. Press p to paste whatever is on top of the stack in front of the input controller. Here is how we can combine all these features to move windows:</p>
+<video playsinline autoplay muted loop>
+<source src="./images/paste.mp4">
+</video>
+<p>There’s a lot going on here. Try recreating the video on your own machine. Getting an intuition for how the tree works takes a little time but it’s the key to using Xest efficiently.</p>
+<p>In the video, you’ll notice I copied both single windows and entire groups. That works because Xest only operates on tilers, not windows. It just so happens that Xest automatically wraps every window in its own tiler.</p>
+<h2 id="moving-on">Moving On</h2>
+<p>That’s all for the walkthrough. At this point, you probably want to check out the config file and some of the other keybindings. The default config is in “/etc/xest/config.dhall”. You can copy and modify that file in “~/.config/xest/config.dhall”.</p>
+<h1 id="docs">Docs</h1>
+<p>The following is a more technical and complete description of what Xest can do.</p>
 <h2 id="tilers">Tilers</h2>
-<p>As mentioned elsewhere, Xest represents windows as a tree. This means that Xest has some kind of root element in the tree and a bunch of nodes coming off of it.</p>
-<p>Nodes in Xest are called Tilers. A Tiler is simply something which can contain 0 or more children and might hold additional metadata. After most actions, Xest prunes the tree and removes the empty Tilers. You can associate keybindings with inserting Tilers into the tree.</p>
-<p>If you’re every confused about what the tree looks like, just enter Normal mode. On the top most border, a textual representation of the tree is provided. The text shows you the path from the root of the tree all the way to the currently focused window.</p>
-<p>Here are some of the Tilers:</p>
 <h3 id="wrap">Wrap</h3>
 <p>A Wrap Tiler represents a leaf on the tree. It simple wraps a normal window and has no children.</p>
 <h3 id="many">Many</h3>
 <p>Many is a complicated Tiler and holds a lot of power. It’s called Many because it can hold many children. By default, each child is tiled horizontally like in i3. If you want to have 1 background Tiler with the rest floating on top, you can tell Many to change to a “floating” style. If you want a 2 column approach like Xmonad uses, you can switch to the “twoCols” style. You can also rotate everything using the “rotate” modifier. This turns the “horizontally” style into a vertical one and the “twoCols” style into something that might be called “twoRows”. Finally, you can set the “full” modifier to make the currently focused child take up all of the space.</p>
 <p>How do you create grids of windows? The children to any Tiler are other Tilers. If you nest Many multiple times, you can create arbitrarily complex layouts. If you nest Many with the “full” modifier set, you can get something like nested workspaces.</p>
-<p>On the border, a Many Tiler is represented as “|&lt;modifier&gt;-&lt;style&gt;-&lt;#children&gt;-&lt;focusedChild&gt;|”.</p>
+<p>On the border, a Many Tiler is represented as</p>
+<p><code>|&lt;modifier&gt;-&lt;style&gt;-&lt;#children&gt;-&lt;focusedChild&gt;|</code>.</p>
 <h3 id="monitor">Monitor</h3>
 <p>This Tiler tells Xest when to start rendering on a given screen. By default, the Monitor is the root of the screen. You can zoom it inwards to minimize entire branches of the tree. This is another way to create a form of workspaces.</p>
 <p>On the border, a Monitor is represented as “@”.</p>
 <h3 id="input-controller">Input Controller</h3>
 <p>This Tiler let’s you control where you want Actions to be applied and where new windows should be placed. When a new window is created, it is made a child of whatever comes immediately after the Input Controller. Likewise, if you perform some action, it is applied to whatever is the Input Controller’s immediate child. Like the Monitor, you can move the Input Controller around the screen.</p>
-<p>On the border, an Input Controller is represented as “*”.</p>
-<h2 id="zooming">Zooming</h2>
-<p>Take a moment to imagine your typical Gnome/Windows workflow assuming you’re making use of virtual desktops. In those options, you have some kind of task or overview mode to help you see the bigger picture. For example, in Gnome it happens when you press the windows key. In Windows it happens when you press the virtual desktop button on the taskbar. When you enter this kind of view, it’s almost like you’re “zooming out” from the desktop you had been working in. Instead of looking at one desktop, you can now see several. Likewise, you can usually click on one of the desktops to zoom back in on whatever you were working on.</p>
-<p>This zooming concept is taken to the extreme in Xest as it’s your primary way of moving around. By making zooming explicit, we can get features like workspaces and window maximization in one “simple” idea. In no time, you’ll find your efficiency zooming past its former self :)</p>
-<p>Zooming can be applied to either the Input Controller or the Monitor. Check out the list of actions when configuring Xest for more details.</p>
-<h2 id="poppingpushing">Popping/Pushing</h2>
-<p>Xest keeps a stack of popped tilers in it’s memory. When you pop a window, it gets removed from the tree. You can add it back into the tree using the Push action.</p>
-<p>Unlike other Window Managers, Xest doesn’t have a dedicated Action for moving windows to other desktops. Instead, you have to use popping and pushing to accomplish that.</p>
-<p>One of the benefits to this is Xest can yank entire sections of your tree at once.</p>
-<h1 id="configuring-xest">Configuring Xest</h1>
-<h2 id="dhall">Dhall</h2>
+<p>On the border, an Input Controller is represented as "*".</p>
+<h2 id="configuring-xest">Configuring Xest</h2>
+<h3 id="dhall">Dhall</h3>
 <p>Xest is configured using a language called Dhall. I would highly recommend reading through their website and looking at the interactive examples.</p>
 <p>In essence, Dhall is a functional configuration language. It has powerful features like first class functions and polymorphism. Dhall also prides itself in being a total language; you can be certain that a Dhall program will not infinitely loop or run any IO beyond importing other Dhall files.</p>
 <p>That import feature is one of Dhall’s greatest strengths and makes it really easy to share your configs. Dhall supports loading config files from local and online sources. After verifying that the configs you want are indeed good, you can run Dhall freeze to cache them locally. This provides an alternative to copying and pasting configs from Github.</p>
-<h2 id="config-sections">Config Sections</h2>
+<h3 id="config-sections">Config Sections</h3>
 <p>The Dhall config is a dictionary with a few sections.</p>
-<h3 id="startupscript">StartupScript</h3>
+<h4 id="startupscript">StartupScript</h4>
 <p>A string containing a script to run in your shell. This is useful for starting things like Compton, Feh, Polybar, etc.</p>
-<h3 id="initialmode">InitialMode</h3>
+<h4 id="initialmode">InitialMode</h4>
 <p>A single mode which will be used once you start up Xest.</p>
-<h3 id="fontlocation">fontLocation</h3>
+<h5 id="fontlocation">fontLocation</h5>
 <p>The location of the font to use on the border. This is probably something in “/usr/share/fonts/…”.</p>
-<h3 id="keybindings">KeyBindings</h3>
+<h4 id="keybindings">KeyBindings</h4>
 <p>A list of key bindings. See the example config file for more info on the format. The weirdest field is the exitActions one. This field contains a list of actions that will be performed when the key is released assuming it didn’t trigger a permanent mode change.</p>
 <p>You can get most key names using the “xev” tool from your distro.</p>
 <h2 id="actions">Actions</h2>
