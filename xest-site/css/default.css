@@ -55,6 +55,16 @@ article .header {
   text-decoration: none;
 }
 
+img {
+  width: 100%;
+  object-fit: contain;
+}
+
+video {
+  width: 100%;
+  object-fit: contain;
+}
+
 @media (max-width: 319px) {
   body {
     width: 90%;

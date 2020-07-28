@@ -42,14 +42,14 @@ main = hakyll $ do
                 >>= loadAndApplyTemplate "templates/default.html" archiveCtx
                 >>= relativizeUrls
 
-    match "home.rst" $ do
+    match "home.md" $ do
         route $ constRoute "index.html"
         compile $ pandocCompiler
             -- >>= loadAndApplyTemplate "templates/post.html"    postCtx
             >>= loadAndApplyTemplate "templates/default.html" postCtx
             >>= relativizeUrls
 
-    match "userguide.rst" $ do
+    match "userguide.md" $ do
         route $ constRoute "userguide.html"
         compile $ pandocCompiler
             -- >>= loadAndApplyTemplate "templates/post.html"    postCtx

@@ -67,6 +67,7 @@ refresh = do
     -- restack all of the windows
     Docks topWindows <- get @Docks
     borderWins <- getWindowByClass "xest-exe"
+    aboveWindows <- getWindowByProperty "_NET_WM_STATE_ABOVE"
     log $ LD "TOP WINDOWS" $ show topWindows
     log $ LD "BORDER WINDOWS" $ show borderWins
     log $ LD "Rendering" "Has started"
@@ -75,7 +76,7 @@ refresh = do
     allBorders <- inputs @Screens $ map getBorders . toList
     forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
 
-    restack $ topWindows ++ borderWins ++ map getParent middleWins
+    restack $ topWindows ++ aboveWindows ++ borderWins ++ map getParent middleWins
 
     log $ LD "Rendering" "Has finished"
 
@@ -163,9 +164,7 @@ placeWindow root =
       buildUp (trans, depth, t) = (trans, depth) C.:< placeWindow' trans depth t
   
 
--- |Find a window with a class name. This is used when
--- showing or hiding a window. TODO Can I just ask the user to use some random
--- bash utility instead?
+-- |Find a window with a class name.
 getWindowByClass
   :: Members [Property, GlobalX, Log LogData] m
   => Text
@@ -176,6 +175,19 @@ getWindowByClass wName = do
   log $ LD "WBC" $ show names
   filterM findWindow' childrenList
   where findWindow' win = (== wName) <$> getClassName win
+  
+-- |Find a window with a property set name.
+getWindowByProperty
+  :: Members [Property, GlobalX, Log LogData] m
+  => Text
+  -> m [Window]
+getWindowByProperty propertyT = do
+  wm_state <- getAtom False "_NET_WM_STATE"
+  property <- getAtom False propertyT
+  childrenList <- getTree
+  let findWindow' win = any (== property) <$> getProperty 32 wm_state win
+
+  filterM findWindow' childrenList
 
 -- |Moves windows around based on where they are in the tiler.
 render
