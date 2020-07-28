@@ -55,7 +55,7 @@
 </video>
 <p>Xest is based on the idea of nested tilers. To navigate that nesting, you use the “i” and “o” keys to zoom in and out respectively. Zooming in means moving the input controller one tiler to the right. Zooming out moves it to the left. The border colors change based on the current depth of the input controller. Since new windows get added to whatever comes to the right of the input controller, zooming in let us add the new terminal to the current workspace. If we want to jump to the other workspace, we need to zoom back out.</p>
 <p>You may be wondering what would happen if you added the fullscreen modifier to the inner Many tiler. Well, that gets you nested workspaces!</p>
-<h1 id="cutpaste">Cut/Paste</h1>
+<h2 id="cutpaste">Cut/Paste</h2>
 <p>The last feature we’ll cover here is moving tilers from one location to another. From normal mode, click the shift key. Next, click the d key to cut the tiler to the right of the input controller and place it in the cut stack. Press p to paste whatever is on top of the stack in front of the input controller. Here is how we can combine all these features to move windows:</p>
 <video playsinline autoplay muted loop>
 <source src="./images/paste.mp4">
@@ -63,7 +63,8 @@
 <p>There’s a lot going on here. Try recreating the video on your own machine. Getting an intuition for how the tree works takes a little time but it’s the key to using Xest efficiently.</p>
 <p>In the video, you’ll notice I copied both single windows and entire groups. That works because Xest only operates on tilers, not windows. It just so happens that Xest automatically wraps every window in its own tiler.</p>
 <h2 id="moving-on">Moving On</h2>
-<p>That’s all for the walkthrough. At this point, you probably want to check out the config file and some of the other keybindings. The default config is in “/etc/xest/config.dhall”. You can copy and modify that file in “~/.config/xest/config.dhall”.</p>
+<p>That’s all for the walkthrough. At this point, you probably want to check out the config file and some of the other keybindings. The default config is in “/etc/xest/config.dhall”. You can copy and modify that file in “~/.config/xest/config.dhall”. In addition, the startup scripts should be changed to launch whatever programs you want to run when you log in.</p>
+<p>If you want to launch more than a terminal, press space in normal mode. That should launch rofi or dmenu depending on what you have installed.</p>
 <h1 id="docs">Docs</h1>
 <p>The following is a more technical and complete description of what Xest can do.</p>
 <h2 id="tilers">Tilers</h2>
