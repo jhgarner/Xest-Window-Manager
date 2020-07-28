@@ -45,6 +45,10 @@ explicit signatures everywhere GHC will let you. I've found that those
 signatures force GHC to localize its error much more. From there it's easier to
 see where things went wrong.
 
+In addition, using some kind of editor with ghci/haskell-language-server
+helps a ton. Being able to hover over terms to see their types has been a large
+productivity boost.
+
 ## Actions/
 
 The two files in here provide the actions that users can bind to keys. A lot of

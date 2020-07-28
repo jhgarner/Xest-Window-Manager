@@ -6,9 +6,6 @@ date: 2015-1-1
 Using Xest
 ==========
 
-While the user guide covers the technical documentation for how everything
-works, this guide covers best practices for how to actually use Xest.
-
 
 
 Startup

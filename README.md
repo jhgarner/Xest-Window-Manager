@@ -27,7 +27,7 @@ contact me if you have any questions.
 If you've never seen the Haskell language before, jumping into this codebase
 is probably a bad idea. If you have a little bit of experience, I would
 recommend taking a look at some of the files in the src/Tiler/ folder as well as
-the src/NonEmpty.hs and src/FocusList.hs files. All of
+the and src/FocusList.hs files. All of
 the functions in there are "pure" in that they only modify internal data
 structures.
 
@@ -54,4 +54,6 @@ are probably the best resources for learning about them.
 Xest uses an effect system library called "Capability". The "src/Base/DoAll.hs"
 file contains the scary bits needed for that library. Code that needs to run
 some kind of effect asks for it as a constraint on the Monad that gets returned.
-You can see this in the "src/XEvents.hs" and "src/Actions/Actions.hs" files.
+You can see this in the "src/XEvents.hs" and "src/Actions/Actions.hs" files. The
+effects themselves are the other files defined in src/Base and are represented
+as typeclasses.

@@ -206,8 +206,8 @@ makeFL actualData focIndex = FL { visualOrder = vo
 focusDir :: Direction -> FocusedList a -> FocusedList a
 focusDir dir fl@FL { focusOrder = fo, visualOrder = vo } = fromMaybe fl $
   case dir of
-    Front -> switchF Just (nonEmpty . tail)
-    Back -> switchF (nonEmpty . tail) Just
+    Back -> switchF Just (nonEmpty . tail)
+    Front -> switchF (nonEmpty . tail) Just
   where switchF finding using = do
           findList <- finding vo
           usingList <- using vo
