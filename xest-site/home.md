@@ -60,8 +60,7 @@ offers something more generic with its tree structure. In theory, you can nest
 workspaces as deep as you want in Xest and you can easily move entire desktops
 around.
 
-How stable is Xest?
-===================
+# How stable is Xest?
 
 I consider Xest stable enough to use daily on both my laptop and desktop.
 
@@ -71,8 +70,7 @@ could mean losing work. Make sure to save often! Check out the
 various files with "xest" in the name in your "/tmp/" directory if something
 goes wrong. All logs get output there.
 
-I want to try it out!
-=====================
+# I want to try it out!
 
 If you're using arch, you can grab the package from the AUR at
 https://aur.archlinux.org/packages/xest-window-manager-git/. You can install it

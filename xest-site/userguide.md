@@ -109,7 +109,7 @@ we want to jump to the other workspace, we need to zoom back out.
 You may be wondering what would happen if you added the fullscreen modifier to
 the inner Many tiler. Well, that gets you nested workspaces!
 
-# Cut/Paste
+## Cut/Paste
 The last feature we'll cover here is moving tilers from one location to another.
 From normal mode, click the shift key. Next, click the d key to
 cut the tiler to the right of the input controller and place it in the cut
@@ -132,7 +132,11 @@ Xest automatically wraps every window in its own tiler.
 That's all for the walkthrough. At this point, you probably want to check out
 the config file and some of the other keybindings. The default config is in
 "/etc/xest/config.dhall". You can copy and modify that file in
-"~/.config/xest/config.dhall".
+"~/.config/xest/config.dhall". In addition, the startup scripts should be
+changed to launch whatever programs you want to run when you log in.
+
+If you want to launch more than a terminal, press space in normal mode. That
+should launch rofi or dmenu depending on what you have installed.
 
 
 
