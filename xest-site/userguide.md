@@ -74,7 +74,7 @@ Try adding more windows and see where they get added. Pressing Shift then f
 switches to the floating arrangement. You can move those using the mouse in
 normal mode. Finally, pressing Shift then n puts you back in the horizontal
 arrangement. Try playing around with the left and right mouse buttons in the
-different arrangements.
+different arrangements while in normal mode.
 
 <video playsinline autoplay muted loop>
   <source src=/images/floating.mp4>

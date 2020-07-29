@@ -72,10 +72,11 @@ goes wrong. All logs get output there.
 
 # I want to try it out!
 
-If you're using arch, you can grab the package from the AUR at
-https://aur.archlinux.org/packages/xest-window-manager-git/. You can install it
-using yay with "yay -S xest-window-manager-git". Since it builds the package
-from source, the first install might take a while. Updates will go much faster.
+If you're using arch, you can grab the package from the
+[AUR](https://aur.archlinux.org/packages/xest-window-manager-git/). You can
+install it using yay with "yay -S xest-window-manager-git". Since it builds the
+package from source, the first install might take a while. Updates will go much
+faster.
 
 If you want to run Xest from source, clone
 https://github.com/jhgarner/Xest-Window-Manager and either install nix or setup
