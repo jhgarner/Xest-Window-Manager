@@ -38,6 +38,7 @@ instance Members '[Input Font.Font, MonadIO, Input Display] m => Colorer m where
     font <- input @Font.Font
     surface <- liftIO $ Font.blended font (SDL.V4 0 0 0 0) s
     winSurface <- liftIO $ SDL.getWindowSurface w
-    void . liftIO $ SDL.surfaceBlit surface Nothing winSurface Nothing
+    liftIO $ SDL.surfaceBlit surface Nothing winSurface Nothing
+    SDL.freeSurface surface
 
   bufferSwap w = liftIO $ SDL.updateWindowSurface w

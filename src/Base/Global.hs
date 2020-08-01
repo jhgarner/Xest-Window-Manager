@@ -48,19 +48,12 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
     display <- input @Display
     root    <- input @RootWindow
     liftIO $ alloca
-      (\numChildrenPtr -> alloca
-        (\childrenListPtr -> do
-          uselessPtr <- alloca $ \x -> return x
-          _          <- xQueryTree display
-                                   root
-                                   uselessPtr
-                                   uselessPtr
-                                   childrenListPtr
-                                   numChildrenPtr
-          numChildren <- peek numChildrenPtr
-          peek childrenListPtr >>= peekArray (fromIntegral numChildren)
-        )
-      )
+      \numChildrenPtr -> alloca
+        \childrenListPtr -> alloca
+          \uselessPtr -> do
+            _ <- xQueryTree display root uselessPtr uselessPtr childrenListPtr numChildrenPtr
+            numChildren <- peek numChildrenPtr
+            peek childrenListPtr >>= peekArray (fromIntegral numChildren)
 
   newWindow w = do
     d         <- input @Display

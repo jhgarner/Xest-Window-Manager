@@ -45,6 +45,7 @@ dependencies:
 - directory
 - regex-compat
 - semigroupoids
+- deepseq
 
 library:
   source-dirs: src
@@ -69,7 +70,7 @@ library:
   - -n2m
   - -RTS
   # - -fplugin=Polysemy.Plugin
-  # - -O1
+  - -O2
   - -flate-specialise
   - -fexpose-all-unfoldings
   - -fspecialise-aggressively

@@ -23,6 +23,7 @@ import Capability.Source
 import Capability.State
 import Capability.Sink
 import Data.Coerce (coerce, Coercible)
+import Control.DeepSeq (force)
 
 
 -- Defines a series of effects.
@@ -85,8 +86,9 @@ instance Members '[Input Bool, State [Text], MonadIO] m => HasSink k LogData (Lo
     timeUtc <- liftIO getCurrentTime
     let timeStamp = "[" <> pack (formatShow iso8601Format (utcToLocalTime timeZone timeUtc)) <> "]"
         prefixWrap = "[" <> prefix <> "]"
-        fullMsg = prefixWrap <> timeStamp <> msg
-    modify @[Text] $ Prelude.take 100 . (:) fullMsg
+        -- This memory leaks without a force
+        fullMsg = force $ prefixWrap <> timeStamp <> msg
+    modify @[Text] $ force . Prelude.take 100 . (:) fullMsg
     shouldLog <- input @Bool
     when shouldLog $
       liftIO $ appendFile "/tmp/xest.log" (fullMsg <> "\n")

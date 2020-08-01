@@ -106,19 +106,12 @@ instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ In
     display <- input @Display
     -- For some reason, xQueryTree hasn't been abstracted at all
     liftIO $ alloca
-      (\numChildrenPtr -> alloca
-        (\childrenListPtr -> do
-          uselessPtr <- alloca $ \x -> return x
-          _          <- xQueryTree display
-                                   win
-                                   uselessPtr
-                                   uselessPtr
-                                   childrenListPtr
-                                   numChildrenPtr
-          numChildren <- peek numChildrenPtr
-          headMay <$> (peek childrenListPtr >>= peekArray (fromIntegral numChildren))
-        )
-      )
+      \numChildrenPtr -> alloca
+        \childrenListPtr -> alloca
+          \uselessPtr -> do
+            _ <- xQueryTree display win uselessPtr uselessPtr childrenListPtr numChildrenPtr
+            numChildren <- peek numChildrenPtr
+            headMay <$> (peek childrenListPtr >>= peekArray (fromIntegral numChildren))
 
   getAtom shouldCreate name@(Text sName) = input >>= \d -> do
     maybeAtom <- (M.!? name) <$> get @(Map Text Atom)

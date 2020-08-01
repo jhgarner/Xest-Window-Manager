@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.2.
+-- This file has been generated from package.yaml by hpack version 0.33.1.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f1f112f5d9b19c1d45077f1404271716e7dbc521c886769f6827032ef25ea5e6
+-- hash: 8ed949a215b2c9cbf46bd09241ce07992f54f3fd6a74aedc4863e0546b59a45e
 
 name:           xest
 version:        0.1.0.0
@@ -60,7 +60,7 @@ library
   hs-source-dirs:
       src
   default-extensions: DataKinds FlexibleInstances FlexibleContexts GADTs LambdaCase PolyKinds RankNTypes ScopedTypeVariables TypeApplications TypeOperators TypeFamilies NoImplicitPrelude BlockArguments DeriveFunctor DeriveFoldable DeriveTraversable DeriveGeneric DerivingStrategies
-  ghc-options: -Weverything -Wno-implicit-prelude -Wno-orphans -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-missing-export-lists -Wno-partial-type-signatures -Wno-missing-deriving-strategies -j +RTS -A128m -n2m -RTS -flate-specialise -fexpose-all-unfoldings -fspecialise-aggressively
+  ghc-options: -Weverything -Wno-implicit-prelude -Wno-orphans -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-missing-export-lists -Wno-partial-type-signatures -Wno-missing-deriving-strategies -j +RTS -A128m -n2m -RTS -O2 -flate-specialise -fexpose-all-unfoldings -fspecialise-aggressively
   build-depends:
       X11
     , base >=4.7 && <5
@@ -70,6 +70,7 @@ library
     , chunked-data
     , comonad
     , containers
+    , deepseq
     , deriving-compat
     , dhall
     , directory
@@ -105,6 +106,7 @@ executable xest-exe
     , chunked-data
     , comonad
     , containers
+    , deepseq
     , deriving-compat
     , dhall
     , directory
@@ -143,6 +145,7 @@ test-suite xest-test
     , chunked-data
     , comonad
     , containers
+    , deepseq
     , deriving-compat
     , dhall
     , directory
