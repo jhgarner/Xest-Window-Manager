@@ -41,6 +41,7 @@ eventFilter :: RootWindow -> Event -> Bool
 eventFilter root ConfigureEvent {ev_window=win} = win == root
 eventFilter _ ButtonEvent {ev_button=button} = button `notElem` [button5, button4]
 eventFilter _ CrossingEvent {ev_detail=detail} = detail /= 2
+eventFilter _ MapNotifyEvent {} = False
 eventFilter _ _ = True
 
 instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bool, State Tiler, Property] m => GlobalX m where

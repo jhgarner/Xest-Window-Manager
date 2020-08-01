@@ -326,7 +326,7 @@ getTilerFromScreen p screens =
 
 getTilerWithWindow :: Window -> Screens -> Maybe Tiler
 getTilerWithWindow w = getTilerFromScreen \case
-  Wrap (ParentChild p c) -> p == w || c == w
+  Wrap (ParentChild _ c) -> c == w
   _ -> False
 
 screensToTilers :: Screens -> [Tiler]

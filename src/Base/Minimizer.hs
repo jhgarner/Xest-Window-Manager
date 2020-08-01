@@ -13,10 +13,8 @@ import           Standard
 import           Graphics.X11.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Xlib.Window
-import qualified Data.Set                      as S
 import           Base.Property
 import           Base.Executor
-import           Base.Helpers
 import           Tiler.TilerTypes
 import Graphics.X11 (Display)
 
@@ -28,18 +26,15 @@ class Minimizer m where
   restore :: Window -> m ()
 
 -- |Do the actions in IO
-instance Members (States '[Set Window, Tiler] ++ [Property, Executor, Input Display, MonadIO]) m => Minimizer m where
+instance Members [State Tiler, Property, Executor, Input Display, MonadIO] m => Minimizer m where
   minimize win = do
     d <- input
     -- We only want to minimize if it hasn't already been minimized
     mappedWin <- liftIO
       $ either (const waIsUnmapped) wa_map_state <$> try @SomeException (getWindowAttributes d win)
     when (mappedWin /= waIsUnmapped) $ do
-      modify @(Set Window) $ S.insert win
       liftIO $ unmapWindow d win
       wm_state           <- getAtom False "WM_STATE"
-      -- win_state :: [Int] <- getProperty 32 wm_state win
-      -- unless (null win_state) $
       putProperty 32 wm_state win wm_state [0, fromIntegral none]
 
   restore win = do
@@ -48,9 +43,6 @@ instance Members (States '[Set Window, Tiler] ++ [Property, Executor, Input Disp
     mappedWin <- liftIO
       $ either (const waIsViewable) wa_map_state <$> try @SomeException (getWindowAttributes d win)
     when (mappedWin == waIsUnmapped) $ do
-      modify @(Set Window) $ S.delete win
       liftIO $ mapWindow d win
       wm_state           <- getAtom False "WM_STATE"
-      -- win_state :: [Int] <- getProperty 32 wm_state win
-      --unless (null win_state) $
       putProperty 32 wm_state win wm_state [1, fromIntegral none]

@@ -41,7 +41,6 @@ refresh = do
     forM_ allWindows \window -> selectFlags window
       $   substructureNotifyMask
       .|. substructureRedirectMask
-      .|. structureNotifyMask
       .|. buttonPressMask
       .|. buttonReleaseMask
     log $ LD "Refreshing" "Has started"
@@ -96,7 +95,6 @@ refresh = do
     forM_ allWindows \window -> selectFlags window
       $   substructureNotifyMask
       .|. substructureRedirectMask
-      .|. structureNotifyMask
       .|. leaveWindowMask
       .|. enterWindowMask
       .|. buttonPressMask

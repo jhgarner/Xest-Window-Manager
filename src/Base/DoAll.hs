@@ -29,7 +29,6 @@ import           Standard
 import           Graphics.X11.Xlib.Types
 import           Graphics.X11.Xlib.Extras
 import           Graphics.X11.Types
-import qualified Data.Set                      as S
 import qualified Data.Map                      as M
 import qualified SDL
 import           Base.Helpers
@@ -57,7 +56,6 @@ data Ctx = Ctx
   { shouldLog :: IORef (Bool)
   , logHistory :: IORef [Text]
   , activeMode :: IORef Mode
-  , minimizedWindows :: IORef (S.Set Window)
   , screenList :: IORef Screens
   , keyStatus :: IORef  KeyStatus
   , yankBuffer :: IORef  [SubTiler]
@@ -91,7 +89,6 @@ newtype M a = M { runM :: R.ReaderT Ctx IO a }
   deriving (Input Mode, Output Mode, State Mode) via (Logged "activeMode" Mode)
   deriving (Input  [Text], Output [Text], State [Text]) via (From "logHistory")
   deriving (Input Bool, Output Bool, State Bool) via (From "shouldLog")
-  deriving (Input (Set Window), Output (Set Window), State (Set Window)) via (Logged "minimizedWindows" (Set Window))
   deriving (Input Screens, Output Screens, State Screens) via (Logged "screenList" Screens)
   deriving (Input [SubTiler], Output [SubTiler], State [SubTiler]) via (Logged "yankBuffer" [SubTiler])
   deriving (Input OldMouseButtons, Output OldMouseButtons, State OldMouseButtons) via (Logged "oldMouseButtons" OldMouseButtons)
@@ -145,7 +142,6 @@ doAll ioref t c m d w f cur mon = do
   shouldLog <- newIORef False
   logHistory <- pure ioref
   activeMode <- newIORef m
-  minimizedWindows <- newIORef S.empty
   yankBuffer <- newIORef [] 
   oldMouseButtons <- newIORef $ OMB None
   atomNameCache <- newIORef M.empty

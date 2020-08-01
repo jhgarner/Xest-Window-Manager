@@ -41,7 +41,7 @@ reparentWin window = do
   -- Think of the new parent as an extension of the root window.
   -- Just like on the root window, we need to register some events
   -- on the parent.
-  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. structureNotifyMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
+  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
   return $ ParentChild newWin window
 
 deriving instance Show SizeHints
@@ -127,20 +127,15 @@ killed window = do
   modify @Docks $ Docks . mfilter (/= window) . undock
 
 -- |A window is either dying slowly or has been minimized.
-unmapWin :: Members (States [Screens, Set Window, LocCache, Maybe (), Docks]) m
+unmapWin :: Members (States [Screens, LocCache, Maybe (), Docks]) m
          => Members [GlobalX, Property] m
          => Window 
          -> m ()
 unmapWin window = do
-  put @(Maybe ()) $ Just ()
-  -- We need to check if we expected the window to be unmapped. Any window
-  -- we explicitly minimized ends up in a set (Thanks XMonad for the idea).
-  -- If the window is in the set, we don't need to do anything.
-  minimized <- get @(Set Window)
   roots <- get @Screens
 
-  unless (view (contains window) minimized || isNothing (getTilerWithWindow window roots)) $ do
-    -- Windows that weren't minimized but were unmapped are probably dying.
+  unless (isNothing (getTilerWithWindow window roots)) $ do
+    -- Windows that were unmapped are probably dying.
     -- We need to move the window onto the root so that we can kill the parent
     -- and it can die in its own time.
     moveToRoot window

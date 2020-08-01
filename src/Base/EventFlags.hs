@@ -56,7 +56,6 @@ instance Members (MonadIO ': States [Screens, OldMouseButtons] ++ Inputs [RootWi
       forM_ allWindows \window -> selectFlags window
         $   substructureNotifyMask
         .|. substructureRedirectMask
-        .|. structureNotifyMask
         .|. buttonPressMask
         .|. buttonReleaseMask
       -- If the current mode wants to listen to the mouse, let it.
@@ -71,7 +70,6 @@ instance Members (MonadIO ': States [Screens, OldMouseButtons] ++ Inputs [RootWi
       forM_ allWindows \window -> selectFlags window
         $   substructureNotifyMask
         .|. substructureRedirectMask
-        .|. structureNotifyMask
         .|. leaveWindowMask
         .|. enterWindowMask
         .|. buttonPressMask
