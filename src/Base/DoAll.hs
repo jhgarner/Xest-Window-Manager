@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ConstraintKinds #-}
@@ -10,6 +11,14 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
+-- |There's a lot going on in this module and it can be really confusing if you
+-- aren't familiar with some fairly new Haskell extensions. Xest's effect
+-- system is provided by the Capability library. Capability provides what is
+-- essentially the ReaderT pattern with some code for reducing
+-- boilerplate. The boilerplate reducing code depends on deriving via, a GHC
+-- extension, and a bunch of newtypes exported by the library. To further
+-- reduce the boilerplate, I've used a Template Haskell function for some of
+-- the derivations.
 module Base.DoAll
   ( module Base.Helpers
   , module Base.Other
@@ -43,6 +52,7 @@ import           Base.EventFlags
 import           Base.Unmanaged
 import           Tiler.TilerTypes
 import           Tiler.ParentChild
+import           TH
 import           Config
 import           Actions.ActionTypes
 import qualified SDL.Font as Font
@@ -51,7 +61,18 @@ import Graphics.X11.Xinerama (XineramaScreenInfo)
 import Capability.Reader ()
 import Capability.State ()
 
+-- |Defines what kind of action triggered the KeyStatus Temp mode.
+data TempType = FromMod | NotMod
+  deriving Show
 
+-- |Defines the states for the keybinding state machine. For more info about
+-- how this is used, look in XEvents.
+data KeyStatus = New KeyStatus Mode KeyCode [Action] | Temp TempType KeyStatus Mode KeyCode [Action] | Default
+  deriving Show
+makeBaseFunctor ''KeyStatus
+
+
+-- |The large record Xest uses in the ReaderT type.
 data Ctx = Ctx
   { shouldLog :: IORef (Bool)
   , logHistory :: IORef [Text]
@@ -79,50 +100,60 @@ data Ctx = Ctx
   , cursor :: XCursor
   } deriving (Generic)
 
-type Logged name s = LoggedSink name s (ReaderIORef ((Rename name (Field name () (MonadReader M))))) M
-type From name = ReaderIORef ((Rename name (Field name () (MonadReader M))))
+-- Some helper type synonyms for creating Input/Output/State instances for
+-- items in Ctx.
 type FromInput name = Rename name (Field name () (MonadReader M))
-type ShouldRedraw = Maybe ()
+type From name = ReaderIORef (FromInput name)
+type Logged name s = LoggedSink name s (From name) M
 
--- TODO Having to type out Input, Output, and State makes this code
--- significantly noisier than it needs to be.
+-- Type aliases that should be used elsewhere but for now are just used to get
+-- easy to access names when deriving Input/Output/State over these types.
+type ShouldRedraw = Maybe ()
+type Yanked = [SubTiler]
+type LostWindow = Map Window [ParentChild]
+
+-- The Main Monad for Xest.
 newtype M a = M { runM :: R.ReaderT Ctx IO a }
   deriving (Functor, Applicative, Monad, MonadIO, R.MonadReader Ctx)
-  deriving (Input Mode, Output Mode, State Mode) via (Logged "activeMode" Mode)
-  deriving (Input  [Text], Output [Text], State [Text]) via (From "logHistory")
-  deriving (Input Bool, Output Bool, State Bool) via (From "shouldLog")
-  deriving (Input Screens, Output Screens, State Screens) via (Logged "screenList" Screens)
-  deriving (Input [SubTiler], Output [SubTiler], State [SubTiler]) via (Logged "yankBuffer" [SubTiler])
-  deriving (Input OldMouseButtons, Output OldMouseButtons, State OldMouseButtons) via (Logged "oldMouseButtons" OldMouseButtons)
-  deriving (Input (M.Map Text Atom), Output (M.Map Text Atom), State (M.Map Text Atom)) via (Logged "atomNameCache" (M.Map Text Atom))
-  deriving (Input (M.Map Atom [Int]), Output (M.Map Atom [Int]), State (M.Map Atom [Int])) via (Logged "atomValueCache" (M.Map Atom [Int]))
-  deriving (Input [Window], Output [Window], State [Window]) via (Logged "stackCache" [Window])
-  deriving (Input FocusedCache, Output FocusedCache, State FocusedCache) via (Logged "focusedWindow" FocusedCache)
-  deriving (Input (M.Map SDL.Window XRect), Output (M.Map SDL.Window XRect), State (M.Map SDL.Window XRect)) via (Logged "borderLocations" (M.Map SDL.Window XRect))
-  deriving (Input (M.Map Window XRect), Output (M.Map Window XRect), State (M.Map Window XRect)) via (Logged "windowLocations" (M.Map Window XRect))
-  deriving (Input (M.Map Window [ParentChild]), Output (M.Map Window [ParentChild]), State (M.Map Window [ParentChild])) via (Logged "windowChildren" (M.Map Window [ParentChild]))
-  deriving (Input ShouldRedraw, Output ShouldRedraw, State ShouldRedraw) via (Logged "shouldRedraw" ShouldRedraw)
-  deriving (Input Conf, Output Conf, State Conf) via (Logged "configuration" Conf)
-  deriving (Input ActiveScreen, Output ActiveScreen, State ActiveScreen) via (Logged "activeScreen" ActiveScreen)
-  deriving (Input OldTime, Output OldTime, State OldTime) via (Logged "lastTime" OldTime)
-  deriving (Input Docks, Output Docks, State Docks) via (Logged "knownDocks" Docks)
-  deriving (Input DockState, Output DockState, State DockState) via (Logged "dockState" DockState)
-  deriving (Input KeyStatus, Output KeyStatus, State KeyStatus) via (Logged "keyStatus" KeyStatus)
-  deriving (Input Tiler, Output Tiler, State Tiler) via FakeTiler M
   deriving (Input NewBorders) via FakeBorders M
   deriving (Input MouseButtons) via FakeMouseButtons M
   deriving (Input (Int32, Int32)) via FakePointer M
   deriving (Input [XineramaScreenInfo]) via FakeScreens M
-  deriving (Input SubTiler, Output SubTiler, State SubTiler) via Coerce SubTiler M
   deriving (Input RootWindow) via (FromInput "rootWindow")
   deriving (Input Display) via (FromInput "display")
   deriving (Input Font.Font) via (FromInput "fontChoice")
   deriving (Input XCursor) via (FromInput "cursor")
-  deriving (Log LogData) via (Logger M)
   deriving (Semigroup, Monoid) via Ap M a
 
+-- Generates Input, Output, and State for various types on M. Don't worry too
+-- much about the syntax/meta programming that's going on here. The template
+-- haskell code expands to roughly the deriving lines up above but with Output
+-- and State added to the deriving list.
+generateIOS ''M ''LogLines [t| (From "logHistory") |]
+generateIOS ''M ''Bool [t| (From "shouldLog") |]
+generateIOS ''M ''Mode [t| (Logged "activeMode" Mode) |]
+generateIOS ''M ''Screens [t| (Logged "screenList" Screens) |]
+generateIOS ''M ''Yanked [t| (Logged "yankBuffer" [SubTiler]) |]
+generateIOS ''M ''OldMouseButtons [t| (Logged "oldMouseButtons" OldMouseButtons) |]
+generateIOS ''M ''AtomCache [t| (Logged "atomNameCache" (M.Map Text Atom)) |]
+generateIOS ''M ''RootPropCache [t| (Logged "atomValueCache" (M.Map Atom [Int])) |]
+generateIOS ''M ''WindowStack [t| (Logged "stackCache" [Window]) |]
+generateIOS ''M ''FocusedCache [t| (Logged "focusedWindow" FocusedCache) |]
+generateIOS ''M ''SDLLocCache [t| (Logged "borderLocations" SDLLocCache) |]
+generateIOS ''M ''LocCache [t| (Logged "windowLocations" LocCache) |]
+generateIOS ''M ''LostWindow [t| (Logged "windowChildren" LostWindow) |]
+generateIOS ''M ''ShouldRedraw [t| (Logged "shouldRedraw" ShouldRedraw) |]
+generateIOS ''M ''Conf [t| (Logged "configuration" Conf) |]
+generateIOS ''M ''ActiveScreen [t| (Logged "activeScreen" ActiveScreen) |]
+generateIOS ''M ''OldTime [t| (Logged "lastTime" OldTime) |]
+generateIOS ''M ''Docks [t| (Logged "knownDocks" Docks) |]
+generateIOS ''M ''DockState [t| (Logged "dockState" DockState) |]
+generateIOS ''M ''KeyStatus [t| (Logged "keyStatus" KeyStatus) |]
+generateIOS ''M ''Tiler [t| FakeTiler M |]
+generateIOS ''M ''SubTiler [t| Coerce SubTiler M |]
 
-type LostWindow = Map Window [ParentChild]
+deriving via Logger M instance HasSink LogData LogData M
+
 
 -- Want to do everything in IO? Use this!
 doAll
@@ -162,10 +193,3 @@ doAll ioref t c m d w f cur mon = do
   fontChoice <- pure f
   cursor <- pure $ XCursor cur
   R.runReaderT (runM mon) $ Ctx {..}
-
-data TempType = FromMod | NotMod
-  deriving Show
-
-data KeyStatus = New KeyStatus Mode KeyCode [Action] | Temp TempType KeyStatus Mode KeyCode [Action] | Default
-  deriving Show
-makeBaseFunctor ''KeyStatus

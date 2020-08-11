@@ -75,6 +75,7 @@ data LogData = LD { prefix :: Text
                   }
   deriving Show
 
+type LogLines = [Text]
 
 -- The logging implementation
 newtype Logger m a = Logger { runLogger :: m a }

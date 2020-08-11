@@ -2,12 +2,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DerivingVia #-}
 
 module TH where
 
 import           Language.Haskell.TH
 import           Standard hiding (init)
 import           Prelude (init)
+
+-- |Generates Input, Output, and State derivations for some monad, state s, and
+-- base newtype.
+generateIOS :: Name -> Name -> TypeQ -> Q [Dec]
+generateIOS monad s viaType = do
+  input <- [d| deriving via $viaType instance HasSource $(conT s) $(conT s) $(conT monad) |]
+  output <- [d| deriving via $viaType instance HasSink $(conT s) $(conT s) $(conT monad) |]
+  state <- [d| deriving via $viaType instance HasState $(conT s) $(conT s) $(conT monad) |]
+  return $ join [input, output, state]
 
 -- |This piece of template haskell creates a series of
 -- patterns based on a given data type.
