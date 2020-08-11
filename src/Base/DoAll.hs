@@ -84,6 +84,8 @@ type From name = ReaderIORef ((Rename name (Field name () (MonadReader M))))
 type FromInput name = Rename name (Field name () (MonadReader M))
 type ShouldRedraw = Maybe ()
 
+-- TODO Having to type out Input, Output, and State makes this code
+-- significantly noisier than it needs to be.
 newtype M a = M { runM :: R.ReaderT Ctx IO a }
   deriving (Functor, Applicative, Monad, MonadIO, R.MonadReader Ctx)
   deriving (Input Mode, Output Mode, State Mode) via (Logged "activeMode" Mode)
@@ -117,12 +119,8 @@ newtype M a = M { runM :: R.ReaderT Ctx IO a }
   deriving (Input Font.Font) via (FromInput "fontChoice")
   deriving (Input XCursor) via (FromInput "cursor")
   deriving (Log LogData) via (Logger M)
+  deriving (Semigroup, Monoid) via Ap M a
 
-instance Semigroup a => Semigroup (M a) where
-  a <> b = liftM2 (<>) a b
-  
-instance Monoid a => Monoid (M a) where
-  mempty = return mempty
 
 type LostWindow = Map Window [ParentChild]
 

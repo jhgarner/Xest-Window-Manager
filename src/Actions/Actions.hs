@@ -278,7 +278,7 @@ killActive = do
 
   -- We use the Beam data type to get the window at the end of
   -- the tree if it exists.
-  let window = extract $ ana @(Beam _) makeList root
+  let window = hylo getEnd makeList root
   -- TODO This seems convoluted and should be simplified...
   l <- case window of
     Just (parent, child) -> do

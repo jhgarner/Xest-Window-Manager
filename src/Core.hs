@@ -294,7 +294,7 @@ xFocus
 xFocus = do
   root <- get @Tiler
   rWin <- input @Window
-  let w = fromMaybe (ParentChild rWin rWin) $ extract $ ana @(Beam _) makeList root
+  let w = fromMaybe (ParentChild rWin rWin) $ hylo getEnd makeList root
   setFocus w
  where
   makeList (Wrap pc)              = EndF $ Just pc
@@ -369,7 +369,7 @@ writeActiveWindow = do
   root <- input
   tilers <- gets @Tiler Fix
   naw <- getAtom False "_NET_ACTIVE_WINDOW"
-  putProperty 32 naw root wINDOW [fromMaybe (fromIntegral root) . extract $ ana @(Beam _) makeList tilers]
+  putProperty 32 naw root wINDOW [fromMaybe (fromIntegral root) $ hylo getEnd makeList tilers]
     where makeList (Fix (Wrap (ParentChild _ w))) = EndF . Just $ fromIntegral w
           makeList (Fix (InputControllerOrMonitor _ (Just t))) = ContinueF t
           makeList (Fix (InputControllerOrMonitor _ Nothing)) = EndF Nothing

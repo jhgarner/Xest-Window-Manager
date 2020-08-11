@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.1.
+-- This file has been generated from package.yaml by hpack version 0.34.2.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 8ed949a215b2c9cbf46bd09241ce07992f54f3fd6a74aedc4863e0546b59a45e
+-- hash: ae96e8841832335d6ca8aa62a16a2264527d28a280909ade6fdd1ff4f03e9aec
 
 name:           xest
 version:        0.1.0.0
@@ -46,6 +46,11 @@ library
       FocusList
       Lib
       Standard
+      Standard.Beam
+      Standard.RectA
+      Standard.Stream
+      Standard.Tagged
+      Standard.Transformation
       TH
       Tiler.ManyHelpers
       Tiler.ParentChild

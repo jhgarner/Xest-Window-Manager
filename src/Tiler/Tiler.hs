@@ -123,7 +123,7 @@ applyInput f = toFType . cata \case
 -- |Kind of like applyInput but can be used to get arbitrary info out of
 -- focused element.
 onInput :: (Maybe SubTiler -> a) -> Tiler -> a
-onInput f root = f $ extract $ ana @(Beam _) findIC $ coerce root
+onInput f root = f $ hylo getEnd findIC $ coerce root
  where
   findIC :: SubTiler -> BeamF (Maybe SubTiler) SubTiler
   findIC (InputController _ t) = EndF t
@@ -282,18 +282,18 @@ getAllParents = cata \case
   t -> fold t
 
 -- |Do some geometry to figure out which screen we're on. What's up with the
--- Functor f getting tossed around? Well sometimes we want the actual screen
+-- Traversable f getting tossed around? Well sometimes we want the actual screen
 -- that's focused and other times we want just the index. This function can do
 -- both of those. If you're looking for just the element, f ~ Identity but if
 -- you're looking for the index, f ~ (Int,).
 whichScreen
-  :: (Eq (f Bool), Functor f) => (Int32, Int32) -> [f XRect] -> Maybe (f XRect)
-whichScreen (mx, my) = map getFirst . foldMap' findOverlap
+  :: Traversable f => (Int32, Int32) -> [f XRect] -> Maybe (f XRect)
+whichScreen (mx, my) = asum . map findOverlap
  where
-  findOverlap wrapped =
-    if (wrapped $> True) == map isInside wrapped then Just $ First wrapped else Nothing
-  isInside Rect {..} =
-    mx >= x && my >= y && mx < x + fromIntegral w && my < y + fromIntegral h
+   findOverlap =
+     traverse (\xrect -> if isInside xrect then Just xrect else Nothing)
+   isInside Rect {..} =
+     mx >= x && my >= y && mx < x + fromIntegral w && my < y + fromIntegral h
 
 -- |The monitor must always be in the focus path.
 -- If it's already there, this function does nothing.
