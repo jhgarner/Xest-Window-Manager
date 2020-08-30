@@ -14,7 +14,8 @@ Are you a developer? Keep reading!
 Xest is a window manager written in Haskell. The goal of this codebase is to be
 at least partially accessible to other Haskell users.
 Since I've been the only contributor though, there is almost no way that
-goal has been met. It's much more likely that the code is filled with strange
+goal has been met. I used this codebase as a testing ground for finding new best
+practices which means a lot of the code will be filled with strange
 patterns and obtuse logic. If you're trying to understand the code and something
 doesn't make sense, let me know or open up an issue.
 
@@ -26,16 +27,15 @@ contact me if you have any questions.
 
 If you've never seen the Haskell language before, jumping into this codebase
 is probably a bad idea. If you have a little bit of experience, I would
-recommend taking a look at some of the files in the src/Tiler/ folder as well as
-the and src/FocusList.hs files. All of
+recommend taking a look at some of the files in the src/Tiler/ folder. All of
 the functions in there are "pure" in that they only modify internal data
-structures.
+structures and don't require knowing much about Xlib.
 
 The weirdest things you will find in those files are the uses of "Fix" and "cata". 
 I would highly recommend reading
 https://blog.sumtypeofway.com/posts/introduction-to-recursion-schemes.html if
 you haven't seen them before. That blog series fundamentally changed how I
-thought about recursion and ADT's. I likely would have given up on this project
+thought about recursion and ADTs. I likely would have given up on this project
 if I hadn't found that way of organizing the code.
 
 If you want to look at the other parts of the codebase, you'll need a basic
