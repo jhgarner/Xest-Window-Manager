@@ -5,16 +5,12 @@
 
 packages:
 - completed:
-    size: 30786
-    url: https://hackage.haskell.org/package/capability-0.3.0.0/capability-0.3.0.0.tar.gz
-    name: capability
-    version: 0.3.0.0
-    sha256: 9f3546e159172842a5d0c40a9d25b12f82152360081caaef204e0dd383170ace
+    hackage: capability-0.3.0.0@sha256:0f198c6523b940517670c0ba62e4ee19622c3bb3d8c1b80293e5a882a150b41f,3262
     pantry-tree:
       size: 2449
       sha256: cf5c08faf8fbfd281edb67381fb5a4ebc15c51a4b4785d6072327a67061b8eba
   original:
-    url: https://hackage.haskell.org/package/capability-0.3.0.0/capability-0.3.0.0.tar.gz
+    hackage: capability-0.3.0.0
 - completed:
     hackage: constraints-0.11.2@sha256:d028005d93f891b48b61ff0c82c6f868859eb728010dea3e355b0c55d0f57cf9,2219
     pantry-tree:

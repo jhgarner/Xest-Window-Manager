@@ -1,6 +1,6 @@
 .stack-work/
 neXtWM.cabal
-xest-exe.ps
-xest-exe.hp
+xest-exe.*
 _*/
 *~
+result
