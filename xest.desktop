@@ -1,7 +1,0 @@
-[Desktop Entry]
-Name=Xest
-Comment=The zesty window manager
-Exec=/bin/startxest
-TryExec=/usr/bin/ls
-Type=Application
-DesktopName=xest
