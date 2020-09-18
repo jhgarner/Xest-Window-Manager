@@ -191,7 +191,7 @@ visualFIndex :: Int -> FocusedList a -> FocusedList a
 visualFIndex i fl@FL {focusOrder = fo } = visualIndex (fo !! i) fl
 
 findNeFocIndex :: FocusedList a -> Int
-findNeFocIndex FL {..} = fromJust $ find (== head focusOrder) visualOrder
+findNeFocIndex FL {..} = fromJust $ findIndex (== head focusOrder) $ toList visualOrder
 
 makeFL :: NonEmpty a -> Int -> FocusedList a
 makeFL actualData focIndex = FL { visualOrder = vo
@@ -223,5 +223,8 @@ reconcile newAs order fl@FL{..} =
  where updateAt as (i, a) = map (\old -> if fst old == i then a else snd old) $ zip (0 :| [1..]) as
        base = fromList $ replicate (length actualData) $ head newAs
 
+fromFoc :: FocusedList a -> NonEmpty b -> FocusedList b
 fromFoc oldFl as = reconcile as (focusOrder oldFl) oldFl
+
+fromVis :: FocusedList a -> NonEmpty b -> FocusedList b
 fromVis oldFl as = reconcile as (visualOrder oldFl) oldFl

@@ -2,13 +2,16 @@
 
 Welcome to the src directory! If you've clicked into here, you must be
 interested in looking at the code. I've made attempts to keep it clean and
-readable, but be warned that few others have sanity checked it. The purpose of
-this readme is to provide some guidance on what's going on it the various files.
+readable, but be warned that few others have sanity checked it. In addition,
+I've actively searched for some slightly fancy Haskell if I thought it would
+improve long term maintenance, so there's a nontrivial learning curve. The
+purpose of this readme is to provide some guidance on what's going on it the
+various files.
 
-## Standard.hs
+## Standard*
 
-This module provides the prelude replacement. It probably needs to be split up
-into smaller pieces.
+This module provides the prelude replacement. It includes some generic types
+that could be useful in theory for other projects.
 
 ## Config.hs
 
@@ -45,7 +48,7 @@ explicit signatures everywhere GHC will let you. I've found that those
 signatures force GHC to localize its error much more. From there it's easier to
 see where things went wrong.
 
-In addition, using some kind of editor with ghci/haskell-language-server
+In addition, using some kind of editor with ghcide/haskell-language-server
 helps a ton. Being able to hover over terms to see their types has been a large
 productivity boost.
 

@@ -57,11 +57,13 @@ add w (Many mh mods) = Many newMh mods
         Horiz ne -> Horiz $ push Back Focused (Sized 0 w) ne
         Floating ne -> Floating $ push Back Focused (WithRect (Rect (-1) (-1) (-1) (-1)) w) ne
         TwoCols size ne -> TwoCols size $ push Back Focused (Identity w) ne
+
 add w t = Many (Horiz (makeFL ((Sized 0.5 $ Fix t) :| [Sized 0.5 w]) 0)) NoMods
 
 
 -- | Remove a Window if it exists in the tree.
 ripOut :: Window -> Tiler -> Tiler
+-- TODO I don't like fromMaybe being there
 ripOut toDelete = project . fromMaybe (error "No root!") . cata isEqual
  where
   isEqual :: TilerF (Maybe SubTiler) -> Maybe SubTiler
@@ -80,10 +82,13 @@ reduce (Many (Horiz fl) mods) = do
   let growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 fl
       newestFl = map (\(Sized s a) -> Sized (s * growPercent) a) newFl
   return $ Many (Horiz newestFl) mods
+
 reduce (Many fl mods) = do
   newFl <- withFl fl (flMapMaybe sequence)
   return $ Many newFl mods
+
 reduce (InputControllerOrMonitor c t) = Just . c $ join t
+
 reduce (Wrap w) = Just $ Wrap w
 
 
@@ -97,6 +102,7 @@ popWindow howToPop (Many (Horiz fl) mods) = (newElem, newMany)
           newFl <- newFlM
           let growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 fl
           return $ Many (Horiz $ map (\(Sized s a) -> Sized (s * growPercent) a) newFl) mods
+
 popWindow howToPop (Many mh mods) = (newElem, map (\newMh -> Many newMh mods) newMhM )
   where newElem = foldFl mh $ extract . fst . pop howToPop
         newMhM = withFl mh $ snd . pop howToPop
@@ -143,6 +149,7 @@ focus :: SubTiler -> Tiler -> Tiler
 focus newF (Many mh mods) = Many (withFl' mh $ focusElem ((== newF) . extract)) mods
 focus _    t@(Wrap _) = t
 focus _    t@(InputControllerOrMonitor _ _) = t
+
 
 -- |Sometimes, we end up with a tree that's in an invalid state.
 -- Usually, we can fix that by finding the closest parent between
@@ -199,6 +206,7 @@ moveToClosestParent predicateUnmove predicateMove = coerce
     then asum $ map (getMovable . snd) tiler
     else Nothing
 
+
 -- |Specialization of the above for moving an InputController towards a window
 moveToWindow :: Window -> Tiler -> Maybe Tiler
 moveToWindow window root =
@@ -212,7 +220,8 @@ moveToWindow window root =
   isWindow (Wrap parentChild) = inParentChild window parentChild
   isWindow _                  = False
 
--- |Specialization of the above for moving a moniter towards the inputController
+
+-- |Specialization of the above for moving a monitor towards the inputController
 moveToIC :: Tiler -> Maybe Tiler
 moveToIC root =
   let (newRoot, b) = moveToClosestParent isInputController isMonitor root
@@ -223,12 +232,14 @@ moveToIC root =
   isInputController (InputController _ _) = True
   isInputController _ = False
 
+
 -- |Do both of the above in sequence. This is the function that's actually used elsewhere
 focusWindow :: Window -> Tiler -> Maybe Tiler
 focusWindow window =
   moveToIC <=< moveToWindow window
 
--- |Specialization of the above for moving a moniter towards the inputController
+
+-- |Specialization of the above for moving a monitor towards the inputController
 moveToMon :: Tiler -> Maybe Tiler
 moveToMon root =
   let (newRoot, b) = second isBoth $ moveToClosestParent isMonitor isInput root
@@ -238,6 +249,7 @@ moveToMon root =
   isInput _ = Nothing
   isMonitor (Monitor _ _) = True
   isMonitor _ = False
+
 
 -- |The EWMH says window managers can list the number of virtual desktops and
 -- their names. This function gets that info, although we use a liberal

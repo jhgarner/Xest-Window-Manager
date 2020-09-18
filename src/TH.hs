@@ -8,7 +8,7 @@
 module TH where
 
 import           Language.Haskell.TH
-import           Standard hiding (init)
+import           Standard hiding (init, input, output, state)
 import           Prelude (init)
 
 -- |Generates Input, Output, and State derivations for some monad, state s, and

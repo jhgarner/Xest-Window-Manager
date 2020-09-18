@@ -12,7 +12,7 @@
    TilerF and its associated types are probably some of the most important in
    the project. Understanding them is important to understanding how Xest works
    as a whole. If you're unfamiliar with recursion schemes, definitely read up
-   on those. Learing about that library and reading
+   on those. Learning about that library and reading
    https://blog.sumtypeofway.com/posts/introduction-to-recursion-schemes.html
    has probably changed how I write and think about code more than most of the
    other concepts used in this project.
@@ -61,9 +61,6 @@ data TilerF a =
 deriveShow1 ''TilerF
 deriveEq1 ''TilerF
 
--- These instances let us use recursion schemes on Tilers. If I had to pick one
--- library that has had the most impact on Xest, I would easily pick recursion
--- schemes.
 type instance Base (TilerF (Fix TilerF)) = TilerF
 
 instance Recursive (TilerF (Fix TilerF)) where
@@ -117,14 +114,20 @@ inputControllerOrMonitor (InputController bords a) =
 inputControllerOrMonitor (Monitor loc a) = Just (Monitor loc, a)
 inputControllerOrMonitor _ = Nothing
 
-{-# COMPLETE Many, Wrap, InputControllerOrMonitor :: TilerF #-}
-{-# COMPLETE Many, Wrap, Monitor, InputController :: TilerF #-}
-
 -- |The pattern used to match the function from above.
 pattern InputControllerOrMonitor :: forall a b.
   (Maybe b -> TilerF b) -> Maybe a -> TilerF a
 pattern InputControllerOrMonitor c a
   <- (inputControllerOrMonitor -> Just (c, a))
+
+-- Since we're using pattern synonyms, Haskell can't figure out if any given
+-- case expression is total. This tells Haskell which pattern synonyms are
+-- needed to make it total.
+{-# COMPLETE Many, Wrap, InputControllerOrMonitor :: TilerF #-}
+{-# COMPLETE Many, Wrap, Monitor, InputController :: TilerF #-}
+
+
+-- These aren't super important and just make some type signatures nicer.
 
 -- |A function which can make any Subtiler, even those that don't exist, into a
 -- real Tiler.
