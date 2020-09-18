@@ -1,11 +1,7 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TupleSections   #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE TypeApplications #-}
 
 
 {-|

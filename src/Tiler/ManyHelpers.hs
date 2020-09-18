@@ -10,7 +10,7 @@ import           Tiler.WithRect
 import           Tiler.Sized
 
 
--- |A GADT which holds the various options that the Many Tiler can be.
+-- |A data type which holds the various options that the Many Tiler can be.
 data ManyHolder a where
   Horiz :: FocusedList (Sized a) -> ManyHolder a
   Floating :: FocusedList (WithRect a) -> ManyHolder a

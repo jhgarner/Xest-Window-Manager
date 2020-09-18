@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: ae96e8841832335d6ca8aa62a16a2264527d28a280909ade6fdd1ff4f03e9aec
+-- hash: c11bb845b8ff3288e32711aa33b08ba22c93246697e3b5bd2f45ae6cb029a343
 
 name:           xest
 version:        0.1.0.0
@@ -64,7 +64,7 @@ library
       Paths_xest
   hs-source-dirs:
       src
-  default-extensions: DataKinds FlexibleInstances FlexibleContexts GADTs LambdaCase PolyKinds RankNTypes ScopedTypeVariables TypeApplications TypeOperators TypeFamilies NoImplicitPrelude BlockArguments DeriveFunctor DeriveFoldable DeriveTraversable DeriveGeneric DerivingStrategies
+  default-extensions: DataKinds FlexibleInstances FlexibleContexts GADTs LambdaCase PolyKinds RankNTypes ScopedTypeVariables TypeApplications TypeOperators TypeFamilies NoImplicitPrelude BlockArguments DeriveFunctor DeriveFoldable DeriveTraversable DeriveGeneric DerivingStrategies OverloadedStrings RecordWildCards
   ghc-options: -Weverything -Wno-implicit-prelude -Wno-orphans -Wno-missing-exported-signatures -Wno-missing-import-lists -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unsafe -Wno-safe -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-missing-export-lists -Wno-partial-type-signatures -Wno-missing-deriving-strategies -j +RTS -A128m -n2m -RTS -O2 -flate-specialise -fexpose-all-unfoldings -fspecialise-aggressively
   build-depends:
       X11

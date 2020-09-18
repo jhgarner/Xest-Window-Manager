@@ -1,8 +1,4 @@
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 
 {-|

@@ -96,6 +96,8 @@ library:
     - DeriveTraversable
     - DeriveGeneric
     - DerivingStrategies
+    - OverloadedStrings
+    - RecordWildCards
 
 executables:
   xest-exe:

@@ -1,10 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Base.Colorer where

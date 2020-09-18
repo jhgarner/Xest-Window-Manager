@@ -1,7 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 
 module Lib
   ( startWM

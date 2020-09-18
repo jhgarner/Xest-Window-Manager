@@ -1,10 +1,4 @@
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE OverloadedLists #-}
 
 
 module XEvents where

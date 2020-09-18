@@ -1,10 +1,5 @@
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE DeriveAnyClass   #-}
-{-# LANGUAGE DuplicateRecordFields #-}
 
 module Config where
 
