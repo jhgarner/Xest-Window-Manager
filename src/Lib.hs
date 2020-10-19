@@ -86,13 +86,13 @@ runWM = do
       createWindow
         display
         root
-        0
-        0
         100000
         100000
+        1
+        1
         0
         copyFromParent
-        inputOnly
+        inputOutput
         -- Visual should take copyFromParent as a parameter I think...
         (unsafeCoerce copyFromParent)
         cWOverrideRedirect
@@ -114,14 +114,8 @@ runWM = do
       .|. keyPressMask
       .|. keyReleaseMask
 
-  selectInput display ewmhWin $
-    substructureNotifyMask
-      .|. pointerMotionMask
-      .|. buttonPressMask
-      .|. buttonReleaseMask
-
   -- Grabs the initial keybindings and screen list while also setting up EWMH
-  screens <- doAll logHistory IM.empty c startingMode display root font cursor ewmhWin $ do
+  screens <- doAll logHistory IM.empty c startingMode display root font cursor $ do
     initEwmh root ewmhWin
     rebindKeys startingMode startingMode
     rootChange
@@ -138,7 +132,7 @@ runWM = do
   -- Execute the main loop. Will never return unless Xest exits
   -- The finally makes sure we write the last 100 log messages on exit to the
   -- err file.
-  E.catch (doAll logHistory screens c startingMode display root font cursor ewmhWin (getXEvents >>= overStream mainLoop)) \(e :: SomeException) -> do
+  E.catch (doAll logHistory screens c startingMode display root font cursor (getXEvents >>= overStream mainLoop)) \(e :: SomeException) -> do
     lastLog <- unlines . reverse <$> readIORef logHistory
     let header = "Xest crashed with the exception: " <> Text (displayException e) <> "\n"
     writeFile "/tmp/xest.err" $ header <> lastLog <> "\n"

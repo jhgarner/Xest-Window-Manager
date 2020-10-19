@@ -29,14 +29,14 @@ reparentWin window = do
   -- Originally, Xest didn't do this but then a bunch of bugs came up
   -- where crossing events weren't reported correctly. All of those
   -- bugs went away when reparenting was added.
-  newWin <- newWindow window
+  (newWin, pWin) <- newWindow window
   log $ LD "ReparentWin" $ show window <> " with parent " <> show newWin
 
   -- Think of the new parent as an extension of the root window.
   -- Just like on the root window, we need to register some events
   -- on the parent.
-  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. enterWindowMask .|. leaveWindowMask .|. buttonPressMask .|. buttonReleaseMask)
-  return $ ParentChild newWin window
+  selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. enterWindowMask .|. leaveWindowMask)
+  return $ ParentChild newWin window pWin
 
 deriving instance Show SizeHints
 
@@ -47,7 +47,7 @@ mapWin ::
   Members (States [Screens, Tiler, Maybe (), ActiveScreen, Screens, LostWindow, OldTime, DockState]) m =>
   ParentChild ->
   m ()
-mapWin pc@(ParentChild newWin window) = do
+mapWin pc@(ParentChild newWin window _) = do
   log $ LD "MapWin" "Mapping a window"
   let tWin :: SubTiler = Wrap pc
 
@@ -65,7 +65,7 @@ mapWin pc@(ParentChild newWin window) = do
           log $ LD "MapWin" "Found a transient window!"
           SizeHints {..} <- getSizeHints window
           let idealSize = maybe (-1, -1) (over both fromIntegral) sh_min_size
-          let tilerParent = Wrap $ ParentChild parent parent
+          let tilerParent = Wrap $ ParentChild parent parent parent
               newRoot =
                 foldMap1 (\f -> f idealSize tilerParent tWin root) $
                   usingFloating :| [makeFloating]
@@ -367,7 +367,7 @@ makeFullscreen window isSet = do
       root <- get @Tiler
       modify @Tiler $
         coerce . fromMaybe (coerce root) . cata \case
-          Wrap pc@(ParentChild _ child)
+          Wrap pc@(ParentChild _ child _)
             | child == window -> Just $ Monitor loc $ Just $ InputController bords $ Just $ Wrap pc
           InputControllerOrMonitor _ t -> coerce $ join t
           t -> coerce $ reduce t
@@ -376,7 +376,7 @@ makeFullscreen window isSet = do
       put @DockState Hidden
     else do
       putProperty 32 wm_state window aTOM $ map fromIntegral (mfilter (/= wm_full) currentState)
-      changeLocation (ParentChild window window) $ Rect 1 1 1 1
+      changeLocation (ParentChild window window window) $ Rect 1 1 1 1
       put @DockState Visible
 
 setScreenFromWindow :: Members '[State Screens, State ActiveScreen] m => Window -> MaybeT m ()

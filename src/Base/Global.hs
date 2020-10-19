@@ -16,12 +16,13 @@ import Graphics.X11.Xlib.Types
 import Graphics.X11.Xlib.Window
 import Standard
 import Tiler.TilerTypes
+import Graphics.X11 (set_override_redirect, allocaSetWindowAttributes)
 
 -- | Anything that doesn't fit somewhere else. This should probably be
 --  split up at some point.
 class GlobalX m where
   getTree :: m [Window]
-  newWindow :: Window -> m Window
+  newWindow :: Window -> m (Window, Window)
   moveToRoot :: Window -> m ()
   getXEvents :: m (Stream m Event)
 
@@ -70,7 +71,31 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
           (blackPixel d defScr)
           (blackPixel d defScr)
     liftIO $ reparentWindow d w xwin 0 0
-    return xwin
+
+    pointerWin <- liftIO $
+      allocaSetWindowAttributes $ \wa -> do
+        set_override_redirect wa True
+        createWindow
+          d
+          rootWin
+          0
+          0
+          100000
+          100000
+          0
+          copyFromParent
+          inputOnly
+          -- Visual should take copyFromParent as a parameter I think...
+          (unsafeCoerce copyFromParent)
+          cWOverrideRedirect
+          wa
+    liftIO $ selectInput d pointerWin $
+      substructureNotifyMask
+        .|. pointerMotionMask
+        .|. buttonPressMask
+        .|. buttonReleaseMask
+    liftIO $ reparentWindow d pointerWin xwin 0 0
+    return (xwin, pointerWin)
 
   moveToRoot w = do
     d <- input @Display

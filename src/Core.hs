@@ -26,7 +26,7 @@ import Tiler.Tiler
 --  need to move.
 refresh ::
   Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged, EventFlags] m =>
-  Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo], ActiveScreen, PointerTaker]) m =>
+  Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo], ActiveScreen]) m =>
   Members (States [Tiler, Mode, [SubTiler], Maybe (), OldTime, Screens, DockState, Docks]) m =>
   m ()
 refresh = do
@@ -69,19 +69,13 @@ refresh = do
   allBorders <- inputs @Screens $ map getBorders . toList
   forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
 
-  -- We use a topmost invisible window to capture the mouse in normal mode.
-  -- These conditions make sure the window stays up and active in normal mode.
-  mode <- input @Mode
-  PointerTaker pWin <- input @PointerTaker
-  when (not $ hasButtons mode) $
-    restack $ topWindows ++ aboveWindows ++ borderWins ++ map getParent middleWins ++ [pWin]
+  restack $ topWindows ++ aboveWindows ++ borderWins ++ map getParent middleWins
 
   log $ LD "Rendering" "Has finished"
 
   -- tell X to focus whatever we're focusing
   log $ LD "Focusing" "Has started"
-  when (not $ hasButtons mode) $
-    xFocus
+  xFocus
   log $ LD "Focusing" "Has finished"
 
   -- Do some EWMH stuff
@@ -211,9 +205,13 @@ render = do
   where
     -- The main part of this function.
     draw :: Base (Cofree TilerF (XRect, Int)) (([ParentChild], [ParentChild]), m ()) -> (([ParentChild], [ParentChild]), m ())
-    draw (CofreeF (Rect {..}, _) (Wrap pc)) =
-      ( ([], [pc]),
-        changeLocation pc $ Rect x y (abs w) (abs h)
+    draw (CofreeF (Rect {..}, _) (Wrap pc@(ParentChild _ c pWin))) =
+      ( ([], [pc]), do
+          mode <- input @Mode
+          if hasButtons mode
+            then restack [pWin, c]
+            else restack [c, pWin]
+          changeLocation pc $ Rect x y (abs w) (abs h)
       )
     -- The InputController places the SDL window borders around the focused
     -- Tiler if you're in a mode that wants borders.
@@ -291,7 +289,7 @@ xFocus ::
 xFocus = do
   root <- get @Tiler
   rWin <- input @Window
-  let w = fromMaybe (ParentChild rWin rWin) $ hylo getEnd makeList root
+  let w = fromMaybe (ParentChild rWin rWin rWin) $ hylo getEnd makeList root
   setFocus w
   where
     makeList (Wrap pc) = EndF $ Just pc
@@ -361,7 +359,7 @@ setClientList = do
   ncl <- getAtom False "_NET_CLIENT_LIST"
   putProperty 32 ncl root wINDOW $ cata winList $ Fix tilers
   where
-    winList (Wrap (ParentChild _ w)) = [fromIntegral w]
+    winList (Wrap (ParentChild _ w _)) = [fromIntegral w]
     winList t = concat t
 
 -- | Writes the active window to the root window.
@@ -374,7 +372,7 @@ writeActiveWindow = do
   naw <- getAtom False "_NET_ACTIVE_WINDOW"
   putProperty 32 naw root wINDOW [fromMaybe (fromIntegral root) $ hylo getEnd makeList tilers]
   where
-    makeList (Fix (Wrap (ParentChild _ w))) = EndF . Just $ fromIntegral w
+    makeList (Fix (Wrap (ParentChild _ w _))) = EndF . Just $ fromIntegral w
     makeList (Fix (InputControllerOrMonitor _ (Just t))) = ContinueF t
     makeList (Fix (InputControllerOrMonitor _ Nothing)) = EndF Nothing
     makeList (Fix t) = ContinueF (getFocused t)

@@ -134,11 +134,6 @@ zoomOutMonitor = do
 --  from Insert mode to Normal mode.
 changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] m => Mode -> m ()
 changeModeTo newM = do
-  -- If this mode supports mouse actions, also capture the mouse.
-  -- This is needed because while we've captured the mouse, no one else can
-  -- use it.
-  selectButtons newM
-
   -- Unbind the keys from the old mode and bind the ones for the new mode.
   currentMode <- get @Mode
   rebindKeys currentMode newM
@@ -310,7 +305,7 @@ killActive = do
       _ <- kill True parent
       modify @Tiler $ ripOut killed
   where
-    makeList (Wrap (ParentChild window w')) = EndF $ Just (window, w')
+    makeList (Wrap (ParentChild window w' _)) = EndF $ Just (window, w')
     makeList (InputControllerOrMonitor _ (Just t)) = ContinueF $ coerce t
     makeList (InputControllerOrMonitor _ Nothing) = EndF Nothing
     makeList t = ContinueF (coerce $ getFocused t)

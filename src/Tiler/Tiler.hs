@@ -51,9 +51,9 @@ ripOut :: Window -> Tiler -> Tiler
 ripOut toDelete = project . fromMaybe (error "No root!") . cata isEqual
   where
     isEqual :: TilerF (Maybe SubTiler) -> Maybe SubTiler
-    isEqual (Wrap (ParentChild parent window))
+    isEqual (Wrap (ParentChild parent window pointerWin))
       | window == toDelete = Nothing
-      | otherwise = Just . embed . Wrap $ ParentChild parent window
+      | otherwise = Just . embed . Wrap $ ParentChild parent window pointerWin
     isEqual t = coerce $ reduce t
 
 -- | Removes empty Tilers
@@ -258,15 +258,21 @@ getFocusList (Wrap _) = "Window"
 findParent :: Window -> Tiler -> Maybe Window
 findParent w = cata step
   where
-    step (Wrap (ParentChild ww ww'))
+    step (Wrap (ParentChild ww ww' ww''))
       | ww' == w = Just ww
+      | ww'' == w = Just ww
       | otherwise = Nothing
     step t = foldl' (<|>) Nothing t
+
+findAllLeaves :: Screens -> [ParentChild]
+findAllLeaves s = screensToTilers s >>= cata \case
+  Wrap pc -> [pc]
+  t -> fold t
 
 -- | Get all parents from the tree
 getAllParents :: Tiler -> [Window]
 getAllParents = cata \case
-  Wrap (ParentChild p _) -> pure p
+  Wrap (ParentChild p _ _) -> pure p
   t -> fold t
 
 -- | Do some geometry to figure out which screen we're on. What's up with the
@@ -317,7 +323,7 @@ getTilerFromScreen p screens =
 
 getTilerWithWindow :: Window -> Screens -> Maybe Tiler
 getTilerWithWindow w = getTilerFromScreen \case
-  Wrap (ParentChild _ c) -> c == w
+  Wrap (ParentChild _ c _) -> c == w
   _ -> False
 
 screensToTilers :: Screens -> [Tiler]

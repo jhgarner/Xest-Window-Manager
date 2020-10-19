@@ -28,7 +28,7 @@ class Unmanaged m where
 instance Members [State Docks, Input RootWindow, State DockState, Mover, Property, Minimizer, MonadIO, Input Display] m => Unmanaged m where
   focusUM win = do
     root <- input @RootWindow
-    setFocus (ParentChild root win)
+    setFocus (ParentChild root win root)
 
   addUM win = do
     restore win

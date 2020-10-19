@@ -44,8 +44,8 @@ newtype FocusedCache = FocusedCache Window
   deriving (Eq, Show)
 
 -- Move windows using IO
-instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCache, OldTime] ++ '[Minimizer, Executor, Property, Input RootWindow, MonadIO, Input Display]) m => Mover m where
-  changeLocation (ParentChild p c) r@(Rect x y h w) = do
+instance Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] ++ '[Minimizer, Executor, Property, Input RootWindow, MonadIO, Input Display]) m => Mover m where
+  changeLocation (ParentChild p c pWin) r@(Rect x y h w) = do
     -- Every window will have change location called every "frame".
     -- The cache makes sure we don't send more wark to X than we need.
     locCache <- get @LocCache
@@ -59,15 +59,18 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
               -- Both the parent and the child should be the same size.
               resizeWindow d c h w
               resizeWindow d p h w
+              resizeWindow d pWin h w
 
               -- The child's location is relative to the parent.
               moveWindow d c 0 0
+              moveWindow d pWin 0 0
 
               -- The parent's location is "global" so it needs to move.
               moveWindow d p x y
 
             -- If the parent or child had been minimized, fix that.
             restore c
+            restore pWin
             restore p
     modify @LocCache $ set (at c) $ Just r
 
@@ -80,15 +83,12 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
     modify @SDLLocCache $ set (at win) $ Just r
 
   restack wins = do
-    stackCache <- get @WindowStack
-    unless (stackCache == wins) $ do
-      d <- input
-      -- The sync here fixes a race condition between SDL and Xest.
-      -- We need the SDL bufferSwap function to run after the restack.
-      -- Otherwise, SDL won't draw the parts of the border which are
-      -- temporarily under another window.
-      void . liftIO $ restackWindows d wins >> sync d False
-    put @[Window] wins
+    d <- input
+    -- The sync here fixes a race condition between SDL and Xest.
+    -- We need the SDL bufferSwap function to run after the restack.
+    -- Otherwise, SDL won't draw the parts of the border which are
+    -- temporarily under another window.
+    void . liftIO $ restackWindows d wins >> sync d False
 
   configureWin ConfigureRequestEvent {..} = do
     d <- input
@@ -112,7 +112,7 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
         else configureWindow d ev_window ev_value_mask wc
   configureWin _ = error "Don't call Configure Window with other events"
 
-  setFocus (ParentChild p c) =
+  setFocus (ParentChild p c _) =
     input @Display >>= \d -> do
       root <- get @Tiler
       rootWin <- input @RootWindow
@@ -138,8 +138,9 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
               liftIO $ setInputFocus d c revertToPointerRoot currentTime
           liftIO $ cata (grabOthers d c) root
           put @FocusedCache $ FocusedCache c
+      liftIO $ allowEvents d replayPointer currentTime >> sync d False
     where
-      grabOthers d target (Wrap (ParentChild parent child))
+      grabOthers d target (Wrap (ParentChild parent child _))
         | child == target = ungrabButton d anyButton anyModifier parent
         | otherwise =
           grabButton
@@ -149,7 +150,7 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
             parent
             False
             (buttonPressMask .|. buttonReleaseMask)
-            grabModeSync
+            grabModeAsync
             grabModeAsync
             none
             none

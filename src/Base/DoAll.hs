@@ -80,7 +80,6 @@ data Ctx = Ctx
     borderLocations :: IORef (M.Map SDL.Window XRect),
     windowLocations :: IORef (M.Map Window XRect),
     windowChildren :: IORef (M.Map Window [ParentChild]),
-    stackCache :: IORef [Window],
     shouldRedraw :: IORef (Maybe ()),
     configuration :: IORef Conf,
     activeScreen :: IORef ActiveScreen,
@@ -90,8 +89,7 @@ data Ctx = Ctx
     rootWindow :: Window,
     display :: Display,
     fontChoice :: Font.Font,
-    cursor :: XCursor,
-    ewmhWin :: PointerTaker
+    cursor :: XCursor
   }
   deriving (Generic)
 
@@ -122,7 +120,6 @@ newtype M a = M {runM :: R.ReaderT Ctx IO a}
   deriving (Input Display) via (FromInput "display")
   deriving (Input Font.Font) via (FromInput "fontChoice")
   deriving (Input XCursor) via (FromInput "cursor")
-  deriving (Input PointerTaker) via (FromInput "ewmhWin")
   deriving (Semigroup, Monoid) via Ap M a
 
 -- Generates Input, Output, and State for various types on M. Don't worry too
@@ -137,7 +134,6 @@ generateIOS ''M ''Yanked [t|(Logged "yankBuffer" [SubTiler])|]
 generateIOS ''M ''OldMouseButtons [t|(Logged "oldMouseButtons" OldMouseButtons)|]
 generateIOS ''M ''AtomCache [t|(Logged "atomNameCache" (M.Map Text Atom))|]
 generateIOS ''M ''RootPropCache [t|(Logged "atomValueCache" (M.Map Atom [Int]))|]
-generateIOS ''M ''WindowStack [t|(Logged "stackCache" [Window])|]
 generateIOS ''M ''FocusedCache [t|(Logged "focusedWindow" FocusedCache)|]
 generateIOS ''M ''SDLLocCache [t|(Logged "borderLocations" SDLLocCache)|]
 generateIOS ''M ''LocCache [t|(Logged "windowLocations" LocCache)|]
@@ -164,10 +160,9 @@ doAll ::
   Window ->
   Font.Font ->
   Cursor ->
-  Window ->
   M a -> -- The super long Monad which GHC can figure out on its own
   IO a
-doAll ioref t c m d w f cur win mon = do
+doAll ioref t c m d w f cur mon = do
   shouldLog <- newIORef False
   logHistory <- pure ioref
   activeMode <- newIORef m
@@ -186,12 +181,9 @@ doAll ioref t c m d w f cur win mon = do
   knownDocks <- newIORef $ Docks []
   dockState <- newIORef Visible
   keyStatus <- newIORef Default
-  stackCache <- newIORef []
   screenList <- newIORef t
   rootWindow <- pure w
   display <- pure d
   fontChoice <- pure f
   cursor <- pure $ XCursor cur
-  -- Magic number from X11 library source code.
-  ewmhWin <- pure $ PointerTaker win
   R.runReaderT (runM mon) $ Ctx {..}
