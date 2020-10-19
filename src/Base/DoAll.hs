@@ -90,7 +90,8 @@ data Ctx = Ctx
     rootWindow :: Window,
     display :: Display,
     fontChoice :: Font.Font,
-    cursor :: XCursor
+    cursor :: XCursor,
+    ewmhWin :: PointerTaker
   }
   deriving (Generic)
 
@@ -121,6 +122,7 @@ newtype M a = M {runM :: R.ReaderT Ctx IO a}
   deriving (Input Display) via (FromInput "display")
   deriving (Input Font.Font) via (FromInput "fontChoice")
   deriving (Input XCursor) via (FromInput "cursor")
+  deriving (Input PointerTaker) via (FromInput "ewmhWin")
   deriving (Semigroup, Monoid) via Ap M a
 
 -- Generates Input, Output, and State for various types on M. Don't worry too
@@ -162,9 +164,10 @@ doAll ::
   Window ->
   Font.Font ->
   Cursor ->
+  Window ->
   M a -> -- The super long Monad which GHC can figure out on its own
   IO a
-doAll ioref t c m d w f cur mon = do
+doAll ioref t c m d w f cur win mon = do
   shouldLog <- newIORef False
   logHistory <- pure ioref
   activeMode <- newIORef m
@@ -189,4 +192,6 @@ doAll ioref t c m d w f cur mon = do
   display <- pure d
   fontChoice <- pure f
   cursor <- pure $ XCursor cur
+  -- Magic number from X11 library source code.
+  ewmhWin <- pure $ PointerTaker win
   R.runReaderT (runM mon) $ Ctx {..}

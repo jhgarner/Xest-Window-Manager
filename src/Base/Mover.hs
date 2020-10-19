@@ -138,7 +138,6 @@ instance Members (States [LocCache, SDLLocCache, WindowStack, Tiler, FocusedCach
               liftIO $ setInputFocus d c revertToPointerRoot currentTime
           liftIO $ cata (grabOthers d c) root
           put @FocusedCache $ FocusedCache c
-      liftIO $ allowEvents d replayPointer currentTime >> sync d False
     where
       grabOthers d target (Wrap (ParentChild parent child))
         | child == target = ungrabButton d anyButton anyModifier parent

@@ -26,7 +26,7 @@ import Tiler.Tiler
 --  need to move.
 refresh ::
   Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged, EventFlags] m =>
-  Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo], ActiveScreen]) m =>
+  Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo], ActiveScreen, PointerTaker]) m =>
   Members (States [Tiler, Mode, [SubTiler], Maybe (), OldTime, Screens, DockState, Docks]) m =>
   m ()
 refresh = do
@@ -69,13 +69,19 @@ refresh = do
   allBorders <- inputs @Screens $ map getBorders . toList
   forM_ allBorders \(a, b, c, d) -> bufferSwap a >> bufferSwap b >> bufferSwap c >> bufferSwap d
 
-  restack $ topWindows ++ aboveWindows ++ borderWins ++ map getParent middleWins
+  -- We use a topmost invisible window to capture the mouse in normal mode.
+  -- These conditions make sure the window stays up and active in normal mode.
+  mode <- input @Mode
+  PointerTaker pWin <- input @PointerTaker
+  when (not $ hasButtons mode) $
+    restack $ topWindows ++ aboveWindows ++ borderWins ++ map getParent middleWins ++ [pWin]
 
   log $ LD "Rendering" "Has finished"
 
   -- tell X to focus whatever we're focusing
   log $ LD "Focusing" "Has started"
-  xFocus
+  when (not $ hasButtons mode) $
+    xFocus
   log $ LD "Focusing" "Has finished"
 
   -- Do some EWMH stuff

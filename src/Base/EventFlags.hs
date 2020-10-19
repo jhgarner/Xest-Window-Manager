@@ -4,8 +4,10 @@ module Base.EventFlags where
 
 import Actions.ActionTypes
 import Base.Helpers
+import Base.Mover
 import Base.Other
 import Config
+import Graphics.X11 (raiseWindow)
 import Graphics.X11.Types
 import Graphics.X11.Xlib.Event
 import Graphics.X11.Xlib.Extras
@@ -13,6 +15,8 @@ import Graphics.X11.Xlib.Misc
 import Graphics.X11.Xlib.Types
 import Standard
 import Tiler.Tiler
+
+newtype PointerTaker = PointerTaker Window
 
 -- | Controls the various event flags we can set on windows. See the Xlib docs for
 --  a description of what those are.
@@ -42,7 +46,7 @@ class EventFlags m where
 newtype XCursor = XCursor Cursor
 
 -- | Runs the event using IO
-instance Members (MonadIO ': States [Screens, OldMouseButtons] ++ Inputs [RootWindow, Conf, Display, XCursor]) m => EventFlags m where
+instance Members (MonadIO ': States [Screens, OldMouseButtons, FocusedCache, WindowStack] ++ Inputs [RootWindow, Conf, Display, XCursor, PointerTaker]) m => EventFlags m where
   selectFlags w flags =
     input >>= \d -> liftIO $ do
       sync d False
@@ -51,7 +55,7 @@ instance Members (MonadIO ': States [Screens, OldMouseButtons] ++ Inputs [RootWi
   selectButtons NewMode {hasButtons = hb} = do
     d <- input @Display
     root <- input @RootWindow
-    XCursor cursor <- input @XCursor
+    PointerTaker pWin <- input @PointerTaker
     allWindows <- gets @Screens $ concatMap getAllParents . map snd . itoList
     put @OldMouseButtons $ OMB None
     forM_ allWindows \window ->
@@ -63,22 +67,12 @@ instance Members (MonadIO ': States [Screens, OldMouseButtons] ++ Inputs [RootWi
     -- If the current mode wants to listen to the mouse, let it.
     -- Otherwise, don't because capturing the mouse prevents everyone
     -- else from using it.
-    void . liftIO $
-      if not hb
-        then ungrabPointer d currentTime
-        else
-          void $
-            grabPointer
-              d
-              root
-              True
-              pointerMotionMask
-              grabModeAsync
-              grabModeAsync
-              root
-              cursor
-              currentTime
-    --  grabButton d (button1 .|. button2) anyModifier root True buttonReleaseMask grabModeAsync grabModeAsync cursor currentTime
+    when hb do
+      put @FocusedCache $ FocusedCache root
+      put @WindowStack []
+      -- TODO determine which window is under the mouse and focus that one.
+      liftIO $ setInputFocus d pWin revertToParent currentTime
+      liftIO $ raiseWindow d pWin
     forM_ allWindows \window ->
       selectFlags window $
         substructureNotifyMask
