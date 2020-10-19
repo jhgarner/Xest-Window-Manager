@@ -3,9 +3,9 @@ module Standard.Tagged where
 import BasePrelude
 import Control.Comonad
 
--- |Tagged is a lot like Either except more optimistic. In Either, a single
--- failure propogates upwards. With Tagged, a single Success propogates
--- upwards.
+-- | Tagged is a lot like Either except more optimistic. In Either, a single
+--  failure propogates upwards. With Tagged, a single Success propogates
+--  upwards.
 data Tagged a = Failed a | Succeeded a
   deriving (Show, Eq, Read, Functor, Foldable, Traversable)
 

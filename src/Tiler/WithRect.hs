@@ -2,12 +2,12 @@
 
 module Tiler.WithRect where
 
-import           Standard
-import           Text.Show.Deriving
-import           Data.Eq.Deriving
+import Data.Eq.Deriving
+import Standard
+import Text.Show.Deriving
 
--- |A container where the contents are either on the bottom
--- or are floating on top in some rectangle.
+-- | A container where the contents are either on the bottom
+--  or are floating on top in some rectangle.
 data WithRect a = WithRect Rect a
   deriving (Show, Functor, Foldable, Traversable)
 

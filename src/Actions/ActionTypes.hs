@@ -1,10 +1,10 @@
-{-# LANGUAGE DeriveAnyClass   #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module Actions.ActionTypes where
 
-import           Standard
-import           Dhall (Interpret)
-import           FocusList
+import Dhall (Interpret)
+import FocusList
+import Standard
 
 -- | Actions/events to be performed
 data Action
@@ -38,11 +38,12 @@ data Action
   deriving (Show, Generic, Interpret)
 
 -- | Modes similar to modes in vim
-data Mode = NewMode { modeName     :: Text
-                    , hasButtons :: Bool
-                    , hasBorders :: Bool
-                    }
+data Mode = NewMode
+  { modeName :: Text,
+    hasButtons :: Bool,
+    hasBorders :: Bool
+  }
   deriving (Show, Generic, Interpret)
+
 instance Eq Mode where
   n1 == n2 = modeName n1 == modeName n2
-

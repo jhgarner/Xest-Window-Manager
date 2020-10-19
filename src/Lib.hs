@@ -1,31 +1,31 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Lib
-  ( startWM
+  ( startWM,
   )
 where
 
-import           Standard
-import           Config
-import           Core
-import           Graphics.X11.Types
-import           Graphics.X11.Xlib.Display
-import           Graphics.X11.Xlib.Event
-import           Graphics.X11.Xlib.Extras
-import           Graphics.X11.Xlib.Misc
-import           Graphics.X11.Xlib.Window
-import           SDL hiding (get, Window, Display, trace, Mode, Event)
-import qualified SDL.Font as Font
-import           Base.DoAll
-import           Tiler.Tiler
-import qualified Data.IntMap                      as IM
-import XEvents
 import Actions.ActionTypes
 import Actions.Actions
-import Text.Regex (mkRegex, subRegex)
+import Base.DoAll
+import Config
 import qualified Control.Exception as E
+import Core
+import qualified Data.IntMap as IM
+import Graphics.X11.Types
+import Graphics.X11.Xlib.Display
+import Graphics.X11.Xlib.Event
+import Graphics.X11.Xlib.Extras
+import Graphics.X11.Xlib.Misc
+import Graphics.X11.Xlib.Window
+import SDL hiding (Display, Event, Mode, Window, get, trace)
+import qualified SDL.Font as Font
+import Standard
 import qualified System.Environment as Env
+import Text.Regex (mkRegex, subRegex)
+import Tiler.Tiler
+import XEvents
 
 -- | Wraps Xest in some basic logging and error handling.
 startWM :: IO ()
@@ -33,9 +33,11 @@ startWM = do
   -- This should only get filled if some part of initialization fails
   E.catch runWM \(e :: SomeException) -> do
     writeFile "/tmp/xest_init.err" $ Text $ filterAnsi $ displayException e
-  where ansiRegex = mkRegex "\\[[0-9;?]+m" 
-        filterAnsi line = subRegex ansiRegex stripped ""
-          where stripped = mfilter (/= '\ESC') line
+  where
+    ansiRegex = mkRegex "\\[[0-9;?]+m"
+    filterAnsi line = subRegex ansiRegex stripped ""
+      where
+        stripped = mfilter (/= '\ESC') line
 
 -- | Starting point of the program. This function should never return
 runWM :: IO ()
@@ -65,7 +67,7 @@ runWM = do
   -- X orders windows like a tree.
   -- This gets the root of said tree.
   let root = defaultRootWindow display
-  
+
   -- Set the cursor for the root window
   -- 132 is the magic number for the normal arrow
   cursor <- createFontCursor display 132
@@ -76,28 +78,36 @@ runWM = do
   -- Since we don't want the window to be visible, we give it a crazy
   -- location. We alse set_override_redirect because Xest shouldn't be
   -- alerted if the window gets moved around.
-  ewmhWin <- createSimpleWindow display root
-          10000 10000 1 1 0 0
-          $ whitePixel display (defaultScreen display)
+  ewmhWin <-
+    createSimpleWindow
+      display
+      root
+      10000
+      10000
+      1
+      1
+      0
+      0
+      $ whitePixel display (defaultScreen display)
   allocaSetWindowAttributes $ \wa ->
     set_override_redirect wa True
-    >> changeWindowAttributes display ewmhWin cWOverrideRedirect wa
+      >> changeWindowAttributes display ewmhWin cWOverrideRedirect wa
   mapWindow display ewmhWin
 
   logHistory <- newIORef []
-  
+
   -- Find and register ourselves with the root window
   -- These masks allow us to intercept various Xorg events useful for a WM
-  selectInput display root
-    $   substructureNotifyMask
-    .|. substructureRedirectMask
-    .|. structureNotifyMask
-    .|. leaveWindowMask
-    .|. enterWindowMask
-    .|. buttonPressMask
-    .|. buttonReleaseMask
-    .|. keyPressMask
-    .|. keyReleaseMask
+  selectInput display root $
+    substructureNotifyMask
+      .|. substructureRedirectMask
+      .|. structureNotifyMask
+      .|. leaveWindowMask
+      .|. enterWindowMask
+      .|. buttonPressMask
+      .|. buttonReleaseMask
+      .|. keyPressMask
+      .|. keyReleaseMask
 
   -- Grabs the initial keybindings and screen list while also setting up EWMH
   screens <- doAll logHistory IM.empty c startingMode display root font cursor $ do
@@ -106,7 +116,7 @@ runWM = do
     rootChange
     get @Screens
 
-  -- Normally, Xlib will crash on any error. Calling this function 
+  -- Normally, Xlib will crash on any error. Calling this function
   -- asks Xlib to print recoverable errors instead of crashing on them.
   setDefaultErrorHandler
   -- xSetErrorHandler
@@ -121,8 +131,6 @@ runWM = do
     lastLog <- unlines . reverse <$> readIORef logHistory
     let header = "Xest crashed with the exception: " <> Text (displayException e) <> "\n"
     writeFile "/tmp/xest.err" $ header <> lastLog <> "\n"
-
-
 
 -- | Performs the main logic. Does it all!
 mainLoop :: Event -> M ()
@@ -141,13 +149,12 @@ mainLoop event = do
       nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
       windowType <- getProperty 32 nwwt ev_window
       if elem nwwtd windowType
-        then
-          addUM ev_window >> put @(Maybe ()) (Just ())
+        then addUM ev_window >> put @(Maybe ()) (Just ())
         else do
           rootTiler <- get @Tiler
           unless (findWindow ev_window rootTiler) $
             reparentWin ev_window >>= mapWin
-        
+
     -- Called when a window actually dies.
     DestroyWindowEvent {..} -> killed ev_window
     -- Called when a window is dying. Because X is asynchronous, there's a chance
@@ -164,9 +171,10 @@ mainLoop event = do
       root <- input @RootWindow
       -- Why the if statement? Well we want to focus the root window
       -- if no other windows are currently focused.
-      if | ev_event_type == enterNotify -> newFocus ev_window
-         | ev_window == root -> newFocus root
-         | otherwise -> return ()
+      if
+          | ev_event_type == enterNotify -> newFocus ev_window
+          | ev_window == root -> newFocus root
+          | otherwise -> return ()
     -- Button in this case means mouse button. Used to trigger click to focus.
     ButtonEvent {..} -> do
       put @OldTime (OldTime ev_time)
@@ -194,47 +202,44 @@ mainLoop event = do
       when (wm_state == ev_message_type && full `elem` ev_data) $
         makeFullscreen ev_window isSet
 
-
     -- 21 == reparent event. If a window decides to reparent itself,
     -- it's practically unmapped and dead.
     AnyEvent {ev_event_type = 21, ev_window = window} -> killed window
-
     _ -> void $ log $ LD "Event" "Got unknown event"
 
   -- Move all of the windows based on how our internal state changed
   refreshRequested <- isJust <$> get @(Maybe ())
   when refreshRequested refresh
-  
-
   where
     -- Here we have executors for the various actions a user might
     -- have in their config. These go to Actions/Actions.hs
     executeActions :: Action -> M ()
-    executeActions action = log (LD "Action" $ show action) >> case action of
-      RunCommand command -> execute command
-      ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
-      HideWindow wName -> getWindowByClass wName >>= mapM_ minimize
-      ZoomInInput -> zoomInInput
-      ZoomOutInput -> zoomOutInput
-      ZoomInMonitor -> zoomInMonitor
-      ZoomOutMonitor -> zoomOutMonitor
-      ZoomMonitorToInput -> zoomMonitorToInput
-      ZoomInputToMonitor -> zoomInputToMonitor
-      ChangeModeTo mode -> changeModeTo mode
-      Move dir -> changeMany $ moveDir dir
-      ChangeNamed (Text name) -> maybe (return ()) (changeMany . changeIndex) $ readMaybe name
-      PopTiler -> popTiler
-      PushTiler -> pushTiler
-      Insert -> insertTiler
-      MoveToFront -> changeMany moveToFront
-      MakeEmpty -> makeEmptySpot
-      KillActive -> killActive
-      ExitNow -> absurd <$> exit
-      ToggleLogging -> toggleLogs
-      ChangeToHorizontal -> changeMany toHoriz
-      ChangeToFloating -> changeMany toFloating
-      ChangeToTwoCols -> changeMany toTwoCols
-      SetRotate -> changeMods Rotate
-      SetFull -> changeMods Full
-      SetNoMod -> changeMods NoMods
-      ToggleDocks -> toggleDocks
+    executeActions action =
+      log (LD "Action" $ show action) >> case action of
+        RunCommand command -> execute command
+        ShowWindow wName -> getWindowByClass wName >>= mapM_ restore
+        HideWindow wName -> getWindowByClass wName >>= mapM_ minimize
+        ZoomInInput -> zoomInInput
+        ZoomOutInput -> zoomOutInput
+        ZoomInMonitor -> zoomInMonitor
+        ZoomOutMonitor -> zoomOutMonitor
+        ZoomMonitorToInput -> zoomMonitorToInput
+        ZoomInputToMonitor -> zoomInputToMonitor
+        ChangeModeTo mode -> changeModeTo mode
+        Move dir -> changeMany $ moveDir dir
+        ChangeNamed (Text name) -> maybe (return ()) (changeMany . changeIndex) $ readMaybe name
+        PopTiler -> popTiler
+        PushTiler -> pushTiler
+        Insert -> insertTiler
+        MoveToFront -> changeMany moveToFront
+        MakeEmpty -> makeEmptySpot
+        KillActive -> killActive
+        ExitNow -> absurd <$> exit
+        ToggleLogging -> toggleLogs
+        ChangeToHorizontal -> changeMany toHoriz
+        ChangeToFloating -> changeMany toFloating
+        ChangeToTwoCols -> changeMany toTwoCols
+        SetRotate -> changeMods Rotate
+        SetFull -> changeMods Full
+        SetNoMod -> changeMods NoMods
+        ToggleDocks -> toggleDocks

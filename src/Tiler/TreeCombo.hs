@@ -1,8 +1,8 @@
 module Tiler.TreeCombo where
 
-import           Standard
-import           Tiler.TilerTypes
-import           Prelude (show)
+import Standard
+import Tiler.TilerTypes
+import Prelude (show)
 
 -- | TreeCombo is used when trying to find the deepest common parent of two
 -- elements. One of the elements is considered unmovable. The other is movable
@@ -19,17 +19,17 @@ import           Prelude (show)
 --
 -- A type of TreeCombo starts as Neither and moves towards both. You should not
 -- move back down the tree though. I think this forms a Monoid.
-data TreeCombo =
-    -- |There's nothing special about this TreeCombo... yet.
+data TreeCombo
+  = -- | There's nothing special about this TreeCombo... yet.
     Neither
-    -- |We've found the thing we're looking for which should not be moved.
-  | Unmovable
-    -- | We found the thing that can move. The Unparented is the children of
+  | -- | We've found the thing we're looking for which should not be moved.
+    Unmovable
+  | -- | We found the thing that can move. The Unparented is the children of
     -- what we found and Reparenter is a function to add the thing back into
     -- the tree.
-  | Movable (Reparenter, Unparented)
-    -- | We've already found both of the things we're looking for.
-  | Both
+    Movable (Reparenter, Unparented)
+  | -- | We've already found both of the things we're looking for.
+    Both
 
 -- Gets the Movable parameters if the TreeCombo is Movable
 getMovable :: TreeCombo -> Maybe (Reparenter, Unparented)
