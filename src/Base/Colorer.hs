@@ -2,21 +2,21 @@
 
 module Base.Colorer where
 
-import           Standard
-import           Graphics.X11.Xlib.Types
-import           Graphics.X11.Xlib.Display
-import           Graphics.X11.Xlib.Color
+import Graphics.X11.Xlib.Color
+import Graphics.X11.Xlib.Display
+import Graphics.X11.Xlib.Types
 import qualified SDL
 import qualified SDL.Font as Font
+import Standard
 
--- |Handle any color stuff
+-- | Handle any color stuff
 class Colorer m where
   getColor :: Text -> m Color
   changeColor :: SDL.Window -> (Int, Int, Int) -> m ()
   drawText :: SDL.Window -> Text -> m ()
   bufferSwap :: SDL.Window -> m ()
 
--- |More IO
+-- | More IO
 instance Members '[Input Font.Font, MonadIO, Input Display] m => Colorer m where
   getColor (Text color) = do
     display <- input @Display
