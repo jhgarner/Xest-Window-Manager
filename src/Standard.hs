@@ -2,76 +2,76 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 
--- |This module (and the ones in Standard/*) are all part of my custom prelude.
--- All of it is super adhoc but makes things either more "pure" or fixes little
--- annoyances. Many of these changes assume that breaking convention has no
--- cost. As a result, there are probably some contraversial changes in here.
+-- | This module (and the ones in Standard/*) are all part of my custom prelude.
+--  All of it is super adhoc but makes things either more "pure" or fixes little
+--  annoyances. Many of these changes assume that breaking convention has no
+--  cost. As a result, there are probably some contraversial changes in here.
 module Standard
-    ( module All
-    , modify
-    , pattern CofreeF
-    , pattern Cofree
-    , trd
-    , fromEither
-    , map
-    , show
-    , headMay
-    , head
-    , tailMay
-    , lastMay
-    , last
-    , initMay
-    , removeAt
-    , remove
-    , error
-    , pattern Text
-    ) where
+  ( module All,
+    modify,
+    pattern CofreeF,
+    pattern Cofree,
+    trd,
+    fromEither,
+    map,
+    show,
+    headMay,
+    head,
+    tailMay,
+    lastMay,
+    last,
+    initMay,
+    removeAt,
+    remove,
+    error,
+    pattern Text,
+  )
+where
 
-import BasePrelude as All hiding (gunfold, log, tail, head, init, last, fmap, map, show, lazy, arr, uncons, index, String, error, left, right, appendFile, getContents, getLine, interact, putStrLn, putStr, readFile, writeFile, filter, (!!), unlines)
+import Base.Effects as All
+import BasePrelude as All hiding (String, appendFile, arr, error, filter, fmap, getContents, getLine, gunfold, head, index, init, interact, last, lazy, left, log, map, putStr, putStrLn, readFile, right, show, tail, uncons, unlines, writeFile, (!!))
+import qualified BasePrelude
+-- Hiding Text because I define it below with a Complete pragma
+
+import qualified BasePrelude as BP (fmap)
+import Capability.Sink as All hiding (yield)
+import Capability.Source as All
+import Capability.State as All hiding (modify, zoom)
+import Control.Comonad as All hiding (fmap)
+import Control.Comonad.Cofree as All (Cofree)
+import qualified Control.Comonad.Cofree as CC (Cofree ((:<)))
+import qualified Control.Comonad.Trans.Cofree as C hiding (Cofree)
+import Control.Lens as All hiding (none, para, (<|))
+import Control.Monad.Zip as All
+import Data.Functor.Foldable as All hiding (embed, fold, unfold)
+import Data.Functor.Foldable.TH as All
+import Data.IntMap.Strict as All (IntMap, update, (!))
+import Data.Kind (Type)
+import Data.List.NonEmpty as All (filter, init, nonEmpty, tail, (!!), (<|))
+import Data.Map.Strict as All (Map)
+import Data.Semigroup.Foldable as All
+import Data.Set as All (Set)
+import Data.Text as All (Text, unlines)
+import Data.Text.IO as All
+import Data.Text.Lens as All hiding (Text)
+import GHC.Stack
 import Standard.Beam as All
 import Standard.RectA as All
 import Standard.Stream as All
 import Standard.Tagged as All
 import Standard.Transformation as All
 
-import qualified BasePrelude
-import Base.Effects as All
-import Data.Text as All (Text, unlines)
-import Data.Text.IO as All
-import Data.List.NonEmpty as All (filter, nonEmpty, (!!), (<|), tail, init)
--- Hiding Text because I define it below with a Complete pragma
-import Data.Text.Lens as All hiding (Text)
-import qualified BasePrelude as BP (fmap)
-import           Data.IntMap.Strict as All (IntMap, (!), update)
-import           Data.Map.Strict as All (Map)
-import           Data.Set as All (Set)
-import GHC.Stack
-import Control.Monad.Zip as All
-
-import Control.Comonad.Cofree as All (Cofree)
-import qualified Control.Comonad.Cofree as CC (Cofree((:<)))
-import Control.Comonad as All hiding (fmap)
-import qualified Control.Comonad.Trans.Cofree as C hiding (Cofree)
-import Data.Functor.Foldable as All hiding (fold, unfold, embed)
-import Data.Kind (Type)
-import Data.Functor.Foldable.TH as All
-import Control.Lens as All hiding (para, none, (<|))
-import Capability.State as All hiding (zoom, modify)
-import Capability.Sink as All hiding (yield)
-import Capability.Source as All
-import Data.Semigroup.Foldable as All
-
 {-# COMPLETE CofreeF #-}
+
 pattern CofreeF :: forall (f :: Type -> Type) a b. a -> f b -> C.CofreeF f a b
 pattern CofreeF a b = a C.:< b
 
 {-# COMPLETE Cofree #-}
+
 pattern Cofree :: forall (f :: Type -> Type) a. a -> f (CC.Cofree f a) -> CC.Cofree f a
 pattern Cofree a b = a CC.:< b
 
-
-
--- |Like fst and snd but for the third element.
+-- | Like fst and snd but for the third element.
 trd :: (a, b, c) -> c
 trd (_, _, c) = c
 
@@ -79,7 +79,7 @@ fromEither :: Either a a -> a
 fromEither (Left a) = a
 fromEither (Right a) = a
 
--- |The f in fmap seems to be historical baggage.
+-- | The f in fmap seems to be historical baggage.
 map :: Functor f => (a -> b) -> (f a -> f b)
 map = BP.fmap
 
@@ -113,7 +113,7 @@ initMay = preview _init
 -- init :: Traversable1 t => t a -> Maybe (t a)
 
 removeAt :: Int -> NonEmpty a -> Maybe (NonEmpty a)
-removeAt i = nonEmpty . map snd . filter (\(i', _) -> if i == i' then False else True) . mzip [0..]
+removeAt i = nonEmpty . map snd . filter (\(i', _) -> if i == i' then False else True) . mzip [0 ..]
 
 remove :: Eq a => a -> NonEmpty a -> Maybe (NonEmpty a)
 remove a = nonEmpty . filter (/= a)
@@ -121,11 +121,13 @@ remove a = nonEmpty . filter (/= a)
 error :: HasCallStack => Text -> a
 error (Text s) = BasePrelude.error s
 
-
 {-# COMPLETE Text #-}
+
 pattern Text :: BasePrelude.String -> Text
-pattern Text a <- (view _Text -> a) where
-  Text a = review _Text a
+pattern Text a <-
+  (view _Text -> a)
+  where
+    Text a = review _Text a
 
 modify :: forall a m. HasState a a m => (a -> a) -> m ()
 modify = modify' @a

@@ -2,22 +2,23 @@
 
 module Base.Executor where
 
-import           Standard
-import           Graphics.X11.Xlib.Types
-import           System.Process
 import Config
+import Graphics.X11.Xlib.Types
+import Standard
+import System.Process
 
-
--- |Actions that modify the world outside of X11 go here
+-- | Actions that modify the world outside of X11 go here
 class Executor m where
-  -- |Run a command
+  -- | Run a command
   execute :: Text -> m ()
-  -- |Toggle logging
+
+  -- | Toggle logging
   toggleLogs :: m ()
-  -- |Prints in a controlled way
+
+  -- | Prints in a controlled way
   reloadConf :: m ()
 
--- |Do it in IO
+-- | Do it in IO
 instance Members [MonadIO, State Bool, State Conf, Input Display] m => Executor m where
   execute (Text s) = void . liftIO $ spawnCommand s
 

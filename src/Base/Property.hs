@@ -2,75 +2,105 @@
 
 module Base.Property where
 
-import           Standard
-import           Graphics.X11.Types
-import           Graphics.X11.Xlib.Types
-import           Graphics.X11.Xlib.Extras
-import           Graphics.X11.Xlib.Atom
-import           Foreign.Marshal.Alloc
-import           Foreign.Marshal.Array
-import qualified Data.Map                      as M
-import Base.Helpers
 import Base.Executor
+import Base.Helpers
+import qualified Data.Map as M
+import Foreign.Marshal.Alloc
+import Foreign.Marshal.Array
+import Graphics.X11.Types
+import Graphics.X11.Xlib.Atom
+import Graphics.X11.Xlib.Extras
+import Graphics.X11.Xlib.Types
+import Standard
 
-
--- |X11 defines properties as a dictionary like object from Atoms and windows
--- to bits. This effect allows you to read or write to those dictionaries.
+-- | X11 defines properties as a dictionary like object from Atoms and windows
+--  to bits. This effect allows you to read or write to those dictionaries.
 --
--- It's worth noting that these properties are very untyped so be careful
--- with what you pass in and try to get out.
+--  It's worth noting that these properties are very untyped so be careful
+--  with what you pass in and try to get out.
 class Property m where
-  -- |Gets a property from a window's dictionary
-  getProperty :: Storable a
-              => Int -- ^ The number of bits in the property
-              -> Atom  -- ^ The property key
-              -> Window -- ^ The window who's properties we want to look at
-              -> m [a] -- ^ A list of values found at the key
+  -- | Gets a property from a window's dictionary
+  getProperty ::
+    Storable a =>
+    -- | The number of bits in the property
+    Int ->
+    -- | The property key
+    Atom ->
+    -- | The window who's properties we want to look at
+    Window ->
+    -- | A list of values found at the key
+    m [a]
 
-  -- |Writes to a property in a window's dictionary
-  putProperty :: Int -- ^ The number of bits in the property
-              -> Atom -- ^ The property key we want to write to
-              -> Window  -- ^ The window who's properties we want to look at
-              -> Atom -- ^ A string representing the type of the data
-              -> [Int] -- The data we want to write
-              -> m ()
+  -- | Writes to a property in a window's dictionary
+  putProperty ::
+    -- | The number of bits in the property
+    Int ->
+    -- | The property key we want to write to
+    Atom ->
+    -- | The window who's properties we want to look at
+    Window ->
+    -- | A string representing the type of the data
+    Atom ->
+    [Int] -> -- The data we want to write
+    m ()
 
-  -- |Although most properties are only loosely defined, the class property
-  -- is built into Xlib for some reason.
-  getClassName :: Window -- ^ The Window we're interested in
-               -> m Text -- ^ The window's class
+  -- | Although most properties are only loosely defined, the class property
+  --  is built into Xlib for some reason.
+  getClassName ::
+    -- | The Window we're interested in
+    Window ->
+    -- | The window's class
+    m Text
 
-  -- |Technically not a property but it kind of fits...
-  getChildX :: Window -- ^ The parent
-           -> m (Maybe Window) -- ^ The child
-  isOverrideRedirect :: Window
-                     -> m Bool
+  -- | Technically not a property but it kind of fits...
+  getChildX ::
+    -- | The parent
+    Window ->
+    -- | The child
+    m (Maybe Window)
 
-  -- |Turns a Text into an X11 managed Atom. Think of atoms as pointers to
-  -- strings.
-  getAtom :: Bool -- ^ Should we not create it if it doesn't exist?
-          -> Text -- ^ The atom's name
-          -> m Atom -- ^ The atom created/retrieved from X11
+  isOverrideRedirect ::
+    Window ->
+    m Bool
 
-  -- |Gives you the name of some Atom.
-  fromAtom :: Atom
-           -> m Text
+  -- | Turns a Text into an X11 managed Atom. Think of atoms as pointers to
+  --  strings.
+  getAtom ::
+    -- | Should we not create it if it doesn't exist?
+    Bool ->
+    -- | The atom's name
+    Text ->
+    -- | The atom created/retrieved from X11
+    m Atom
 
-  -- |Check if a window is transient for something else based on the
-  -- ICCM protocol.
-  getTransientFor :: Window -- ^ The window being analyzed
-                  -> m (Maybe Window) -- ^ The parent window
-  
-  getSizeHints :: Window -- ^ The window being analyzed
-               -> m SizeHints
-  
+  -- | Gives you the name of some Atom.
+  fromAtom ::
+    Atom ->
+    m Text
+
+  -- | Check if a window is transient for something else based on the
+  --  ICCM protocol.
+  getTransientFor ::
+    -- | The window being analyzed
+    Window ->
+    -- | The parent window
+    m (Maybe Window)
+
+  getSizeHints ::
+    -- | The window being analyzed
+    Window ->
+    m SizeHints
+
 type AtomCache = Map Text Atom
+
 type RootPropCache = Map Atom [Int]
 
--- |Runs a propertiy using IO
+-- | Runs a propertiy using IO
 instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ Inputs '[RootWindow, Display]) m => Property m where
-  getProperty i atom win = input >>= \d -> liftIO $
-    fromMaybe [] <$> rawGetWindowProperty i d atom win
+  getProperty i atom win =
+    input >>= \d ->
+      liftIO $
+        fromMaybe [] <$> rawGetWindowProperty i d atom win
 
   putProperty i atomContent w atomType msg = do
     d <- input
@@ -85,15 +115,14 @@ instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ In
         _ -> error "Can only write 32 and 8 bit values to properties right now"
     when (rootWin == w) $
       modify @RootPropCache (M.insert atomContent msg)
-      
 
   getClassName win =
     input >>= \d -> liftIO $ getClassHint d win >>= \(ClassHint _ n) -> return (fromString n)
-      
 
   isOverrideRedirect win =
-    input >>= \d -> liftIO $
-      either (const False) wa_override_redirect <$> try @SomeException (getWindowAttributes d win)
+    input >>= \d ->
+      liftIO $
+        either (const False) wa_override_redirect <$> try @SomeException (getWindowAttributes d win)
 
   getChildX win = do
     display <- input @Display
@@ -106,17 +135,19 @@ instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ In
             numChildren <- peek numChildrenPtr
             headMay <$> (peek childrenListPtr >>= peekArray (fromIntegral numChildren))
 
-  getAtom shouldCreate name@(Text sName) = input >>= \d -> do
-    maybeAtom <- (M.!? name) <$> get @(Map Text Atom)
-    case maybeAtom of
-      Nothing -> do
-        atom <- liftIO $ internAtom d sName shouldCreate
-        modify @(Map Text Atom) $ M.insert name atom
-        return atom
-      Just atom -> return atom
+  getAtom shouldCreate name@(Text sName) =
+    input >>= \d -> do
+      maybeAtom <- (M.!? name) <$> get @(Map Text Atom)
+      case maybeAtom of
+        Nothing -> do
+          atom <- liftIO $ internAtom d sName shouldCreate
+          modify @(Map Text Atom) $ M.insert name atom
+          return atom
+        Just atom -> return atom
 
-  fromAtom atom = input >>= \d ->
-    liftIO $ fromMaybe "" . map fromString <$> getAtomName d atom
+  fromAtom atom =
+    input >>= \d ->
+      liftIO $ fromMaybe "" . map fromString <$> getAtomName d atom
 
   getTransientFor w = do
     d <- input @Display
@@ -126,10 +157,12 @@ instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ In
     d <- input @Display
     liftIO $ getWMNormalHints d w
 
-
-
-getRealName :: (Monad m, Property m) => Window -- ^ The Window we're interested in
-            -> m Text -- ^ The window's name
+getRealName ::
+  (Monad m, Property m) =>
+  -- | The Window we're interested in
+  Window ->
+  -- | The window's name
+  m Text
 getRealName win = do
   netwmname <- getAtom False "_NET_WM_NAME"
   wmname <- getAtom False "WM_NAME"
