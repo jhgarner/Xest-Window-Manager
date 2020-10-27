@@ -260,7 +260,6 @@ findParent w = cata step
   where
     step (Wrap (ParentChild ww ww' ww''))
       | ww' == w = Just ww
-      | ww'' == w = Just ww
       | otherwise = Nothing
     step t = foldl' (<|>) Nothing t
 
