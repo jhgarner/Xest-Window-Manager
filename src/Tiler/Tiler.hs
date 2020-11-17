@@ -48,6 +48,8 @@ add w t = Many (Horiz (makeFL ((Sized 0.5 $ Fix t) :| [Sized 0.5 w]) 0)) NoMods
 -- | Remove a Window if it exists in the tree.
 ripOut :: Window -> Tiler -> Tiler
 -- TODO I don't like fromMaybe being there
+-- Note, in general I don't like the use of fromMaybe (error... throughout this
+-- codebase. I am open to suggestions about how to fix it.
 ripOut toDelete = project . fromMaybe (error "No root!") . cata isEqual
   where
     isEqual :: TilerF (Maybe SubTiler) -> Maybe SubTiler

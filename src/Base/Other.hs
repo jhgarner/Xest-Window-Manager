@@ -21,13 +21,11 @@ import Standard
 import System.Mem.Weak
 import Tiler.TilerTypes
 
--- * Fake Inputs
-
--- $Fake
---
--- The following provide an Input-like interface. Because of that,
+-- The following IO actions provide an Input-like interface. Because of that,
 -- we're just going to pretend like they are inputs from the code's
 -- point of view.
+-- TODO There's not a lot of similarity between these and a lack of docs. This
+-- module might need a closer look to improve it.
 
 -- | Gets the current button presses from the Xserver
 newtype FakeMouseButtons m a = FakeMouseButtons {runFakeMouseButtons :: m a}

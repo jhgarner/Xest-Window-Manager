@@ -12,16 +12,18 @@ Are you a developer? Keep reading!
 ## Who Should Read the Source Code?
 
 Xest is a window manager written in Haskell. The goal of this codebase is to be
-at least partially accessible to other Haskell users.
-Since I've been the only contributor though, there is almost no way that
-goal has been met. I used this codebase as a testing ground for finding new best
-practices which means a lot of the code will be filled with strange
-patterns and obtuse logic. If you're trying to understand the code and something
-doesn't make sense, let me know or open up an issue.
+at least partially accessible to other Haskell users who are familiar with some
+language extensions.  Since I've been the only contributor though, there is
+almost no way that goal has been met. I used this codebase as a testing ground
+for new practices which means a lot of the code will be filled with
+strange patterns and obtuse logic. If you're trying to understand the code
+and something doesn't make sense, let me know or open up an issue.
 
 I'm always happy to answer questions about Xest no matter how silly they may
-seem to you. Feel free to open up issues or check out my profile for how to
-contact me if you have any questions.
+seem. Feel free to open up issues, join the Matrix chat, or check out my profile
+for how to contact me if you have any questions. I'm also always happy to hear
+what ideas you might have about making the code more readable, robust, or
+performent.
 
 ## What should I know if I want to contribute?
 
@@ -56,4 +58,5 @@ file contains the scary bits needed for that library. Code that needs to run
 some kind of effect asks for it as a constraint on the Monad that gets returned.
 You can see this in the "src/XEvents.hs" and "src/Actions/Actions.hs" files. The
 effects themselves are the other files defined in src/Base and are represented
-as typeclasses.
+as typeclasses. When GHC 9.0 lands, I might be able to drop Capability and
+switch to a transformers based approach.

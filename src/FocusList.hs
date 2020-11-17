@@ -39,6 +39,8 @@ import Text.Show.Deriving
 
 -- I am super unattached to all of the code in this module.
 -- If someone has a better way to represent this, I would gladly switch.
+-- This module could use some more documentation and better names, but I think
+-- time would be better spent trying to rearchitect the module using lenses or something.
 
 -- | Meant to represent the Head and Last on the list when sorted in focus order
 data Focus = Focused | Unfocused

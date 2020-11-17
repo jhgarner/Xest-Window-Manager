@@ -193,7 +193,7 @@ render = do
   let theRest = toList $ update (const Nothing) activeScreen locations
 
   -- Draw the tiler we've been given. winOrder will be used by restackWindows
-  -- while io coantains the io action which moves the windows.
+  -- while io contains the io action which moves the windows.
   let (winOrder, io) = unzip . toList $ map (cata draw) $ topMost : theRest
   sequence_ io
 

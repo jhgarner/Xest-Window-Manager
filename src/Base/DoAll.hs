@@ -126,6 +126,8 @@ newtype M a = M {runM :: R.ReaderT Ctx IO a}
 -- much about the syntax/meta programming that's going on here. The template
 -- haskell code expands to roughly the deriving lines up above but with Output
 -- and State added to the deriving list.
+-- TODO Is this actually better? Once 9.0 lands we should be able to remove
+-- capabilities for a more standard final tagless alternative with less boilerplate.
 generateIOS ''M ''LogLines [t|(From "logHistory")|]
 generateIOS ''M ''Bool [t|(From "shouldLog")|]
 generateIOS ''M ''Mode [t|(Logged "activeMode" Mode)|]

@@ -2,11 +2,15 @@
 
 Welcome to the src directory! If you've clicked into here, you must be
 interested in looking at the code. I've made attempts to keep it clean and
-readable, but be warned that few others have sanity checked it. In addition,
-I've actively searched for some slightly fancy Haskell if I thought it would
-improve long term maintenance, so there's a nontrivial learning curve. The
-purpose of this readme is to provide some guidance on what's going on it the
+readable but be warned that few others have sanity checked it. In addition,
+I've actively searched for some "fancy Haskell" if I thought it would
+improve things, so there's a nontrivial learning curve and
+probably some unnecessary complexity. The
+purpose of this readme is to provide some guidance on what's going on in the
 various files.
+
+I'm very willing to accept ideas for how to improve readability and
+maintainability so open up an issue if you have any!
 
 ## Standard*
 
@@ -16,7 +20,7 @@ that could be useful in theory for other projects.
 ## Config.hs
 
 A fairly simple module which defines some of the data types and functions used
-in the config file provided by the user.
+in the config file provided by the user. Dhall is used to read the config file.
 
 ## Lib.hs
 
@@ -49,13 +53,13 @@ signatures force GHC to localize its error much more. From there it's easier to
 see where things went wrong.
 
 In addition, using some kind of editor with ghcide/haskell-language-server
-helps a ton. Being able to hover over terms to see their types has been a large
+helps a ton. Being able to hover over terms to see their types has been a huge
 productivity boost.
 
 ## Actions/
 
 The two files in here provide the actions that users can bind to keys. A lot of
-them involve interesting tree traversals.
+them involve interesting tree traversals and a mix of pure and effectful code.
 
 ## Base/
 

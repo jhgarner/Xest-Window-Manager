@@ -21,4 +21,4 @@ deriveEq1 ''WithRect
 instance Comonad WithRect where
   extract (WithRect _ a) = a
 
-  duplicate = WithRect $ Rect 0 0 500 500
+  duplicate = WithRect $ Rect (-1) (-1) (-1) (-1)

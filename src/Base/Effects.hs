@@ -4,6 +4,8 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- This module contains some miscellaneous functions and types that are used in
+-- other places.
 module Base.Effects where
 
 import Capability.Sink

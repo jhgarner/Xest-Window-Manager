@@ -14,15 +14,6 @@ import FocusList
 import Standard
 import Tiler.Tiler
 
--- * Zooming
-
--- $What is it?
--- Zooming is one of the most important concepts in Xest. The WM would be
--- unusable without it.
---
--- Note that I am still finding what primitive set of operations create the right mix of power and
--- intuition. If you have any ideas, definitely let me know.
-
 -- | Zooms inwards, AKA away from the root. This function operates on
 -- the Input Controller, not the Monitor. This means that although the layout
 -- usually won't change, you will change the Tiler that will receive actions
@@ -89,7 +80,7 @@ zoomMonitorToInput = do
       Monitor _ childT -> join childT
       t -> coerce $ reduce t
 
--- | A smart zoomer which moves the input contrell to wherever the monitor is.
+-- | A smart zoomer which moves the input controller to wherever the monitor is.
 zoomInputToMonitor ::
   State Tiler m =>
   m ()

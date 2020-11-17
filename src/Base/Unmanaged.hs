@@ -34,6 +34,8 @@ instance Members [State Docks, Input RootWindow, State DockState, Mover, Propert
     restore win
     modify @Docks (Docks . (:) win . undock)
 
+  -- This code is pretty gross although it feels like necessary complexity given
+  -- how docks in EWMH work.
   constrainRect rect = do
     Docks docks <- get @Docks
     dockState <- get @DockState
@@ -61,7 +63,10 @@ instance Members [State Docks, Input RootWindow, State DockState, Mover, Propert
         else forM_ docks minimize >> return []
     return $ foldl' constrain rect $ strutRects
     where
-      -- Yikes, I don't like this function
+      -- TODO Yikes, I don't like this function
+      -- Although I also don't have a good solution. Using more line breaks might
+      -- improve the situation but I feel like that's just hiding the underlying
+      -- ugliness of the code.
       constrain :: XRect -> [XRect] -> XRect
       constrain oldRect [left, right, top, bottom] =
         let leftBounds :: XRect -> Maybe XRect

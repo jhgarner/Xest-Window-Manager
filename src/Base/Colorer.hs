@@ -9,11 +9,18 @@ import qualified SDL
 import qualified SDL.Font as Font
 import Standard
 
+-- TODO It might be worth replacing SDL with a raw X11 alternative. The entire
+-- reason for using SDL is to get nice text rendering without much work.
+
 -- | Handle any color stuff
 class Colorer m where
+  -- Converts a textual representation of a color into an Xlib color object
   getColor :: Text -> m Color
+  -- Changes the background color of an SDL window
   changeColor :: SDL.Window -> (Int, Int, Int) -> m ()
+  -- Draws text in the top left corner of an SDL window
   drawText :: SDL.Window -> Text -> m ()
+  -- Renders the most recent changes to an SDL window
   bufferSwap :: SDL.Window -> m ()
 
 -- | More IO

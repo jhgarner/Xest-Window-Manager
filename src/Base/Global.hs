@@ -22,6 +22,10 @@ import Graphics.X11 (set_override_redirect, allocaSetWindowAttributes)
 --  split up at some point.
 class GlobalX m where
   getTree :: m [Window]
+  -- Although this function's name sounds simple, it actually does a bit more
+  -- and should probably be split somehow. Basically, it takes the input window,
+  -- reparents it, then returns the reparented window as well as the cover
+  -- window. The cover window is used to take input away from the real window.
   newWindow :: Window -> m (Window, Window)
   moveToRoot :: Window -> m ()
   getXEvents :: m (Stream m Event)
@@ -29,7 +33,6 @@ class GlobalX m where
   -- | Bool True == kill softly. False == kill hard
   kill :: Bool -> Window -> m (Maybe Window)
 
-  -- If you look into the void, you can find anything
   exit :: m Void
 
 -- | Filter out events we don't care about
@@ -58,6 +61,7 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
     let defScr = defaultScreen d
     wm_state <- getAtom False "WM_STATE"
     putProperty 32 wm_state w wm_state [1, fromIntegral none]
+    -- Create parent
     xwin <-
       liftIO $
         createSimpleWindow
@@ -72,6 +76,7 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
           (blackPixel d defScr)
     liftIO $ reparentWindow d w xwin 0 0
 
+    -- Create the cover window
     pointerWin <- liftIO $
       allocaSetWindowAttributes $ \wa -> do
         set_override_redirect wa True
@@ -101,6 +106,7 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
     d <- input @Display
     rootWin <- input @RootWindow
     liftIO $ reparentWindow d w rootWin 0 0
+    liftIO $ unmapWindow d w
 
   getXEvents = do
     d <- input @Display

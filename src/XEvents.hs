@@ -57,36 +57,51 @@ mapWin pc@(ParentChild newWin window _) = do
   void $
     runMaybeT $
       do
+        -- Get the parent window if it exists as an Xlib window. We don't know
+        -- that the parent actually exists yet.
         parent <- MaybeT $ getTransientFor window
+        -- Some random programs run in Wine did this and tripped me up a lot. Is
+        -- there a real way to handle it?
         guard $ parent /= window
+        
+        -- If the parent exists, then focus on the screen with the parent.
         setScreenFromWindow parent
-        MaybeT do
+        
+        -- At this point we can no longer fail and definitely have a transient
+        -- window.
+        lift do
           root <- get @Tiler
           log $ LD "MapWin" "Found a transient window!"
           SizeHints {..} <- getSizeHints window
           let idealSize = maybe (-1, -1) (over both fromIntegral) sh_min_size
-          let tilerParent = Wrap $ ParentChild parent parent parent
+              tilerParent = Wrap $ ParentChild parent parent parent
+              -- First try to run usingFloating on the parameters and see if it
+              -- succeeds. If it succeeds then we're done. Otherwise, run
+              -- makeFloating.
               newRoot =
                 foldMap1 (\f -> f idealSize tilerParent tWin root) $
                   usingFloating :| [makeFloating]
+          -- If the parent existed, the left side of the <> will succeed.
+          -- Otherwise, call this a lost window and wait for the parent to get created.
           extract $
             map (\t -> put @Tiler t >> newFocus newWin) newRoot
               <> Succeeded (modify @LostWindow (M.insertWith (++) parent [pc]))
-          return $ Just ()
-        <|> lift do
-          -- If a window wants to be transient for itself, just make it a normal window
-          modify @Tiler $ applyInput $ coerce $ \tiler -> map (add tWin) tiler <|> Just (coerce tWin)
-          newFocus newWin
-          -- Make the window full screen if needed
-          wm_state <- getAtom False "_NET_WM_STATE"
-          full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
-          isFullScreen <- (== Just full_screen) . headMay <$> getProperty 32 wm_state window
-          when isFullScreen $
-            makeFullscreen window 1
+      <|> lift do
+        -- In this case we don't have a transient window. Start by placing the
+        -- window.
+        modify @Tiler $ applyInput $ coerce $ \tiler -> map (add tWin) tiler <|> Just (coerce tWin)
+        newFocus newWin
 
-          -- Were any lost children expecting to find this window?
-          lostChildren <- view (at window) <$> get @LostWindow
-          traverse_ (traverse_ mapWin) lostChildren
+        -- Make the window full screen if needed
+        wm_state <- getAtom False "_NET_WM_STATE"
+        full_screen <- getAtom False "_NET_WM_STATE_FULLSCREEN"
+        isFullScreen <- (== Just full_screen) . headMay <$> getProperty 32 wm_state window
+        when isFullScreen $
+          makeFullscreen window 1
+
+        -- Were any lost children expecting to find this window?
+        lostChildren <- view (at window) <$> get @LostWindow
+        traverse_ (traverse_ mapWin) lostChildren
   where
     -- TODO Yikes to these two functions
     usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> Tagged Tiler

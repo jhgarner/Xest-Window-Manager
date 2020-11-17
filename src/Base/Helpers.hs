@@ -1,3 +1,4 @@
+-- TODO This module is kind of useless and should be somewhere else.
 module Base.Helpers where
 
 import Data.Kind

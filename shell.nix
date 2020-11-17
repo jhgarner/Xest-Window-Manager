@@ -16,7 +16,7 @@ pkgs.mkShell {
     pkgs.stack
     pkgs.dhall
     pkgs.glibc
-    # hls.hls
+    (pkgs.haskell-language-server.override { supportedGhcVersions = [ "884" ]; })
     pkgs.haskellPackages.ghcide
     dhall.linux-dhall-lsp-server
     pkgs.haskellPackages.ormolu
