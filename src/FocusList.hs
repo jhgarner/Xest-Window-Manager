@@ -171,13 +171,13 @@ flMapMaybe predicate FL {actualData = ad, visualOrder = vo, focusOrder = fo} =
 flLength :: FocusedList a -> Int
 flLength FL {..} = length actualData
 
-vOrder :: FocusedList a -> NonEmpty a
-vOrder FL {visualOrder = vo, actualData = ad} =
-  map ((!!) ad) vo
+vOrder :: Lens (FocusedList a) (FocusedList b) (NonEmpty a) (NonEmpty b)
+vOrder = lens getter fromVis
+  where getter FL {visualOrder = vo, actualData = ad} = map ((!!) ad) vo
 
-fOrder :: FocusedList a -> NonEmpty a
-fOrder FL {focusOrder = fo, actualData = ad} =
-  map ((!!) ad) fo
+fOrder :: Lens (FocusedList a) (FocusedList b) (NonEmpty a) (NonEmpty b)
+fOrder = lens getter fromFoc
+  where getter FL {focusOrder = fo, actualData = ad} = map ((!!) ad) fo
 
 focusElem :: (a -> Bool) -> FocusedList a -> FocusedList a
 focusElem p fl@FL {actualData = ad} = focusIndex loc fl

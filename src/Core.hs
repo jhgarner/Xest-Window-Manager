@@ -1,5 +1,6 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -122,14 +123,14 @@ placeWindow root =
           (_, Horiz fl) ->
             let wrapTrans = if mods == Rotate then Spin trans else trans
                 placed lSize size t = Sized size (Slide (Rect lSize 0 size 1) wrapTrans, depth + 1, t)
-             in Horiz $ fromVis fl . snd . mapAccumL (\lSize (Sized s t) -> (lSize + s, placed lSize s t)) 0 $ vOrder fl
-          (_, TwoCols colSize fl) ->
+             in Horiz $ fl & vOrder %~ (snd . mapAccumL (\lSize (Sized s t) -> (lSize + s, placed lSize s t)) 0)
+          (_, TwoCols colSize (map runIdentity -> fl)) ->
             let numWins = fromIntegral $ flLength fl - 1
                 wrapTrans = if mods == Rotate then Spin trans else trans
                 location i = Slide (Rect colSize (1.0 / numWins * i) (1 - colSize) (1.0 / numWins)) wrapTrans
                 bigLoc = Slide (Rect 0 0 (colSize) 1) wrapTrans
-                allRight = fromVis fl $ map (\(i, Identity t) -> Identity (location i, depth + 1, t)) $ mzip [-1 ..] (vOrder fl)
-             in TwoCols colSize $ mapOne (Left Front) (\(Identity (_, d, t)) -> Identity (bigLoc, d, t)) allRight
+                allRight = fl & vOrder %~ map (\(i, t) -> (location i, depth + 1, t)) . mzip [-1 ..]
+             in TwoCols colSize $ coerce $ mapOne (Left Front) (\((_, d, t)) -> (bigLoc, d, t)) allRight
           (_, Floating ls) ->
             let allFloating = flip map ls $ \case
                   WithRect rr@Rect {..} t ->
@@ -252,9 +253,9 @@ render = do
       case mh of
         Floating fl ->
           let ((bottomTops, bottoms), tops) = pop (Left Front) $ map (fst . extract) fl
-           in ((join (maybe [] (toList . fOrder . map (uncurry (++))) tops) ++ bottomTops, bottoms), mapM_ (snd . extract) fl)
+           in ((join (maybe [] (toList . view fOrder . map (uncurry (++))) tops) ++ bottomTops, bottoms), mapM_ (snd . extract) fl)
         _ ->
-          (foldFl mh $ foldMap (fst . extract) . fOrder, mapM_ snd tiler)
+          (foldFl mh $ foldMap (fst . extract) . view fOrder, mapM_ snd tiler)
     -- Everything else just needs to draw it's children
     draw (CofreeF _ tiler) = (foldMap fst tiler, mapM_ snd tiler)
 

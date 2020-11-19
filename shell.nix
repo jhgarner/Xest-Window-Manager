@@ -12,12 +12,11 @@ let
 in
 pkgs.mkShell {
   buildInputs = [
-    pkgs.termite
     pkgs.stack
     pkgs.dhall
     pkgs.glibc
     (pkgs.haskell-language-server.override { supportedGhcVersions = [ "884" ]; })
-    pkgs.haskellPackages.ghcide
+    # pkgs.haskellPackages.ghcide
     dhall.linux-dhall-lsp-server
     pkgs.haskellPackages.ormolu
     pkgs.haskellPackages.floskell

@@ -315,14 +315,13 @@ changeSize mouseLoc screen (Many mh mods) =
                   Left _ -> (\n -> n -1)
               )
                 $ findNeFocIndex fl
-          vList :: NonEmpty (Sized (Fix TilerF)) = vOrder fl
-          maxChange = getSize $ vList !! (focLoc + 1)
-          currentSize = getSize $ vList !! focLoc
+          maxChange = fl ^. vOrder  . singular (ix (focLoc + 1)) . to getSize
+          currentSize = fl ^. vOrder . singular (ix focLoc) . to getSize
           bounded = max (0.01 - currentSize) $ min maxChange deltaPercent
-          withFocChange = over (ix focLoc) (\(Sized s a) -> Sized (s + bounded) a) vList
-          withPredChange = over (ix (focLoc + 1)) (\(Sized s a) -> Sized (s - bounded) a) withFocChange
+          withFocChange = fl & (vOrder . singular (ix focLoc)) %~ (\(Sized s a) -> Sized (s + bounded) a)
+          withPredChange = withFocChange & (vOrder . singular (ix (focLoc + 1))) %~ (\(Sized s a) -> Sized (s - bounded) a)
        in if focLoc > -1 && focLoc < length fl - 1
-            then Horiz $ fromVis fl withPredChange
+            then Horiz withPredChange
             else Horiz fl
     Floating fl ->
       let (dx, dy) = bimap fromIntegral fromIntegral $ fromEither mouseLoc
