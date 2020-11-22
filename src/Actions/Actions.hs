@@ -158,8 +158,8 @@ changeIndex changeTo mh =
 moveDir :: Direction -> ManyHolder SubTiler -> ManyHolder SubTiler
 moveDir dir mh = withFl' mh $ focusDir dir
 
-moveToFront :: ManyHolder SubTiler -> ManyHolder SubTiler
-moveToFront mh = withFl' mh $ visualFIndex 0
+moveToLoc :: Int -> ManyHolder SubTiler -> ManyHolder SubTiler
+moveToLoc to mh = withFl' mh $ visualFIndex 0 (to - 1)
 
 changeMods ::
   State Tiler m =>

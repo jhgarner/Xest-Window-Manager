@@ -235,7 +235,7 @@ mainLoop event = do
         PopTiler -> popTiler
         PushTiler -> pushTiler
         Insert -> insertTiler
-        MoveToFront -> changeMany moveToFront
+        MoveToLoc i -> changeMany (moveToLoc $ fromIntegral i)
         MakeEmpty -> makeEmptySpot
         KillActive -> killActive
         ExitNow -> absurd <$> exit

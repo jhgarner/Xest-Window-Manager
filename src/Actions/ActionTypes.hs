@@ -24,7 +24,7 @@ data Action
   | PopTiler
   | PushTiler
   | MakeEmpty
-  | MoveToFront
+  | MoveToLoc Natural
   | KillActive
   | ExitNow
   | ToggleLogging

@@ -119,7 +119,7 @@ placeWindow root =
         -- TODO this code is a little gross
         case (mods, mh) of
           (Full, _) ->
-            withFl' (map (\t -> (StartingPoint $ Rect 0 0 0 0, depth + 1, t)) mh) $ mapOne (Right Focused) (map (\(_, d, t) -> (trans, d, t)))
+            withFl' (map (idTransform, depth + 1,) mh) $ set (fOrder.head1.mapped._1) trans
           (_, Horiz fl) ->
             let wrapTrans = if mods == Rotate then Spin trans else trans
                 placed lSize size t = Sized size (Slide (Rect lSize 0 size 1) wrapTrans, depth + 1, t)
@@ -130,14 +130,14 @@ placeWindow root =
                 location i = Slide (Rect colSize (1.0 / numWins * i) (1 - colSize) (1.0 / numWins)) wrapTrans
                 bigLoc = Slide (Rect 0 0 (colSize) 1) wrapTrans
                 allRight = fl & vOrder %~ map (\(i, t) -> (location i, depth + 1, t)) . mzip [-1 ..]
-             in TwoCols colSize $ coerce $ mapOne (Left Front) (\((_, d, t)) -> (bigLoc, d, t)) allRight
+             in TwoCols colSize $ coerce $ allRight & vOrder . head1 . _1 .~ bigLoc
           (_, Floating ls) ->
             let allFloating = flip map ls $ \case
                   WithRect rr@Rect {..} t ->
                     let wrapTrans = if mods == Rotate then Spin trans else trans
                         starting@(Rect realX realY realW realH) = bimap fromIntegral fromIntegral $ getStartingPoint wrapTrans
                      in WithRect rr (Slide (Rect ((x - realX) / realW) ((y - realY) / realH) (w / realW) (h / realH)) $ StartingPoint $ bimap floor ceiling starting, depth + 1, t)
-                withBottom = mapOne (Left Front) (\(WithRect r (_, d, t)) -> WithRect r (trans, d, t)) allFloating
+                withBottom = allFloating & (vOrder . head1) %~ (\(WithRect r (_, d, t)) -> WithRect r (trans, d, t))
              in Floating withBottom
       -- Input controllers don't really do anything.
       InputController bords t ->

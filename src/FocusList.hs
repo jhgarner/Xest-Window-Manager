@@ -15,26 +15,20 @@ module FocusList
     flLength,
     vOrder,
     fOrder,
-    mapOne,
     focusElem,
-    focusIndex,
     focusVIndex,
-    visualIndex,
     visualFIndex,
     findNeFocIndex,
     makeFL,
     focusDir,
-    indexFL,
-    fromFoc,
-    fromVis,
   )
 where
 
 import Data.ChunkedZip
 import Data.Eq.Deriving
-import Data.List.NonEmpty (fromList)
+import Data.List.NonEmpty (fromList, take, drop)
 import Dhall (Interpret)
-import Standard hiding (zip, zipWith)
+import Standard hiding (zip, zipWith, take, drop)
 import Text.Show.Deriving
 
 -- I am super unattached to all of the code in this module.
@@ -134,19 +128,6 @@ reduce removed fl@FL {..} =
   where
     newL = map (\i -> if i > removed then i - 1 else i)
 
--- | Modify one of the 4 ends
-mapOne :: Either Direction Focus -> (a -> a) -> FocusedList a -> FocusedList a
-mapOne orderAndEnd f fl@FL {focusOrder = fo, visualOrder = vo, actualData = ad} =
-  fl
-    { actualData = case orderAndEnd of
-        Left Front -> mapEnd $ head vo
-        Left Back -> mapEnd $ last vo
-        Right Focused -> mapEnd $ head fo
-        Right Unfocused -> mapEnd $ last fo
-    }
-  where
-    mapEnd tarfindNeI = map (\(i, a) -> if i == tarfindNeI then f a else a) $ zip [0 ..] ad
-
 -- | Filter a focused list. Unfortunately, filter isn't a typeclass anywhere
 -- TODO This looks suspiciously like traverse...
 flMapMaybe :: (a -> Maybe b) -> FocusedList a -> Maybe (FocusedList b)
@@ -199,12 +180,22 @@ visualIndex i fl@FL {visualOrder = vo} =
 focusNE :: Int -> NonEmpty Int -> NonEmpty Int
 focusNE i = maybe (pure i) ((<|) i) . remove i
 
+prependNE :: [a] -> NonEmpty a -> NonEmpty a
+prependNE [] ne = ne
+prependNE (a:as) ne = (a :| as) <> ne
+
+moveToNE :: Int -> Int -> NonEmpty Int -> NonEmpty Int
+moveToNE elem to = maybe (pure elem) (\ne -> prependNE (take to ne) (elem :| drop to ne)) . remove elem
+
 focusVIndex :: Int -> FocusedList a -> FocusedList a
 focusVIndex i fl@FL {visualOrder = vo} = focusIndex (vo !! i) fl
 
-visualFIndex :: Int -> FocusedList a -> FocusedList a
-visualFIndex i fl@FL {focusOrder = fo} = visualIndex (fo !! i) fl
+visualFIndex :: Int -> Int -> FocusedList a -> FocusedList a
+visualFIndex i to fl@FL {focusOrder = fo, visualOrder = vo} =
+  fl {visualOrder = moveToNE (fo !! i) to vo}
 
+
+-- |I really want to get rid of this function...
 findNeFocIndex :: FocusedList a -> Int
 findNeFocIndex FL {..} = fromJust $ findIndex (== head focusOrder) $ toList visualOrder
 
@@ -231,9 +222,6 @@ focusDir dir fl@FL {focusOrder = fo, visualOrder = vo} = fromMaybe fl $
       usingList <- using vo
       newLoc <- find ((== head fo) . fst) $ zip findList usingList
       return $ focusIndex (snd newLoc) fl
-
-indexFL :: Int -> FocusedList a -> a
-indexFL i FL {..} = actualData !! i
 
 reconcile :: NonEmpty b -> NonEmpty Int -> FocusedList a -> FocusedList b
 reconcile newAs order fl@FL {..} =

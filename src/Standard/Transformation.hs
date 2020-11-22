@@ -20,6 +20,9 @@ data Transformation = Slide Rect Transformation | Spin Transformation | Starting
 
 makeBaseFunctor ''Transformation
 
+idTransform :: Transformation
+idTransform = StartingPoint $ Rect 0 0 0 0
+
 -- | Actually does the computations to create a new rectangle.
 toScreenCoord :: Transformation -> XRect
 toScreenCoord =

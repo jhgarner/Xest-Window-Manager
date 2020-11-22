@@ -120,7 +120,7 @@ onInput f root = f $ hylo getEnd findIC $ coerce root
 -- | Kind of like applyInput but instead of searching for the InputController,
 -- it just applies the function to whatever is focused by an individual Tiler.
 modFocused :: (a -> a) -> TilerF a -> TilerF a
-modFocused f (Many mh mods) = Many (withFl' mh $ mapOne (Right Focused) (map f)) mods
+modFocused f (Many mh mods) = Many (withFl' mh $ over (fOrder . head1) (map f)) mods
 modFocused _ wp@(Wrap _) = wp
 modFocused f t@(InputControllerOrMonitor _ _) = map f t
 

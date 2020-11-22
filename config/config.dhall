@@ -71,11 +71,19 @@ in {
       , {key = "t", actions = [Action.ChangeToTwoCols]}
       , {key = "f", actions = [Action.ChangeToFloating]}
       , {key = "n", actions = [Action.ChangeToHorizontal]}
-      , {key = "1", actions = [Action.MoveToFront]}
       , {key = "d", actions = [Action.PopTiler]}
       , {key = "p", actions = [Action.PushTiler]}
       , {key = "x", actions = [Action.KillActive]}
       , {key = "b", actions = [Action.ExitNow]}
       , {key = "z", actions = [Action.ZoomInMonitor]}
+      , {key = "1", actions = [Action.MoveToLoc 1]}
+      , {key = "2", actions = [Action.MoveToLoc 2]}
+      , {key = "3", actions = [Action.MoveToLoc 3]}
+      , {key = "4", actions = [Action.MoveToLoc 4]}
+      , {key = "5", actions = [Action.MoveToLoc 5]}
+      , {key = "6", actions = [Action.MoveToLoc 6]}
+      , {key = "7", actions = [Action.MoveToLoc 7]}
+      , {key = "8", actions = [Action.MoveToLoc 8]}
+      , {key = "9", actions = [Action.MoveToLoc 9]}
       ]
 }

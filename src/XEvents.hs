@@ -326,14 +326,12 @@ changeSize mouseLoc screen (Many mh mods) =
     Floating fl ->
       let (dx, dy) = bimap fromIntegral fromIntegral $ fromEither mouseLoc
        in Floating $
-            mapOne
-              (Right Focused)
+            fl & fOrder . head1 %~
               ( \(WithRect Rect {..} t) ->
                   case mouseLoc of
                     Right _ -> WithRect (Rect x y (w + dx) (h + dy)) t
                     Left _ -> WithRect (Rect (x + dx) (y + dy) w h) t
               )
-              fl
     TwoCols colSize fl ->
       let direction = fromIntegral . if mods == Rotate then snd else fst
           delta = direction $ fromEither mouseLoc
