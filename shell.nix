@@ -20,6 +20,7 @@ pkgs.mkShell {
     dhall.linux-dhall-lsp-server
     pkgs.haskellPackages.ormolu
     pkgs.haskellPackages.floskell
+    pkgs.haskellPackages.brittany
   ];
   shellHook = ''
   export TEST="IN HERE!"

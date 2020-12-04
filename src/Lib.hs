@@ -154,7 +154,7 @@ mainLoop event = do
       nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
       windowType <- getProperty 32 nwwt ev_window
       if elem nwwtd windowType
-        then addUM ev_window >> put @(Maybe ()) (Just ())
+        then addUM ev_window >> put @(ShouldRedraw) (Just UnsafeRedraw)
         else do
           rootTiler <- get @Tiler
           unless (findWindow ev_window rootTiler) $
@@ -212,7 +212,7 @@ mainLoop event = do
     _ -> void $ log $ LD "Event" "Got unknown event"
 
   -- Move all of the windows based on how our internal state changed
-  refreshRequested <- isJust <$> get @(Maybe ())
+  refreshRequested <- isJust <$> get @ShouldRedraw
   when refreshRequested refresh
   where
     -- Here we have executors for the various actions a user might

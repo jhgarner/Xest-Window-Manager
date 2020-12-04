@@ -80,7 +80,7 @@ data Ctx = Ctx
     borderLocations :: IORef (M.Map SDL.Window XRect),
     windowLocations :: IORef (M.Map Window XRect),
     windowChildren :: IORef (M.Map Window [ParentChild]),
-    shouldRedraw :: IORef (Maybe ()),
+    shouldRedraw :: IORef (Maybe SafeRedraw),
     configuration :: IORef Conf,
     activeScreen :: IORef ActiveScreen,
     lastTime :: IORef OldTime,
@@ -101,9 +101,12 @@ type From name = ReaderIORef (FromInput name)
 
 type Logged name s = LoggedSink name s (From name) M
 
+-- A SafeRedraw is one which won't create any extra EnterNotify events
+data SafeRedraw = SafeRedraw | UnsafeRedraw
+  deriving (Show, Eq, Enum)
 -- Type aliases that should be used elsewhere but for now are just used to get
 -- easy to access names when deriving Input/Output/State over these types.
-type ShouldRedraw = Maybe ()
+type ShouldRedraw = Maybe SafeRedraw
 
 type Yanked = [SubTiler]
 
@@ -176,7 +179,7 @@ doAll ioref t c m d w f cur mon = do
   borderLocations <- newIORef M.empty
   windowLocations <- newIORef M.empty
   windowChildren <- newIORef M.empty
-  shouldRedraw <- newIORef $ Just ()
+  shouldRedraw <- newIORef $ Just UnsafeRedraw
   configuration <- newIORef c
   activeScreen <- newIORef 0
   lastTime <- newIORef $ OldTime currentTime

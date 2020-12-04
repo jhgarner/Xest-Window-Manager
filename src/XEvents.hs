@@ -44,7 +44,7 @@ deriving instance Show SizeHints
 mapWin ::
   Members (Inputs '[Pointer, Screens]) m =>
   Members [EventFlags, GlobalX, Property, Log LogData, Mover] m =>
-  Members (States [Screens, Tiler, Maybe (), ActiveScreen, Screens, LostWindow, OldTime, DockState]) m =>
+  Members (States [Screens, Tiler, ShouldRedraw, ActiveScreen, Screens, LostWindow, OldTime, DockState]) m =>
   ParentChild ->
   m ()
 mapWin pc@(ParentChild newWin window _) = do
@@ -102,6 +102,7 @@ mapWin pc@(ParentChild newWin window _) = do
         -- Were any lost children expecting to find this window?
         lostChildren <- view (at window) <$> get @LostWindow
         traverse_ (traverse_ mapWin) lostChildren
+  put @ShouldRedraw $ Just UnsafeRedraw
   where
     -- TODO Yikes to these two functions
     usingFloating :: (Double, Double) -> SubTiler -> SubTiler -> Tiler -> Tagged Tiler
@@ -125,7 +126,7 @@ mapWin pc@(ParentChild newWin window _) = do
 -- | A window was killed and no longer exists. Remove everything that
 --  was related to it.
 killed ::
-  Members (GlobalX ': States [Screens, LocCache, Maybe (), Docks]) m =>
+  Members (GlobalX ': States [Screens, LocCache, ShouldRedraw, Docks]) m =>
   Window ->
   m ()
 killed window = do
@@ -134,7 +135,7 @@ killed window = do
   case parentM of
     Just parent -> do
       kill True parent
-      put @(Maybe ()) (Just ())
+      put @ShouldRedraw $ Just UnsafeRedraw
     Nothing -> return ()
   -- Remove the window from our cache
   modify @LocCache $ M.delete window
@@ -145,7 +146,7 @@ killed window = do
 
 -- | A window is either dying slowly or has been minimized.
 unmapWin ::
-  Members (States [Screens, LocCache, Maybe (), Docks]) m =>
+  Members (States [Screens, LocCache, ShouldRedraw, Docks]) m =>
   Members [GlobalX, Property] m =>
   Window ->
   m ()
@@ -163,7 +164,7 @@ unmapWin window = do
 --  connected a new monitor or removed an old one.
 rootChange ::
   Members '[Input [XineramaScreenInfo], Input NewBorders] m =>
-  Members (States [Maybe (), Screens, ActiveScreen, [SubTiler], FocusedCache]) m =>
+  Members (States [ShouldRedraw, Screens, ActiveScreen, [SubTiler], FocusedCache]) m =>
   m ()
 rootChange = do
   -- Update the list of screens
@@ -194,13 +195,13 @@ rootChange = do
 
   -- Ask Xest to redraw and refocus
   put @FocusedCache $ FocusedCache 0
-  put @(Maybe ()) $ Just ()
+  put @(ShouldRedraw) $ Just UnsafeRedraw
 
 -- | Called when the mouse moves between windows or when the user
 --  clicks a window.
 newFocus ::
   Members '[Input Screens, Property, Input Pointer, Log LogData] m =>
-  Members (States [Screens, Tiler, Maybe (), ActiveScreen, Screens, OldTime]) m =>
+  Members (States [Screens, Tiler, ShouldRedraw, ActiveScreen, Screens, OldTime]) m =>
   Window ->
   m ()
 newFocus window = do
@@ -208,20 +209,20 @@ newFocus window = do
   -- It will get focused next time we redraw
   runMaybeT $ setScreenFromWindow window <|> lift setScreenFromMouse
   modify @Tiler \tiler -> fromMaybe tiler $ focusWindow window tiler
-  put @(Maybe ()) $ Just ()
+  put @ShouldRedraw $ Just SafeRedraw
 
 -- | On key press, execute some actions
 keyDown ::
   Members '[Property, Executor] m =>
   Members (Inputs [Conf, Pointer, MouseButtons]) m =>
-  Members (States [Tiler, Mode, KeyStatus, Maybe ()]) m =>
+  Members (States [Tiler, Mode, KeyStatus, ShouldRedraw]) m =>
   Monoid (m ()) =>
   KeyCode ->
   EventType ->
   m [Action]
 keyDown keycode eventType
   | eventType == keyPress = do
-    put @(Maybe ()) $ Just ()
+    put @ShouldRedraw $ Just UnsafeRedraw
     Conf bindings _ _ _ <- input @Conf
     mode <- get @Mode
     -- Is keycode (the key that was pressed) equal to k (the bound key)
@@ -245,7 +246,7 @@ keyDown keycode eventType
               else Temp NotMod ks mode keycode newEa
         return actions
   | otherwise = do
-    put @(Maybe ()) $ Just ()
+    put @ShouldRedraw $ Just UnsafeRedraw
     currentKS <- get @KeyStatus
     let (newKS_, actions) = (\(a, b) -> (a, b)) $ foldMap (\(a, b) -> (a, b)) $ para doRelease currentKS
     newKS_
@@ -276,7 +277,7 @@ keyDown keycode eventType
 motion ::
   Members '[Property] m =>
   Members (Inputs [Pointer, MouseButtons]) m =>
-  Members (States [Tiler, OldMouseButtons, Maybe ()]) m =>
+  Members (States [Tiler, OldMouseButtons, ShouldRedraw]) m =>
   m ()
 motion = do
   -- First, let's find the current screen and its dimensions.
@@ -291,7 +292,7 @@ motion = do
           change = direction (xNow - xLast, yNow - yLast)
        in do
             modify @Tiler $ applyInput $ map $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
-            put @(Maybe ()) $ Just ()
+            put @ShouldRedraw $ Just UnsafeRedraw
     (_, _) -> return ()
 
   input @MouseButtons >>= put @OldMouseButtons . OMB
@@ -342,12 +343,12 @@ changeSize mouseLoc screen (Many mh mods) =
 changeSize _ _ t = t
 
 makeFullscreen ::
-  Members '[State Screens, State Tiler, Property, State ActiveScreen, State DockState, State (Maybe ()), Mover] m =>
+  Members '[State Screens, State Tiler, Property, State ActiveScreen, State DockState, State ShouldRedraw, Mover] m =>
   Window ->
   Int ->
   m ()
 makeFullscreen window isSet = do
-  put @(Maybe ()) $ Just ()
+  put @ShouldRedraw $ Just UnsafeRedraw
   runMaybeT $ setScreenFromWindow window
   -- Get the static parameters on Monitor and IC
   loc <-

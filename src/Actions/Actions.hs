@@ -270,7 +270,7 @@ toggleDocks =
 
 -- | Kill the active window
 killActive ::
-  Members '[State Tiler, State Tiler, GlobalX, Log LogData, State (Maybe ())] m =>
+  Members '[State Tiler, State Tiler, GlobalX, Log LogData, State ShouldRedraw] m =>
   m ()
 killActive = do
   root <- get @Tiler
@@ -291,7 +291,7 @@ killActive = do
       return $ map (,parent) shouldKill
     Nothing -> return Nothing
   case l of
-    Nothing -> put @(Maybe ()) (Nothing @())
+    Nothing -> put @(ShouldRedraw) (Nothing)
     Just (killed, parent) -> do
       _ <- kill True parent
       modify @Tiler $ ripOut killed

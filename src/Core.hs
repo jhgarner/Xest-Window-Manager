@@ -28,20 +28,22 @@ import Tiler.Tiler
 refresh ::
   Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged, EventFlags] m =>
   Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo], ActiveScreen]) m =>
-  Members (States [Tiler, Mode, [SubTiler], Maybe (), OldTime, Screens, DockState, Docks]) m =>
+  Members (States [Tiler, Mode, [SubTiler], ShouldRedraw, OldTime, Screens, DockState, Docks]) m =>
   m ()
 refresh = do
   -- Unbind the crossing events during the rerendering
 
   allWindows <- gets @Screens $ concatMap getAllParents . map snd . itoList
-  forM_ allWindows \window ->
-    selectFlags window $
-      substructureNotifyMask
-        .|. substructureRedirectMask
-        .|. buttonPressMask
-        .|. buttonReleaseMask
+  redrawType <- get @ShouldRedraw
+  when (redrawType == Just UnsafeRedraw) $
+    forM_ allWindows \window ->
+      selectFlags window $
+        substructureNotifyMask
+          .|. substructureRedirectMask
+          .|. buttonPressMask
+          .|. buttonReleaseMask
   log $ LD "Refreshing" "Has started"
-  put @(Maybe ()) Nothing
+  put @ShouldRedraw Nothing
 
   -- Fix the Monitor if the Input Controller moved in a weird way
   modify @Tiler $ fixFloating . fixMonitor
@@ -54,7 +56,7 @@ refresh = do
       Just (XineramaScreenInfo _ x y w h) -> do
         newRect <- constrainRect $ Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)
         modify @Screens $ over (at i) (map $ putScreens newRect)
-      Nothing -> put @(Maybe ()) $ Just ()
+      Nothing -> put @ShouldRedraw $ Just UnsafeRedraw
   -- Write the path to the upper border
   writePath
 
