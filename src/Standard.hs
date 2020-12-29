@@ -25,6 +25,8 @@ module Standard
     remove,
     error,
     headOf,
+    prependNE,
+    moveToNE,
     pattern Text,
   )
 where
@@ -50,6 +52,7 @@ import Data.Functor.Foldable.TH as All
 import Data.IntMap.Strict as All (IntMap, update, (!))
 import Data.Kind (Type)
 import Data.List.NonEmpty as All (init, nonEmpty, tail, (!!), (<|), uncons)
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict as All (Map)
 import Data.Semigroup.Foldable as All
 import Data.Set as All (Set)
@@ -115,11 +118,22 @@ initMay = preview _init
 -- init is too.
 -- init :: Traversable1 t => t a -> Maybe (t a)
 
+-- Removes an element at a location
 removeAt :: Int -> NonEmpty a -> Maybe (NonEmpty a)
 removeAt i = nonEmpty . map snd . filter (\(i', _) -> i /= i') . toList . mzip [0 ..]
 
+-- Removes an element from a NonEmpty
 remove :: Eq a => a -> NonEmpty a -> Maybe (NonEmpty a)
 remove a = nonEmpty . filter (/= a) . toList
+
+-- Prepends a list to a NonEmpty
+prependNE :: [a] -> NonEmpty a -> NonEmpty a
+prependNE [] ne = ne
+prependNE (a:as) ne = (a :| as) <> ne
+
+-- Moves the element a to the a different location
+moveToNE :: Eq a => a -> Int -> NonEmpty a -> NonEmpty a
+moveToNE a toLoc = maybe (pure a) (\ne -> prependNE (NE.take toLoc ne) (a :| NE.drop toLoc ne)) . remove a
 
 error :: HasCallStack => Text -> a
 error (Text s) = BasePrelude.error s
@@ -134,6 +148,8 @@ pattern Text a <-
 
 modify :: forall a m. HasState a a m => (a -> a) -> m ()
 modify = modify' @a
+
+
 
 -- I think it acts like First but with Functors.
 data OneFunctor f a = OneFunctor (f a) a

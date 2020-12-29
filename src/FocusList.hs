@@ -29,9 +29,9 @@ where
 
 import Data.ChunkedZip
 import Data.Eq.Deriving
-import Data.List.NonEmpty (fromList, take, drop)
+import Data.List.NonEmpty (fromList)
 import Dhall (Interpret)
-import Standard hiding (zip, zipWith, take, drop)
+import Standard hiding (zip, zipWith)
 import Text.Show.Deriving
 
 -- I am super unattached to all of the code in this module.
@@ -116,25 +116,42 @@ reduce removed fl@FL {..} =
 -- TODO This looks suspiciously like traverse...
 
 -- Visual, Focus, Actual
-data ExtraInfo a = EI Int Int a
-  deriving (Eq, Show, Functor)
+data ExtraInfo a = EI Double a
+  deriving (Show, Functor)
+
+instance Eq (ExtraInfo a) where
+  EI i _ == EI i' _ = i == i'
+
+getLocation :: ExtraInfo a -> Int
+getLocation (EI i _) = round i
 
 instance Comonad ExtraInfo where
-  extract (EI _ _ a) = a
-  duplicate ei@(EI v f _) = EI v f ei
+  extract (EI _ a) = a
+  duplicate ei@(EI i _) = EI i ei
 
--- This lens lets you modify the order/composition of FocusedList. Technically,
--- I think it follows the lens laws if you ignore the Int parameters in ExtraInfo.
--- fOrder could also exist but it isn't used so I don't need it.
+-- This lens lets you modify the order/composition of FocusedList. I think it
+-- follows the lens laws if you ignore the Int parameters in ExtraInfo. A couple
+-- of functions in here do depend on ExtraInfo which is probably a bad thing.
 vOrder :: forall a b. forall f. Functor f => (NonEmpty (ExtraInfo a) -> f (NonEmpty (ExtraInfo b))) -> FocusedList a -> f (FocusedList b)
 vOrder f FL {visualOrder = vo, focusOrder = fo, actualData = ad}  = setter -- lens getter setter
   where inOrder =
-          zipWith (\i a -> EI (fromJust $ elemIndexOf folded i vo) (fromJust $ elemIndexOf folded i fo) a) [0..] $ map (ad !!) vo
+          zipWith (\i a -> EI (fromIntegral $ fromJust $ elemIndexOf folded i fo) a) [0..] $ map (ad !!) vo
         setter = do
           f inOrder <&> \newOrder ->
             let actualData = map extract newOrder
                 visualOrder = [0..length newOrder - 1]
-                focusOrder = map fst $ fromList . sortOn (\(_, EI _ i' _) -> i') . toList $ mzip [0..] newOrder
+                focusOrder = map fst $ fromList . sortOn (\(_, EI i' _) -> i') . toList $ mzip [0..] newOrder
+             in FL {..}
+                
+fOrder :: forall a b. forall f. Functor f => (NonEmpty (ExtraInfo a) -> f (NonEmpty (ExtraInfo b))) -> FocusedList a -> f (FocusedList b)
+fOrder f FL {visualOrder = vo, focusOrder = fo, actualData = ad}  = setter -- lens getter setter
+  where inOrder =
+          zipWith (\i a -> EI (fromIntegral $ fromJust $ elemIndexOf folded i vo) a) [0..] $ map (ad !!) fo
+        setter = do
+          f inOrder <&> \newOrder ->
+            let actualData = map extract newOrder
+                focusOrder = [0..length newOrder - 1]
+                visualOrder = map fst $ fromList . sortOn (\(_, EI i' _) -> i') . toList $ mzip [0..] newOrder
              in FL {..}
 
 vTraverse :: Traversal1 (FocusedList a) (FocusedList b) a b
@@ -143,38 +160,18 @@ vTraverse f fl = fromVis fl <$> traverse1 (f . (actualData fl !!)) (visualOrder 
 fTraverse :: Traversal1 (FocusedList a) (FocusedList b) a b
 fTraverse f fl = fromFoc fl <$> traverse1 (f . (actualData fl !!)) (focusOrder fl)
 
-focusElem :: (a -> Bool) -> FocusedList a -> FocusedList a
-focusElem p fl@FL {actualData = ad} = focusIndex loc fl
+reconcile :: NonEmpty b -> NonEmpty Int -> FocusedList a -> FocusedList b
+reconcile newAs order fl@FL {..} =
+  fl {actualData = foldl' updateAt base $ zip order newAs}
   where
-    loc = fst $ fromJust $ find (p . snd) $ mzip [0 ..] ad
+    updateAt as (i, a) = set (ix i) a as
+    base = fromList $ replicate (length actualData) undefined
 
-focusIndex :: Int -> FocusedList a -> FocusedList a
-focusIndex i fl@FL {focusOrder = fo} =
-  fl
-    { focusOrder = if length fo > i then focusNE i fo else fo
-    }
+fromFoc :: FocusedList a -> NonEmpty b -> FocusedList b
+fromFoc oldFl as = reconcile as (focusOrder oldFl) oldFl
 
-focusNE :: Int -> NonEmpty Int -> NonEmpty Int
-focusNE i = maybe (pure i) (i <|) . remove i
-
-prependNE :: [a] -> NonEmpty a -> NonEmpty a
-prependNE [] ne = ne
-prependNE (a:as) ne = (a :| as) <> ne
-
-moveToNE :: Int -> Int -> NonEmpty Int -> NonEmpty Int
-moveToNE elem to = maybe (pure elem) (\ne -> prependNE (take to ne) (elem :| drop to ne)) . remove elem
-
-focusVIndex :: Int -> FocusedList a -> FocusedList a
-focusVIndex i fl@FL {visualOrder = vo} = focusIndex (vo !! i) fl
-
-visualFIndex :: Int -> Int -> FocusedList a -> FocusedList a
-visualFIndex i to fl@FL {focusOrder = fo, visualOrder = vo} =
-  fl {visualOrder = moveToNE (fo !! i) to vo}
-
-
--- |I really want to get rid of this function...
-findNeFocIndex :: FocusedList a -> Int
-findNeFocIndex FL {..} = fromJust $ elemIndex (head focusOrder) $ toList visualOrder
+fromVis :: FocusedList a -> NonEmpty b -> FocusedList b
+fromVis oldFl as = reconcile as (visualOrder oldFl) oldFl
 
 makeFL :: NonEmpty a -> Int -> FocusedList a
 makeFL actualData focIndex =
@@ -200,16 +197,31 @@ focusDir dir fl@FL {focusOrder = fo, visualOrder = vo} = fromMaybe fl $
       newLoc <- find ((== head fo) . fst) $ zip findList usingList
       return $ focusIndex (snd newLoc) fl
 
--- TODO doesn't really handle change of shape
-reconcile :: NonEmpty b -> NonEmpty Int -> FocusedList a -> FocusedList b
-reconcile newAs order fl@FL {..} =
-  fl {actualData = foldl' updateAt base $ zip order newAs}
+
+-- These are FocusedList helper functions that depend on the lenses/functions
+-- defined up above. Any redone FocusedList implementation shouldn't have to
+-- touch these.
+
+focusElem :: (a -> Bool) -> FocusedList a -> FocusedList a
+focusElem p fl@FL {actualData = ad} = focusIndex loc fl
   where
-    updateAt as (i, a) = set (ix i) a as
-    base = fromList $ replicate (length actualData) undefined
+    loc = fst $ fromJust $ find (p . snd) $ mzip [0 ..] ad
 
-fromFoc :: FocusedList a -> NonEmpty b -> FocusedList b
-fromFoc oldFl as = reconcile as (focusOrder oldFl) oldFl
+focusIndex :: Int -> FocusedList a -> FocusedList a
+focusIndex i =
+  over fOrder \flist ->
+                 case find (\(EI i' _) -> fromIntegral i == i') flist of
+                   Just found -> maybe (pure found) (found <|) $ remove found flist
+                   Nothing -> flist
 
-fromVis :: FocusedList a -> NonEmpty b -> FocusedList b
-fromVis oldFl as = reconcile as (visualOrder oldFl) oldFl
+focusVIndex :: Int -> FocusedList a -> FocusedList a
+focusVIndex i fl = focusIndex locationOfI fl
+  where locationOfI = fl ^. singular (elementOf (vOrder.folded) i) . to getLocation
+
+-- Gets the index in the visual order of the focused element
+findNeFocIndex :: FocusedList a -> Int
+findNeFocIndex = view (fOrder.head1.to getLocation)
+
+-- Move the focused element to a different visual location
+visualFIndex :: Int -> FocusedList a -> FocusedList a
+visualFIndex newLoc = over (fOrder.head1) \(EI _ a) -> EI (fromIntegral newLoc-0.5) a

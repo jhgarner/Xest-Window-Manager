@@ -44,12 +44,6 @@ focusWorks :: FAndIX FocusedList Int -> Property
 focusWorks (FAndIX ogfl i) =
   let fl = focusIndex i ogfl
    in isValid fl .&&. (head (focusOrder fl) === i)
-  where 
-    focusIndex :: Int -> FocusedList a -> FocusedList a
-    focusIndex i fl@FL {focusOrder = fo} =
-      fl
-        { focusOrder = if length fo > i then focusNE i fo else fo
-        }
 
 isValid :: FocusedList a -> Property
 isValid (FL vo fo ad) = label "Is valid" $
