@@ -30,7 +30,7 @@ import Tiler.WithRect
 -- example, it's placed at the back for Horiz.
 add :: SubTiler -> Tiler -> Tiler
 add w (Many (Horiz fl) mods) =
-  let ogSize = fromIntegral $ flLength fl
+  let ogSize = fromIntegral $ length fl
       newFl = push Back Focused (Sized (1 / ogSize) w) fl
       growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 newFl
 
@@ -211,7 +211,7 @@ moveToMon root =
 --  their names. This function gets that info, although we use a liberal
 --  definition of virtual desktop.
 getDesktopState :: Tiler -> ([Text], Int)
-getDesktopState (Many mh _) = (show @Int <$> [1 .. (foldFl mh flLength)], i)
+getDesktopState (Many mh _) = (show @Int <$> [1 .. (foldFl mh length)], i)
   where
     i = foldFl mh findNeFocIndex
 getDesktopState _ = (["None"], 0)
@@ -233,7 +233,7 @@ getFocusList (Many mh mods) =
       Full -> "f-"
       NoMods -> ""
     child = foldFl mh $ extract . head . view fOrder
-    size = foldFl mh $ show . flLength
+    size = foldFl mh $ show . length
     i = foldFl mh $ show . succ . findNeFocIndex
 getFocusList (Wrap _) = "Window"
 

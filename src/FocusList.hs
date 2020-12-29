@@ -9,9 +9,8 @@ module FocusList
   ( FocusedList (..),
     Direction (..),
     Focus (..),
-    push,
     flMapMaybe,
-    flLength,
+    push,
     vOrder,
     fOrder,
     focusElem,
@@ -62,7 +61,24 @@ instance Zip FocusedList where
   zipWith f fl@FL {actualData = ad} FL {actualData = add} =
     fl {actualData = zipWith f ad add}
 
--- Begin the actual code
+flMapMaybe :: (a -> Maybe b) -> FocusedList a -> Maybe (FocusedList b)
+flMapMaybe predicate FL {actualData = ad, visualOrder = vo, focusOrder = fo} =
+  map (\unwrapped -> foldl' (flip reduce) unwrapped $ sortOn Down gone) newFL
+  where
+    newFL = do
+      newAd <- nonEmpty $ mapMaybe predicate $ toList ad
+      newVo <- foldM removeFrom vo gone
+      newFo <- foldM removeFrom fo gone
+      return
+        FL
+          { actualData = newAd,
+            visualOrder = newVo,
+            focusOrder = newFo
+          }
+    gone =
+      foldl' (\acc (i, a) -> if isJust $ predicate a then acc else i : acc) [] $
+        zip [0 ..] ad
+    removeFrom = flip remove
 
 -- | Pushes something to different ends
 push :: Direction -> Focus -> a -> FocusedList a -> FocusedList a
@@ -90,27 +106,14 @@ reduce removed fl@FL {..} =
 
 -- | Filter a focused list. Unfortunately, filter isn't a typeclass anywhere
 -- TODO This looks suspiciously like traverse...
-flMapMaybe :: (a -> Maybe b) -> FocusedList a -> Maybe (FocusedList b)
-flMapMaybe predicate FL {actualData = ad, visualOrder = vo, focusOrder = fo} =
-  map (\unwrapped -> foldl' (flip reduce) unwrapped $ sortOn Down gone) newFL
-  where
-    newFL = do
-      newAd <- nonEmpty $ mapMaybe predicate $ toList ad
-      newVo <- foldM removeFrom vo gone
-      newFo <- foldM removeFrom fo gone
-      return
-        FL
-          { actualData = newAd,
-            visualOrder = newVo,
-            focusOrder = newFo
-          }
-    gone =
-      foldl' (\acc (i, a) -> if isJust $ predicate a then acc else i : acc) [] $
-        zip [0 ..] ad
-    removeFrom = flip remove
 
-flLength :: FocusedList a -> Int
-flLength FL {..} = length actualData
+-- Visual, Focus, Actual
+data ExtraInfo a = EI Int Int a
+  deriving (Eq, Show, Functor)
+
+instance Comonad ExtraInfo where
+  extract (EI _ _ a) = a
+  duplicate ei@(EI v f a) = EI v f ei
 
 -- This is an unlawful lens :(
 -- Fun fact: the lens being unlawful led to a bug that was hard to find by

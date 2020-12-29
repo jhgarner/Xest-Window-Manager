@@ -29,7 +29,8 @@ module Standard
 where
 
 import Base.Effects as All
-import BasePrelude as All hiding (String, appendFile, arr, error, filter, fmap, getContents, getLine, gunfold, head, index, init, interact, last, lazy, left, log, map, putStr, putStrLn, readFile, right, show, tail, uncons, unlines, writeFile, (!!))
+import BasePrelude as All hiding (String, appendFile, arr, error, filter, fmap, getContents, getLine, gunfold, head, index, init, interact, last, lazy, left, log, map, putStr, putStrLn, readFile, right, show, tail, uncons, unlines, writeFile, (!!), mapMaybe, filter, catMaybes)
+import Data.Witherable as All
 import qualified BasePrelude
 -- Hiding Text because I define it below with a Complete pragma
 
@@ -47,7 +48,7 @@ import Data.Functor.Foldable as All hiding (embed, fold, unfold)
 import Data.Functor.Foldable.TH as All
 import Data.IntMap.Strict as All (IntMap, update, (!))
 import Data.Kind (Type)
-import Data.List.NonEmpty as All (filter, init, nonEmpty, tail, (!!), (<|), uncons)
+import Data.List.NonEmpty as All (init, nonEmpty, tail, (!!), (<|), uncons)
 import Data.Map.Strict as All (Map)
 import Data.Semigroup.Foldable as All
 import Data.Set as All (Set)
@@ -113,10 +114,10 @@ initMay = preview _init
 -- init :: Traversable1 t => t a -> Maybe (t a)
 
 removeAt :: Int -> NonEmpty a -> Maybe (NonEmpty a)
-removeAt i = nonEmpty . map snd . filter (\(i', _) -> if i == i' then False else True) . mzip [0 ..]
+removeAt i = nonEmpty . map snd . filter (\(i', _) -> i /= i') . toList . mzip [0 ..]
 
 remove :: Eq a => a -> NonEmpty a -> Maybe (NonEmpty a)
-remove a = nonEmpty . filter (/= a)
+remove a = nonEmpty . filter (/= a) . toList
 
 error :: HasCallStack => Text -> a
 error (Text s) = BasePrelude.error s

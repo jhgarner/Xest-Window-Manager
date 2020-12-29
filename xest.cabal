@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c11bb845b8ff3288e32711aa33b08ba22c93246697e3b5bd2f45ae6cb029a343
+-- hash: df924c8c742096eb6582bc5c867e7088231f8b1d5a0759030923b0b49922c637
 
 name:           xest
 version:        0.1.0.0
@@ -93,6 +93,7 @@ library
     , text
     , time
     , transformers
+    , witherable
   default-language: Haskell2010
 
 executable xest-exe
@@ -129,6 +130,7 @@ executable xest-exe
     , text
     , time
     , transformers
+    , witherable
     , xest
   default-language: Haskell2010
 
@@ -170,5 +172,6 @@ test-suite xest-test
     , text
     , time
     , transformers
+    , witherable
     , xest
   default-language: Haskell2010

@@ -127,7 +127,7 @@ placeWindow root =
                 placed lSize size t = Sized size (Slide (Rect lSize 0 size 1) wrapTrans, depth + 1, t)
              in Horiz $ fl & vOrder %~ (snd . mapAccumL (\lSize (Sized s t) -> (lSize + s, placed lSize s t)) 0)
           (_, TwoCols colSize (map runIdentity -> fl)) ->
-            let numWins = fromIntegral $ flLength fl - 1
+            let numWins = fromIntegral $ length fl - 1
                 wrapTrans = if mods == Rotate then Spin trans else trans
                 location i = Slide (Rect colSize (1.0 / numWins * i) (1 - colSize) (1.0 / numWins)) wrapTrans
                 bigLoc = Slide (Rect 0 0 colSize 1) wrapTrans

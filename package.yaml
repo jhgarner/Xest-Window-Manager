@@ -46,6 +46,7 @@ dependencies:
 - regex-compat
 - semigroupoids
 - deepseq
+- witherable
 
 library:
   source-dirs: src

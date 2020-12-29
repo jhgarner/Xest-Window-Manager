@@ -47,7 +47,7 @@ zoomOutInput ::
 zoomOutInput = do
   -- The unless guards against zooming the controller out of existence
   rootTiler <- gets @Tiler Fix
-  unless (isJust $ isController $ rootTiler) $
+  unless (isJust $ isController rootTiler) $
     modify @Tiler $
       fromMaybe (error "e")
         . coerce
@@ -105,7 +105,7 @@ zoomOutMonitor ::
 zoomOutMonitor = do
   -- Don't want to zoom the monitor out of existence
   rootTiler <- gets @Tiler Fix
-  unless (isJust $ isMonitor $ rootTiler) $
+  unless (isJust $ isMonitor rootTiler) $
     modify @Tiler $
       fromMaybe (error "e")
         . coerce
@@ -150,7 +150,7 @@ changeMany f =
 
 changeIndex :: Int -> ManyHolder SubTiler -> ManyHolder SubTiler
 changeIndex changeTo mh =
-  if foldFl mh flLength >= changeTo
+  if foldFl mh length >= changeTo
     then withFl' mh $ focusVIndex (changeTo - 1)
     else mh
 
@@ -188,12 +188,12 @@ makeEmptySpot =
           removeIC $
             applyInput
               ( \_ ->
-                  let ogSize = fromIntegral $ flLength fl
+                  let ogSize = fromIntegral $ length fl
                       newSize = ogSize + 1
                       growPercent = ogSize / newSize
 
                       newFl = map (\(Sized s a) -> Sized (s * growPercent) a) fl
-                      newestFl = push Back Focused (Sized (1 / newSize) $ newInput) newFl
+                      newestFl = push Back Focused (Sized (1 / newSize) newInput) newFl
                    in Just $ Many (Horiz newestFl) mods
               )
               root
@@ -260,7 +260,7 @@ insertTiler ::
 insertTiler =
   modify @Tiler $ applyInput (map toTiler)
   where
-    toTiler focused = Many (Horiz $ makeFL ((Sized 1 focused) :| []) 0) NoMods
+    toTiler focused = Many (Horiz $ makeFL (Sized 1 focused :| []) 0) NoMods
 
 toggleDocks ::
   State DockState m =>
@@ -291,7 +291,7 @@ killActive = do
       return $ map (,parent) shouldKill
     Nothing -> return Nothing
   case l of
-    Nothing -> put @(ShouldRedraw) (Nothing)
+    Nothing -> put @ShouldRedraw Nothing
     Just (killed, parent) -> do
       _ <- kill True parent
       modify @Tiler $ ripOut killed
