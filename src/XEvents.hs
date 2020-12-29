@@ -109,7 +109,7 @@ mapWin pc@(ParentChild newWin window _) = do
     usingFloating (newW, newH) t newTiler =
       coerce . cata \case
         oldT@(Many (Floating fl) mods) ->
-          let bottom = head $ view vOrder fl
+          let bottom = first1Of vTraverse fl
            in if Failed t == extract bottom
                 then Succeeded $ Many (Floating $ push Back Focused (WithRect (Rect 0 0 newW newH) newTiler) $ map (map extract) fl) mods
                 else Fix <$> sequenceA oldT
@@ -179,7 +179,7 @@ rootChange = do
             let defaultTiler = Monitor (Rect (fromIntegral x) (fromIntegral y) (fromIntegral w) (fromIntegral h)) $ Just $ Fix $ InputController newBorders Nothing
             return
               ( fromIntegral name,
-                IM.findWithDefault defaultTiler (fromIntegral name) $ oldScreens
+                IM.findWithDefault defaultTiler (fromIntegral name) oldScreens
               )
         )
         screenInfo
@@ -195,7 +195,7 @@ rootChange = do
 
   -- Ask Xest to redraw and refocus
   put @FocusedCache $ FocusedCache 0
-  put @(ShouldRedraw) $ Just UnsafeRedraw
+  put @ShouldRedraw $ Just UnsafeRedraw
 
 -- | Called when the mouse moves between windows or when the user
 --  clicks a window.
@@ -310,24 +310,23 @@ changeSize mouseLoc screen (Many mh mods) =
           screenSize = direction screen
           deltaPercent = delta / screenSize
           focLoc =
-            fromIntegral $
               ( case mouseLoc of
                   Right _ -> id
                   Left _ -> (\n -> n -1)
               )
                 $ findNeFocIndex fl
-          maxChange = fl ^. vOrder  . singular (ix (focLoc + 1)) . to getSize
-          currentSize = fl ^. vOrder . singular (ix focLoc) . to getSize
+          maxChange = fl ^. singular (elementOf vTraverse (focLoc + 1)) . to getSize
+          currentSize = fl ^. singular (elementOf vTraverse focLoc) . to getSize
           bounded = max (0.01 - currentSize) $ min maxChange deltaPercent
-          withFocChange = fl & (vOrder . singular (ix focLoc)) %~ (\(Sized s a) -> Sized (s + bounded) a)
-          withPredChange = withFocChange & (vOrder . singular (ix (focLoc + 1))) %~ (\(Sized s a) -> Sized (s - bounded) a)
+          withFocChange = fl & elementOf vTraverse focLoc %~ (\(Sized s a) -> Sized (s + bounded) a)
+          withPredChange = withFocChange & elementOf vTraverse (focLoc + 1) %~ (\(Sized s a) -> Sized (s - bounded) a)
        in if focLoc > -1 && focLoc < length fl - 1
             then Horiz withPredChange
             else Horiz fl
     Floating fl ->
       let (dx, dy) = bimap fromIntegral fromIntegral $ fromEither mouseLoc
        in Floating $
-            fl & fOrder . head1 %~
+            fl & headOf fTraverse %~
               ( \(WithRect Rect {..} t) ->
                   case mouseLoc of
                     Right _ -> WithRect (Rect x y (w + dx) (h + dy)) t
@@ -369,7 +368,7 @@ makeFullscreen window isSet = do
 
   let shouldSet =
         if isSet == 2
-          then not $ wm_full `elem` currentState
+          then wm_full `notElem` currentState
           else isSet == 1
 
   if shouldSet

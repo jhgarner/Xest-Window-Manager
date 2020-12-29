@@ -121,25 +121,25 @@ placeWindow root =
         -- TODO this code is a little gross
         case (mods, mh) of
           (Full, _) ->
-            withFl' (map (idTransform, depth + 1,) mh) $ set (fOrder.head1.mapped._1) trans
+            withFl' (map (idTransform, depth + 1,) mh) $ set (headOf fTraverse.mapped._1) trans
           (_, Horiz fl) ->
             let wrapTrans = if mods == Rotate then Spin trans else trans
                 placed lSize size t = Sized size (Slide (Rect lSize 0 size 1) wrapTrans, depth + 1, t)
-             in Horiz $ fl & vOrder %~ (snd . mapAccumL (\lSize (Sized s t) -> (lSize + s, placed lSize s t)) 0)
+             in Horiz $ snd $ mapAccumLOf vTraverse (\lSize (Sized s t) -> (lSize + s, placed lSize s t)) 0 fl
           (_, TwoCols colSize (map runIdentity -> fl)) ->
             let numWins = fromIntegral $ length fl - 1
                 wrapTrans = if mods == Rotate then Spin trans else trans
-                location i = Slide (Rect colSize (1.0 / numWins * i) (1 - colSize) (1.0 / numWins)) wrapTrans
+                location i = Slide (Rect colSize (1.0 / numWins * fromIntegral i) (1 - colSize) (1.0 / numWins)) wrapTrans
                 bigLoc = Slide (Rect 0 0 colSize 1) wrapTrans
-                allRight = fl & vOrder %~ map (\(i, t) -> (location i, depth + 1, t)) . mzip [-1 ..]
-             in TwoCols colSize $ coerce $ allRight & vOrder . head1 . _1 .~ bigLoc
+                allRight = iover (indexing vTraverse) (\i t -> (location (i-1), depth + 1, t)) fl
+             in TwoCols colSize $ coerce $ allRight & headOf vTraverse._1 .~ bigLoc
           (_, Floating ls) ->
             let allFloating = flip map ls $ \case
                   WithRect rr@Rect {..} t ->
                     let wrapTrans = if mods == Rotate then Spin trans else trans
                         starting@(Rect realX realY realW realH) = bimap fromIntegral fromIntegral $ getStartingPoint wrapTrans
                      in WithRect rr (Slide (Rect ((x - realX) / realW) ((y - realY) / realH) (w / realW) (h / realH)) $ StartingPoint $ bimap floor ceiling starting, depth + 1, t)
-                withBottom = allFloating & (vOrder . head1) %~ (\(WithRect r (_, d, t)) -> WithRect r (trans, d, t))
+                withBottom = allFloating & headOf vTraverse %~ (\(WithRect r (_, d, t)) -> WithRect r (trans, d, t))
              in Floating withBottom
       -- Input controllers don't really do anything.
       InputController bords t ->
@@ -148,6 +148,7 @@ placeWindow root =
       -- follow.
       Monitor screenSize t ->
         Monitor screenSize $ map (StartingPoint screenSize,depth,) t
+      _ -> undefined
 
     -- Runs the above function after shuffling the types around.
     buildUp :: (Transformation, Int, SubTiler) -> CofreeF TilerF (Transformation, Int) (Transformation, Int, SubTiler)
@@ -255,12 +256,13 @@ render = do
       case mh of
         Floating fl ->
           let justData = map (fst . extract) fl
-              (bottomTops, bottoms) = head $ view vOrder justData
-              tops = set (vOrder.ix 0) Nothing $ map Just justData
-              (topTops, topBottoms) = (fold . catMaybes . toList . view fOrder) tops
-           in ((topTops ++ bottomTops, topBottoms ++ bottoms), mapM_ (snd . extract) fl)
+              bottoms = view (headOf vTraverse) justData
+              -- Is there a way to use vTraverse instead of vOrder here?
+              maybeTops = runKleisli (overA vOrder (Kleisli $ nonEmpty . tail)) justData
+              tops = maybe ([], []) (foldOf fTraverse) maybeTops
+           in (over both (uncurry (++)) (tops, bottoms), mapM_ (snd . extract) fl)
         _ ->
-          (foldFl mh $ foldMap (fst . extract) . view fOrder, mapM_ snd tiler)
+          (foldFl mh $ foldOf (fTraverse.to extract._1), mapM_ snd tiler)
     -- Everything else just needs to draw it's children
     draw (CofreeF _ tiler) = (foldMap fst tiler, mapM_ snd tiler)
 

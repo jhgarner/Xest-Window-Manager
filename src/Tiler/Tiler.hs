@@ -76,7 +76,7 @@ reduce (Wrap w) = Just $ Wrap w
 --  is the primary cause of runtime errors that aren't related to Xorg. Usually,
 --  an unpopable error means you called getFocused when you shouldn't have.
 getFocused :: Show a => TilerF a -> a
-getFocused (Many mh _) = foldFl mh $ extract . head . view fOrder
+getFocused (Many mh _) = foldFl mh $ view (headOf fTraverse . to extract)
 getFocused t = 
   error $ "Attempted to pop the unpopable " <> show t
 
@@ -101,7 +101,7 @@ onInput f root = f $ hylo getEnd findIC $ coerce root
 -- | Kind of like applyInput but instead of searching for the InputController,
 -- it just applies the function to whatever is focused by an individual Tiler.
 modFocused :: (a -> a) -> TilerF a -> TilerF a
-modFocused f (Many mh mods) = Many (withFl' mh $ over (fOrder . head1) (map f)) mods
+modFocused f (Many mh mods) = Many (withFl' mh $ over (headOf fTraverse . mapped) f) mods
 modFocused _ wp@(Wrap _) = wp
 modFocused f t@(InputControllerOrMonitor _ _) = map f t
 
@@ -232,7 +232,7 @@ getFocusList (Many mh mods) =
       Rotate -> "r-"
       Full -> "f-"
       NoMods -> ""
-    child = foldFl mh $ extract . head . view fOrder
+    child = foldFl mh $ extract . view (headOf fTraverse)
     size = foldFl mh $ show . length
     i = foldFl mh $ show . succ . findNeFocIndex
 getFocusList (Wrap _) = "Window"
@@ -241,7 +241,7 @@ getFocusList (Wrap _) = "Window"
 findParent :: Window -> Tiler -> Maybe Window
 findParent w = cata step
   where
-    step (Wrap (ParentChild ww ww' ww''))
+    step (Wrap (ParentChild ww ww' _))
       | ww' == w = Just ww
       | otherwise = Nothing
     step t = foldl' (<|>) Nothing t

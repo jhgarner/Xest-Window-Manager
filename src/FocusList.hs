@@ -1,4 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -12,13 +15,15 @@ module FocusList
     flMapMaybe,
     push,
     vOrder,
-    fOrder,
+    vTraverse,
+    fTraverse,
     focusElem,
     focusVIndex,
     visualFIndex,
     findNeFocIndex,
     makeFL,
     focusDir,
+    ExtraInfo,
   )
 where
 
@@ -33,6 +38,9 @@ import Text.Show.Deriving
 -- If someone has a better way to represent this, I would gladly switch.
 -- This module could use some more documentation and better names, but I think
 -- time would be better spent trying to rearchitect the module using lenses or something.
+
+-- I'm currently rewriting the export list to rely more on lenses instead of
+-- weirdly named functions.
 
 -- | Meant to represent the Head and Last on the list when sorted in focus order
 data Focus = Focused | Unfocused
@@ -113,24 +121,27 @@ data ExtraInfo a = EI Int Int a
 
 instance Comonad ExtraInfo where
   extract (EI _ _ a) = a
-  duplicate ei@(EI v f a) = EI v f ei
+  duplicate ei@(EI v f _) = EI v f ei
 
--- This is an unlawful lens :(
--- Fun fact: the lens being unlawful led to a bug that was hard to find by
--- analyzing the symptoms. I should really put more time into making sure my
--- instances are lawful...
--- Although I'm not really sure how to make this one lawful. I guess I need to
--- zip up the values with position data and prevent the user from modifying
--- the positional data except by reordering/dropping elements?
--- Actually, that might make pushing a viable lens too...
-vOrder :: Lens (FocusedList a) (FocusedList b) (NonEmpty a) (NonEmpty b)
-vOrder = lens getter fromVis
-  where getter FL {visualOrder = vo, actualData = ad} = map (ad !!) vo
+-- This lens lets you modify the order/composition of FocusedList. Technically,
+-- I think it follows the lens laws if you ignore the Int parameters in ExtraInfo.
+-- fOrder could also exist but it isn't used so I don't need it.
+vOrder :: forall a b. forall f. Functor f => (NonEmpty (ExtraInfo a) -> f (NonEmpty (ExtraInfo b))) -> FocusedList a -> f (FocusedList b)
+vOrder f FL {visualOrder = vo, focusOrder = fo, actualData = ad}  = setter -- lens getter setter
+  where inOrder =
+          zipWith (\i a -> EI (fromJust $ elemIndexOf folded i vo) (fromJust $ elemIndexOf folded i fo) a) [0..] $ map (ad !!) vo
+        setter = do
+          f inOrder <&> \newOrder ->
+            let actualData = map extract newOrder
+                visualOrder = [0..length newOrder - 1]
+                focusOrder = map fst $ fromList . sortOn (\(_, EI _ i' _) -> i') . toList $ mzip [0..] newOrder
+             in FL {..}
 
--- This is an unlawful lens :(
-fOrder :: Lens (FocusedList a) (FocusedList b) (NonEmpty a) (NonEmpty b)
-fOrder = lens getter fromFoc
-  where getter FL {focusOrder = fo, actualData = ad} = map (ad !!) fo
+vTraverse :: Traversal1 (FocusedList a) (FocusedList b) a b
+vTraverse f fl = fromVis fl <$> traverse1 (f . (actualData fl !!)) (visualOrder fl)
+
+fTraverse :: Traversal1 (FocusedList a) (FocusedList b) a b
+fTraverse f fl = fromFoc fl <$> traverse1 (f . (actualData fl !!)) (focusOrder fl)
 
 focusElem :: (a -> Bool) -> FocusedList a -> FocusedList a
 focusElem p fl@FL {actualData = ad} = focusIndex loc fl

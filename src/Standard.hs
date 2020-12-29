@@ -24,6 +24,7 @@ module Standard
     removeAt,
     remove,
     error,
+    headOf,
     pattern Text,
   )
 where
@@ -61,6 +62,7 @@ import Standard.RectA as All
 import Standard.Stream as All
 import Standard.Tagged as All
 import Standard.Transformation as All
+import Data.Functor.Apply
 
 {-# COMPLETE CofreeF #-}
 
@@ -132,3 +134,16 @@ pattern Text a <-
 
 modify :: forall a m. HasState a a m => (a -> a) -> m ()
 modify = modify' @a
+
+-- I think it acts like First but with Functors.
+data OneFunctor f a = OneFunctor (f a) a
+  deriving (Functor)
+
+instance Functor f => Apply (OneFunctor f) where
+  OneFunctor fa fa' <.> OneFunctor _ a = OneFunctor (map ($ a) fa) (fa' a)
+
+-- This hasn't been the cause of any bugs yet so I think it follows the Lens
+-- laws.
+headOf :: Traversal1 s s a a -> Lens' s a
+headOf t f s = ft
+  where OneFunctor ft _ = t (\a -> OneFunctor (f a) a) s
