@@ -43,7 +43,7 @@ add w (Many mh mods) = Many newMh mods
         Horiz ne -> Horiz $ push Back Focused (Sized 0 w) ne
         Floating ne -> Floating $ push Back Focused (WithRect (Rect (-1) (-1) (-1) (-1)) w) ne
         TwoCols size ne -> TwoCols size $ push Back Focused (Identity w) ne
-add w t = Many (Horiz (makeFL ((Sized 0.5 $ Fix t) :| [Sized 0.5 w]) 0)) NoMods
+add w t = Many (Horiz (makeFL (Sized 0.5 (Fix t) :| [Sized 0.5 w]) 0)) NoMods
 
 -- | Remove a Window if it exists in the tree.
 ripOut :: Window -> Tiler -> Tiler
@@ -72,32 +72,13 @@ reduce (Many fl mods) = do
 reduce (InputControllerOrMonitor c t) = Just . c $ join t
 reduce (Wrap w) = Just $ Wrap w
 
--- | A combination of top and pop if you're coming from c++.
--- fst . popWindow is like top and snd . popWindow is like pop
-popWindow ::
-  Show a =>
-  Either Direction Focus ->
-  TilerF a ->
-  (a, Maybe (TilerF a))
-popWindow howToPop (Many (Horiz fl) mods) = (newElem, newMany)
-  where
-    (Sized _ newElem, newFlM) = pop howToPop fl
-    newMany = do
-      newFl <- newFlM
-      let growPercent = 1 / foldl' (\acc s -> acc + getSize s) 0 fl
-      return $ Many (Horiz $ map (\(Sized s a) -> Sized (s * growPercent) a) newFl) mods
-popWindow howToPop (Many mh mods) = (newElem, map (\newMh -> Many newMh mods) newMhM)
-  where
-    newElem = foldFl mh $ extract . fst . pop howToPop
-    newMhM = withFl mh $ snd . pop howToPop
-popWindow e t =
-  error $ "Attempted to pop the unpopable" <> show e <> " " <> show t
-
 -- | Get's the focused window. Throws an error if it can't. This little function
 --  is the primary cause of runtime errors that aren't related to Xorg. Usually,
 --  an unpopable error means you called getFocused when you shouldn't have.
 getFocused :: Show a => TilerF a -> a
-getFocused = fst . popWindow (Right Focused)
+getFocused (Many mh _) = foldFl mh $ extract . head . view fOrder
+getFocused t = 
+  error $ "Attempted to pop the unpopable " <> show t
 
 -- | Given something that wants to modify a Tiler,
 -- apply it to the first Tiler after the inputController.
@@ -251,7 +232,7 @@ getFocusList (Many mh mods) =
       Rotate -> "r-"
       Full -> "f-"
       NoMods -> ""
-    child = foldFl mh $ extract . fst . pop (Right Focused)
+    child = foldFl mh $ extract . head . view fOrder
     size = foldFl mh $ show . flLength
     i = foldFl mh $ show . succ . findNeFocIndex
 getFocusList (Wrap _) = "Window"

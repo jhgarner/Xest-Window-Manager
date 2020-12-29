@@ -109,7 +109,7 @@ mapWin pc@(ParentChild newWin window _) = do
     usingFloating (newW, newH) t newTiler =
       coerce . cata \case
         oldT@(Many (Floating fl) mods) ->
-          let bottom = fst $ pop (Left Front) fl
+          let bottom = head $ view vOrder fl
            in if Failed t == extract bottom
                 then Succeeded $ Many (Floating $ push Back Focused (WithRect (Rect 0 0 newW newH) newTiler) $ map (map extract) fl) mods
                 else Fix <$> sequenceA oldT

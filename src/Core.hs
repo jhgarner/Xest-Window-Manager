@@ -33,7 +33,7 @@ refresh ::
 refresh = do
   -- Unbind the crossing events during the rerendering
 
-  allWindows <- gets @Screens $ concatMap getAllParents . map snd . itoList
+  allWindows <- gets @Screens $ concatMap (getAllParents . snd) . itoList
   redrawType <- get @ShouldRedraw
   when (redrawType == Just UnsafeRedraw) $
     forM_ allWindows \window ->
@@ -107,7 +107,7 @@ placeWindow root =
   ana buildUp (StartingPoint mempty, 0, Fix root)
   where
     -- The meat of the placeWindow function.
-    placeWindow' :: Transformation -> Int -> SubTiler -> (TilerF (Transformation, Int, SubTiler))
+    placeWindow' :: Transformation -> Int -> SubTiler -> TilerF (Transformation, Int, SubTiler)
     placeWindow' trans depth = \case
       -- Wraps are super simple.
       Wrap win -> Wrap win
@@ -130,7 +130,7 @@ placeWindow root =
             let numWins = fromIntegral $ flLength fl - 1
                 wrapTrans = if mods == Rotate then Spin trans else trans
                 location i = Slide (Rect colSize (1.0 / numWins * i) (1 - colSize) (1.0 / numWins)) wrapTrans
-                bigLoc = Slide (Rect 0 0 (colSize) 1) wrapTrans
+                bigLoc = Slide (Rect 0 0 colSize 1) wrapTrans
                 allRight = fl & vOrder %~ map (\(i, t) -> (location i, depth + 1, t)) . mzip [-1 ..]
              in TwoCols colSize $ coerce $ allRight & vOrder . head1 . _1 .~ bigLoc
           (_, Floating ls) ->
@@ -175,7 +175,7 @@ getWindowByProperty propertyT = do
   wm_state <- getAtom False "_NET_WM_STATE"
   property <- getAtom False propertyT
   childrenList <- getTree
-  let findWindow' win = any (== property) <$> getProperty 32 wm_state win
+  let findWindow' win = elem property <$> getProperty 32 wm_state win
 
   filterM findWindow' childrenList
 
@@ -204,7 +204,7 @@ render = do
   minimized <- get @[SubTiler]
   traverse_ (snd . cata draw . map (first toScreenCoord) . placeWindow . unfix) minimized
 
-  return $ (uncurry (++)) $ fold winOrder
+  return $ uncurry (++) $ fold winOrder
   where
     -- The main part of this function.
     draw :: Base (Cofree TilerF (XRect, Int)) (([ParentChild], [ParentChild]), m ()) -> (([ParentChild], [ParentChild]), m ())
@@ -254,8 +254,11 @@ render = do
     draw (CofreeF _ tiler@(Many mh _)) =
       case mh of
         Floating fl ->
-          let ((bottomTops, bottoms), tops) = pop (Left Front) $ map (fst . extract) fl
-           in ((join (maybe [] (toList . view fOrder . map (uncurry (++))) tops) ++ bottomTops, bottoms), mapM_ (snd . extract) fl)
+          let justData = map (fst . extract) fl
+              (bottomTops, bottoms) = head $ view vOrder justData
+              tops = set (vOrder.ix 0) Nothing $ map Just justData
+              (topTops, topBottoms) = (fold . catMaybes . toList . view fOrder) tops
+           in ((topTops ++ bottomTops, topBottoms ++ bottoms), mapM_ (snd . extract) fl)
         _ ->
           (foldFl mh $ foldMap (fst . extract) . view fOrder, mapM_ snd tiler)
     -- Everything else just needs to draw it's children

@@ -41,13 +41,13 @@ import Control.Comonad as All hiding (fmap)
 import Control.Comonad.Cofree as All (Cofree)
 import qualified Control.Comonad.Cofree as CC (Cofree ((:<)))
 import qualified Control.Comonad.Trans.Cofree as C hiding (Cofree)
-import Control.Lens as All hiding (none, para, (<|))
+import Control.Lens as All hiding (none, para, (<|), uncons)
 import Control.Monad.Zip as All
 import Data.Functor.Foldable as All hiding (embed, fold, unfold)
 import Data.Functor.Foldable.TH as All
 import Data.IntMap.Strict as All (IntMap, update, (!))
 import Data.Kind (Type)
-import Data.List.NonEmpty as All (filter, init, nonEmpty, tail, (!!), (<|))
+import Data.List.NonEmpty as All (filter, init, nonEmpty, tail, (!!), (<|), uncons)
 import Data.Map.Strict as All (Map)
 import Data.Semigroup.Foldable as All
 import Data.Set as All (Set)

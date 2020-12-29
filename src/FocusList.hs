@@ -10,7 +10,6 @@ module FocusList
     Direction (..),
     Focus (..),
     push,
-    pop,
     flMapMaybe,
     flLength,
     vOrder,
@@ -78,45 +77,6 @@ push dir foc a FL {visualOrder = vo, focusOrder = fo, actualData = ad} =
     dirSide = if dir == Front then len <| vo else vo <> [len]
     len = length ad
 
--- | Given an ordering and direction to pop from, pops from the list
-pop :: Either Direction Focus -> FocusedList a -> (a, Maybe (FocusedList a))
-pop (Right isFocused) FL {visualOrder = vo, focusOrder = fo, actualData = ad} =
-  case isFocused of
-    Focused -> popLogic head (nonEmpty . tail)
-    Unfocused -> popLogic last (nonEmpty . init)
-  where
-    popLogic elemF otherF =
-      (ad !! elemF fo,) $ do
-        tailFo <- otherF fo
-        filteredVo <- remove (elemF fo) vo
-        filteredAd <- removeAt (elemF fo) ad
-        return $
-          reduce
-            (elemF fo)
-            FL
-              { visualOrder = filteredVo,
-                focusOrder = tailFo,
-                actualData = filteredAd
-              }
-pop (Left direction) FL {visualOrder = vo, focusOrder = fo, actualData = ad} =
-  case direction of
-    Front -> popLogic head (nonEmpty . tail)
-    Back -> popLogic last (nonEmpty . init)
-  where
-    popLogic elemV otherV =
-      (ad !! elemV vo,) $ do
-        tailVo <- otherV vo
-        filteredFo <- remove (elemV vo) fo
-        filteredAd <- removeAt (elemV vo) ad
-        return $
-          reduce
-            (elemV vo)
-            FL
-              { visualOrder = tailVo,
-                focusOrder = filteredFo,
-                actualData = filteredAd
-              }
-
 -- | We just removed something from the list which did all sorts of bad things to order.
 --  This function fixes the indices so we don't have holes.
 reduce :: Int -> FocusedList a -> FocusedList a
@@ -132,7 +92,7 @@ reduce removed fl@FL {..} =
 -- TODO This looks suspiciously like traverse...
 flMapMaybe :: (a -> Maybe b) -> FocusedList a -> Maybe (FocusedList b)
 flMapMaybe predicate FL {actualData = ad, visualOrder = vo, focusOrder = fo} =
-  map (\unwrapped -> foldl' (flip reduce) unwrapped $ sortBy (comparing Down) gone) newFL
+  map (\unwrapped -> foldl' (flip reduce) unwrapped $ sortOn Down gone) newFL
   where
     newFL = do
       newAd <- nonEmpty $ mapMaybe predicate $ toList ad
@@ -152,13 +112,22 @@ flMapMaybe predicate FL {actualData = ad, visualOrder = vo, focusOrder = fo} =
 flLength :: FocusedList a -> Int
 flLength FL {..} = length actualData
 
+-- This is an unlawful lens :(
+-- Fun fact: the lens being unlawful led to a bug that was hard to find by
+-- analyzing the symptoms. I should really put more time into making sure my
+-- instances are lawful...
+-- Although I'm not really sure how to make this one lawful. I guess I need to
+-- zip up the values with position data and prevent the user from modifying
+-- the positional data except by reordering/dropping elements?
+-- Actually, that might make pushing a viable lens too...
 vOrder :: Lens (FocusedList a) (FocusedList b) (NonEmpty a) (NonEmpty b)
 vOrder = lens getter fromVis
-  where getter FL {visualOrder = vo, actualData = ad} = map ((!!) ad) vo
+  where getter FL {visualOrder = vo, actualData = ad} = map (ad !!) vo
 
+-- This is an unlawful lens :(
 fOrder :: Lens (FocusedList a) (FocusedList b) (NonEmpty a) (NonEmpty b)
 fOrder = lens getter fromFoc
-  where getter FL {focusOrder = fo, actualData = ad} = map ((!!) ad) fo
+  where getter FL {focusOrder = fo, actualData = ad} = map (ad !!) fo
 
 focusElem :: (a -> Bool) -> FocusedList a -> FocusedList a
 focusElem p fl@FL {actualData = ad} = focusIndex loc fl
@@ -171,14 +140,8 @@ focusIndex i fl@FL {focusOrder = fo} =
     { focusOrder = if length fo > i then focusNE i fo else fo
     }
 
-visualIndex :: Int -> FocusedList a -> FocusedList a
-visualIndex i fl@FL {visualOrder = vo} =
-  fl
-    { visualOrder = if length vo > i then focusNE i vo else vo
-    }
-
 focusNE :: Int -> NonEmpty Int -> NonEmpty Int
-focusNE i = maybe (pure i) ((<|) i) . remove i
+focusNE i = maybe (pure i) (i <|) . remove i
 
 prependNE :: [a] -> NonEmpty a -> NonEmpty a
 prependNE [] ne = ne
@@ -197,7 +160,7 @@ visualFIndex i to fl@FL {focusOrder = fo, visualOrder = vo} =
 
 -- |I really want to get rid of this function...
 findNeFocIndex :: FocusedList a -> Int
-findNeFocIndex FL {..} = fromJust $ findIndex (== head focusOrder) $ toList visualOrder
+findNeFocIndex FL {..} = fromJust $ elemIndex (head focusOrder) $ toList visualOrder
 
 makeFL :: NonEmpty a -> Int -> FocusedList a
 makeFL actualData focIndex =
@@ -209,7 +172,7 @@ makeFL actualData focIndex =
   where
     len = length actualData
     vo = [0 .. len - 1]
-    fo = maybe (pure focIndex) ((<|) focIndex) $ removeAt focIndex vo
+    fo = maybe (pure focIndex) (focIndex <|) $ removeAt focIndex vo
 
 focusDir :: Direction -> FocusedList a -> FocusedList a
 focusDir dir fl@FL {focusOrder = fo, visualOrder = vo} = fromMaybe fl $
@@ -223,12 +186,13 @@ focusDir dir fl@FL {focusOrder = fo, visualOrder = vo} = fromMaybe fl $
       newLoc <- find ((== head fo) . fst) $ zip findList usingList
       return $ focusIndex (snd newLoc) fl
 
+-- TODO doesn't really handle change of shape
 reconcile :: NonEmpty b -> NonEmpty Int -> FocusedList a -> FocusedList b
 reconcile newAs order fl@FL {..} =
   fl {actualData = foldl' updateAt base $ zip order newAs}
   where
-    updateAt as (i, a) = map (\old -> if fst old == i then a else snd old) $ zip (0 :| [1 ..]) as
-    base = fromList $ replicate (length actualData) $ head newAs
+    updateAt as (i, a) = set (ix i) a as
+    base = fromList $ replicate (length actualData) undefined
 
 fromFoc :: FocusedList a -> NonEmpty b -> FocusedList b
 fromFoc oldFl as = reconcile as (focusOrder oldFl) oldFl
