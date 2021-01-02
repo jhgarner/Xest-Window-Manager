@@ -58,5 +58,4 @@ file contains the scary bits needed for that library. Code that needs to run
 some kind of effect asks for it as a constraint on the Monad that gets returned.
 You can see this in the "src/XEvents.hs" and "src/Actions/Actions.hs" files. The
 effects themselves are the other files defined in src/Base and are represented
-as typeclasses. When GHC 9.0 lands, I might be able to drop Capability and
-switch to a transformers based approach.
+as typeclasses.

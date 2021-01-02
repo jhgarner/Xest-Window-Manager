@@ -29,7 +29,7 @@ where
 
 import Data.ChunkedZip
 import Data.Eq.Deriving
-import Data.List.NonEmpty (fromList, take, drop)
+import Data.List.NonEmpty (fromList)
 import Dhall (Interpret)
 import Standard hiding (zip, zipWith, take, drop)
 import Text.Show.Deriving
@@ -61,6 +61,8 @@ data FocusedList a = FL
   }
   -- Begin deriving the laundry list of things we want to use
   deriving (Eq, Show, Functor, Generic, Foldable, Traversable)
+
+data NextPair a = NextPair a (NextPair a) (NextPair a)
 
 deriveShow1 ''FocusedList
 deriveEq1 ''FocusedList
@@ -123,7 +125,7 @@ instance Comonad ExtraInfo where
   extract (EI _ _ a) = a
   duplicate ei@(EI v f _) = EI v f ei
 
--- This lens lets you modify the order/composition of FocusedList. Technically,
+-- This lens lets you modify the order/composition of FocusedList.
 -- I think it follows the lens laws if you ignore the Int parameters in ExtraInfo.
 -- fOrder could also exist but it isn't used so I don't need it.
 vOrder :: forall a b. forall f. Functor f => (NonEmpty (ExtraInfo a) -> f (NonEmpty (ExtraInfo b))) -> FocusedList a -> f (FocusedList b)
@@ -157,13 +159,6 @@ focusIndex i fl@FL {focusOrder = fo} =
 focusNE :: Int -> NonEmpty Int -> NonEmpty Int
 focusNE i = maybe (pure i) (i <|) . remove i
 
-prependNE :: [a] -> NonEmpty a -> NonEmpty a
-prependNE [] ne = ne
-prependNE (a:as) ne = (a :| as) <> ne
-
-moveToNE :: Int -> Int -> NonEmpty Int -> NonEmpty Int
-moveToNE elem to = maybe (pure elem) (\ne -> prependNE (take to ne) (elem :| drop to ne)) . remove elem
-
 focusVIndex :: Int -> FocusedList a -> FocusedList a
 focusVIndex i fl@FL {visualOrder = vo} = focusIndex (vo !! i) fl
 
@@ -172,7 +167,7 @@ visualFIndex i to fl@FL {focusOrder = fo, visualOrder = vo} =
   fl {visualOrder = moveToNE (fo !! i) to vo}
 
 
--- |I really want to get rid of this function...
+-- Where is the focused element in the visual ordering?
 findNeFocIndex :: FocusedList a -> Int
 findNeFocIndex FL {..} = fromJust $ elemIndex (head focusOrder) $ toList visualOrder
 

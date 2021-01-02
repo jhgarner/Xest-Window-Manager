@@ -23,6 +23,8 @@ module Standard
     initMay,
     removeAt,
     remove,
+    prependNE,
+    moveToNE,
     error,
     headOf,
     pattern Text,
@@ -50,6 +52,7 @@ import Data.Functor.Foldable.TH as All
 import Data.IntMap.Strict as All (IntMap, update, (!))
 import Data.Kind (Type)
 import Data.List.NonEmpty as All (init, nonEmpty, tail, (!!), (<|), uncons)
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict as All (Map)
 import Data.Semigroup.Foldable as All
 import Data.Set as All (Set)
@@ -120,6 +123,15 @@ removeAt i = nonEmpty . map snd . filter (\(i', _) -> i /= i') . toList . mzip [
 
 remove :: Eq a => a -> NonEmpty a -> Maybe (NonEmpty a)
 remove a = nonEmpty . filter (/= a) . toList
+
+-- Prepends a list to a nonempty list
+prependNE :: [a] -> NonEmpty a -> NonEmpty a
+prependNE ls ne = maybe ne (<> ne) $ nonEmpty ls
+
+-- Moves an element so that its index is newLoc
+moveToNE :: Eq a => a -> Int -> NonEmpty a -> NonEmpty a
+moveToNE toMove newLoc = maybe (pure toMove) (\ne -> prependNE (NE.take newLoc ne) (toMove :| NE.drop newLoc ne)) . remove toMove
+
 
 error :: HasCallStack => Text -> a
 error (Text s) = BasePrelude.error s
