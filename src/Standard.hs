@@ -32,10 +32,9 @@ where
 
 import Base.Effects as All
 import BasePrelude as All hiding (String, appendFile, arr, error, fmap, getContents, getLine, gunfold, head, index, init, interact, last, lazy, left, log, map, putStr, putStrLn, readFile, right, show, tail, uncons, unlines, writeFile, (!!))
-import qualified BasePrelude
 -- Hiding Text because I define it below with a Complete pragma
 
-import qualified BasePrelude as BP (fmap)
+import qualified BasePrelude as BP (fmap, show, String, error)
 -- import Capability.Sink as All hiding (yield)
 -- import Capability.Source as All
 -- import Capability.State as All hiding (modify, zoom)
@@ -92,7 +91,7 @@ map = BP.fmap
 
 -- TODO replace this with a real Text alternative that doesn't create a String.
 show :: Show a => a -> Text
-show = Text . BasePrelude.show
+show = Text . BP.show
 
 headMay :: Cons s s a a => s -> Maybe a
 headMay = preview _head
@@ -135,11 +134,11 @@ moveToNE toMove newLoc = maybe (pure toMove) (\ne -> prependNE (NE.take newLoc n
 
 
 error :: HasCallStack => Text -> a
-error (Text s) = BasePrelude.error s
+error (Text s) = BP.error s
 
 {-# COMPLETE Text #-}
 
-pattern Text :: BasePrelude.String -> Text
+pattern Text :: BP.String -> Text
 pattern Text a <-
   (view _Text -> a)
   where
