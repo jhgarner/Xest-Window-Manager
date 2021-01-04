@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Base.Global where
 
@@ -20,20 +20,20 @@ import Graphics.X11 (set_override_redirect, allocaSetWindowAttributes)
 
 -- | Anything that doesn't fit somewhere else. This should probably be
 --  split up at some point.
-class GlobalX m where
-  getTree :: m [Window]
+data GlobalX a where
+  GetTree :: GlobalX [Window]
   -- Although this function's name sounds simple, it actually does a bit more
   -- and should probably be split somehow. Basically, it takes the input window,
   -- reparents it, then returns the reparented window as well as the cover
   -- window. The cover window is used to take input away from the real window.
-  newWindow :: Window -> m (Window, Window)
-  moveToRoot :: Window -> m ()
-  getXEvents :: m (Stream m Event)
+  NewWindow :: Window -> GlobalX (Window, Window)
+  MoveToRoot :: Window -> GlobalX ()
 
   -- | Bool True == kill softly. False == kill hard
-  kill :: Bool -> Window -> m (Maybe Window)
+  Kill :: Bool -> Window -> GlobalX (Maybe Window)
 
-  exit :: m Void
+  Exit :: GlobalX Void
+makeEffect ''GlobalX
 
 -- | Filter out events we don't care about
 eventFilter :: RootWindow -> Event -> Bool
@@ -43,8 +43,9 @@ eventFilter _ CrossingEvent {ev_detail = detail} = detail /= 2
 eventFilter _ MapNotifyEvent {} = False
 eventFilter _ _ = True
 
-instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bool, State Tiler, Property] m => GlobalX m where
-  getTree = do
+runGlobalX :: Members [IO, Input RootWindow, Input Conf, Input Display, State Bool, State Tiler, Property] m => Eff (GlobalX ': m) a -> Eff m a
+runGlobalX = interpret \case
+  GetTree -> do
     display <- input @Display
     root <- input @RootWindow
     liftIO $ alloca
@@ -55,7 +56,7 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
             numChildren <- peek numChildrenPtr
             peek childrenListPtr >>= peekArray (fromIntegral numChildren)
 
-  newWindow w = do
+  NewWindow w -> do
     d <- input @Display
     rootWin <- input @RootWindow
     let defScr = defaultScreen d
@@ -102,22 +103,14 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
     liftIO $ reparentWindow d pointerWin xwin 0 0
     return (xwin, pointerWin)
 
-  moveToRoot w = do
+  MoveToRoot w -> do
     d <- input @Display
     rootWin <- input @RootWindow
     liftIO $ reparentWindow d w rootWin 0 0
     liftIO $ unmapWindow d w
 
-  getXEvents = do
-    d <- input @Display
-    root <- input @RootWindow
-    filterStream (eventFilter root) =<< repeatStream do
-      liftIO $
-        allocaXEvent $ \p -> do
-          nextEvent d p
-          getEvent p
 
-  kill isSoft w = do
+  Kill isSoft w -> do
     d <- input @Display
     liftIO $ do
       deleteName <- internAtom d "WM_DELETE_WINDOW" False
@@ -136,4 +129,15 @@ instance Members [MonadIO, Input RootWindow, Input Conf, Input Display, State Bo
             then destroyWindow d w >> return (Just w)
             else killClient d w >> return (Just w)
 
-  exit = liftIO exitSuccess
+  Exit -> liftIO exitSuccess
+
+-- I don't think I can represent this as a Freer effect?
+getXEvents :: Members [IO, Input RootWindow, Input Conf, Input Display, State Bool, State Tiler, Property] m => Eff m (Stream (Eff m) Event)
+getXEvents = do
+  d <- input @Display
+  root <- input @RootWindow
+  filterStream (eventFilter root) =<< repeatStream do
+    liftIO $
+      allocaXEvent $ \p -> do
+        nextEvent d p
+        getEvent p

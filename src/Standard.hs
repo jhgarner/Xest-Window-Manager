@@ -8,7 +8,6 @@
 --  cost. As a result, there are probably some contraversial changes in here.
 module Standard
   ( module All,
-    modify,
     pattern CofreeF,
     pattern Cofree,
     trd,
@@ -32,15 +31,17 @@ module Standard
 where
 
 import Base.Effects as All
-import BasePrelude as All hiding (String, appendFile, arr, error, filter, fmap, getContents, getLine, gunfold, head, index, init, interact, last, lazy, left, log, map, putStr, putStrLn, readFile, right, show, tail, uncons, unlines, writeFile, (!!), mapMaybe, filter, catMaybes)
-import Data.Witherable as All
+import BasePrelude as All hiding (String, appendFile, arr, error, fmap, getContents, getLine, gunfold, head, index, init, interact, last, lazy, left, log, map, putStr, putStrLn, readFile, right, show, tail, uncons, unlines, writeFile, (!!))
 import qualified BasePrelude
 -- Hiding Text because I define it below with a Complete pragma
 
 import qualified BasePrelude as BP (fmap)
-import Capability.Sink as All hiding (yield)
-import Capability.Source as All
-import Capability.State as All hiding (modify, zoom)
+-- import Capability.Sink as All hiding (yield)
+-- import Capability.Source as All
+-- import Capability.State as All hiding (modify, zoom)
+import Control.Monad.Freer.State as All
+import Control.Monad.Freer as All hiding (Members)
+import Control.Monad.Freer.TH as All
 import Control.Comonad as All hiding (fmap)
 import Control.Comonad.Cofree as All (Cofree)
 import qualified Control.Comonad.Cofree as CC (Cofree ((:<)))
@@ -144,8 +145,8 @@ pattern Text a <-
   where
     Text a = review _Text a
 
-modify :: forall a m. HasState a a m => (a -> a) -> m ()
-modify = modify' @a
+-- modify :: forall a m. HasState a a m => (a -> a) -> m ()
+-- modify = modify' @a
 
 -- I think it acts like First but with Functors.
 data OneFunctor f a = OneFunctor (f a) a

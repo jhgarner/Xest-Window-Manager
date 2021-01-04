@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Base.Unmanaged where
 
@@ -13,30 +13,32 @@ import Graphics.X11.Xlib.Types
 import Standard
 import Tiler.ParentChild
 
-data Docks = Docks {undock :: [Window]}
+newtype Docks = Docks {undock :: [Window]}
   deriving (Show)
 
 data DockState = Hidden | Visible
   deriving (Show, Eq)
 
 -- | Manages unmanaged windows such as docks
-class Unmanaged m where
-  focusUM :: Window -> m ()
-  addUM :: Window -> m ()
-  constrainRect :: XRect -> m XRect
+data Unmanaged m where
+  FocusUM :: Window -> Unmanaged ()
+  AddUM :: Window -> Unmanaged ()
+  ConstrainRect :: XRect -> Unmanaged XRect
+makeEffect ''Unmanaged
 
-instance Members [State Docks, Input RootWindow, State DockState, Mover, Property, Minimizer, MonadIO, Input Display] m => Unmanaged m where
-  focusUM win = do
+runUnmanaged :: Members [State Docks, Input RootWindow, State DockState, Mover, Property, Minimizer, IO, Input Display] m => Eff (Unmanaged ': m) a -> Eff m a
+runUnmanaged = interpret \case
+  FocusUM win -> do
     root <- input @RootWindow
     setFocus (ParentChild root win root)
 
-  addUM win = do
+  AddUM win -> do
     restore win
     modify @Docks (Docks . (:) win . undock)
 
   -- This code is pretty gross although it feels like necessary complexity given
   -- how docks in EWMH work.
-  constrainRect rect = do
+  ConstrainRect rect -> do
     Docks docks <- get @Docks
     dockState <- get @DockState
     root <- input @RootWindow
@@ -45,10 +47,10 @@ instance Members [State Docks, Input RootWindow, State DockState, Mover, Propert
 
     nwsp <- getAtom False "_NET_WM_STRUT_PARTIAL"
     strutRects <-
-      if (dockState == Visible)
+      if dockState == Visible
         then forM docks \win -> do
           restore win
-          struts <- map fromIntegral <$> getProperty @_ @CLong 32 nwsp win
+          struts <- map fromIntegral <$> getProperty @CLong 32 nwsp win
           return $ map
             (bimap fromIntegral fromIntegral)
             case struts of
@@ -61,7 +63,7 @@ instance Members [State Docks, Input RootWindow, State DockState, Mover, Propert
                 ]
               _ -> [mempty, mempty, mempty, mempty]
         else forM_ docks minimize >> return []
-    return $ foldl' constrain rect $ strutRects
+    return $ foldl' constrain rect strutRects
     where
       -- TODO Yikes, I don't like this function
       -- Although I also don't have a good solution. Using more line breaks might

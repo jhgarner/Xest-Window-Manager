@@ -23,7 +23,7 @@ import Tiler.Tiler
 reparentWin ::
   Members '[EventFlags, GlobalX, Log LogData, Property] m =>
   Window ->
-  m ParentChild
+  Eff m ParentChild
 reparentWin window = do
   -- Reparent the window inside of a new one.
   -- Originally, Xest didn't do this but then a bunch of bugs came up
@@ -46,7 +46,7 @@ mapWin ::
   Members [EventFlags, GlobalX, Property, Log LogData, Mover] m =>
   Members (States [Screens, Tiler, ShouldRedraw, ActiveScreen, Screens, LostWindow, OldTime, DockState]) m =>
   ParentChild ->
-  m ()
+  Eff m ()
 mapWin pc@(ParentChild newWin window _) = do
   log $ LD "MapWin" "Mapping a window"
   let tWin :: SubTiler = Wrap pc
@@ -128,7 +128,7 @@ mapWin pc@(ParentChild newWin window _) = do
 killed ::
   Members (GlobalX ': States [Screens, LocCache, ShouldRedraw, Docks]) m =>
   Window ->
-  m ()
+  Eff m ()
 killed window = do
   -- Find the parent in the tree and kill it.
   parentM <- asum . map (findParent window) <$> gets @Screens screensToTilers
@@ -149,7 +149,7 @@ unmapWin ::
   Members (States [Screens, LocCache, ShouldRedraw, Docks]) m =>
   Members [GlobalX, Property] m =>
   Window ->
-  m ()
+  Eff m ()
 unmapWin window = do
   roots <- get @Screens
 
@@ -165,7 +165,7 @@ unmapWin window = do
 rootChange ::
   Members '[Input [XineramaScreenInfo], Input NewBorders] m =>
   Members (States [ShouldRedraw, Screens, ActiveScreen, [SubTiler], FocusedCache]) m =>
-  m ()
+  Eff m ()
 rootChange = do
   -- Update the list of screens
   screenInfo <- input @[XineramaScreenInfo]
@@ -203,7 +203,7 @@ newFocus ::
   Members '[Input Screens, Property, Input Pointer, Log LogData] m =>
   Members (States [Screens, Tiler, ShouldRedraw, ActiveScreen, Screens, OldTime]) m =>
   Window ->
-  m ()
+  Eff m ()
 newFocus window = do
   -- Change our tree so the focused window is the one we're hovering over
   -- It will get focused next time we redraw
@@ -213,13 +213,12 @@ newFocus window = do
 
 -- | On key press, execute some actions
 keyDown ::
-  Members '[Property, Executor] m =>
   Members (Inputs [Conf, Pointer, MouseButtons]) m =>
   Members (States [Tiler, Mode, KeyStatus, ShouldRedraw]) m =>
-  Monoid (m ()) =>
+  Monoid (Eff m ()) =>
   KeyCode ->
   EventType ->
-  m [Action]
+  Eff m [Action]
 keyDown keycode eventType
   | eventType == keyPress = do
     put @ShouldRedraw $ Just UnsafeRedraw
@@ -253,9 +252,9 @@ keyDown keycode eventType
     return actions
   where
     doRelease ::
-      State KeyStatus m =>
-      KeyStatusF (KeyStatus, Maybe (m (), [Action])) ->
-      Maybe (m (), [Action])
+      Member (State KeyStatus) m =>
+      KeyStatusF (KeyStatus, Maybe (Eff m (), [Action])) ->
+      Maybe (Eff m (), [Action])
     doRelease = \case
       NewF (_, otherActions) _ watchedKey _ ->
         case otherActions of
@@ -275,10 +274,9 @@ keyDown keycode eventType
 
 -- | When the user moves the mouse in resize mode, this events are triggered.
 motion ::
-  Members '[Property] m =>
   Members (Inputs [Pointer, MouseButtons]) m =>
   Members (States [Tiler, OldMouseButtons, ShouldRedraw]) m =>
-  m ()
+  Eff m ()
 motion = do
   -- First, let's find the current screen and its dimensions.
   Rect _ _ screenW screenH <- gets @Tiler getScreens
@@ -289,6 +287,7 @@ motion = do
       let direction = case realButtonState of
             LeftButton _ -> Left
             RightButton _ -> Right
+            None -> error "Can't happen"
           change = direction (xNow - xLast, yNow - yLast)
        in do
             modify @Tiler $ applyInput $ map $ coerce (changeSize change (fromIntegral screenW, fromIntegral screenH))
@@ -345,7 +344,7 @@ makeFullscreen ::
   Members '[State Screens, State Tiler, Property, State ActiveScreen, State DockState, State ShouldRedraw, Mover] m =>
   Window ->
   Int ->
-  m ()
+  Eff m ()
 makeFullscreen window isSet = do
   put @ShouldRedraw $ Just UnsafeRedraw
   runMaybeT $ setScreenFromWindow window
@@ -391,7 +390,7 @@ makeFullscreen window isSet = do
       changeLocation (ParentChild window window window) $ Rect 1 1 1 1
       put @DockState Visible
 
-setScreenFromWindow :: Members '[State Screens, State ActiveScreen] m => Window -> MaybeT m ()
+setScreenFromWindow :: Members '[State Screens, State ActiveScreen] m => Window -> MaybeT (Eff m) ()
 setScreenFromWindow window = do
   tilers <- lift $ gets @Screens $ zip [0 ..] . screensToTilers
   (i, _) <- MaybeT $ return $ find snd $ map (second $ findWindow window) tilers

@@ -1,3 +1,4 @@
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -138,7 +139,7 @@ runWM = do
     writeFile "/tmp/xest.err" $ header <> lastLog <> "\n"
 
 -- | Performs the main logic. Does it all!
-mainLoop :: Event -> M ()
+mainLoop :: Event -> Eff _ ()
 mainLoop event = do
   log $ LD "Loop" "\n\n========================"
 
@@ -153,8 +154,8 @@ mainLoop event = do
       nwwtd <- getAtom False "_NET_WM_WINDOW_TYPE_DOCK"
       nwwt <- getAtom False "_NET_WM_WINDOW_TYPE"
       windowType <- getProperty 32 nwwt ev_window
-      if elem nwwtd windowType
-        then addUM ev_window >> put @(ShouldRedraw) (Just UnsafeRedraw)
+      if nwwtd `elem` windowType
+        then addUM ev_window >> put @ShouldRedraw (Just UnsafeRedraw)
         else do
           rootTiler <- get @Tiler
           unless (findWindow ev_window rootTiler) $
@@ -162,14 +163,18 @@ mainLoop event = do
 
     -- Called when a window actually dies.
     DestroyWindowEvent {..} -> killed ev_window
+    
     -- Called when a window is dying. Because X is asynchronous, there's a chance
     -- the window will be dead by the time we get this event.
     UnmapEvent {..} -> unmapWin ev_window
+    
     -- The window tried to change it's own position. Here, we try to deny the
     -- request in a way that doesn't upset the caller.
     cre@ConfigureRequestEvent {} -> configureWin cre
+    
     -- This is usually called when a monitor is connected or disconnected.
     ConfigureEvent {} -> rootChange
+    
     -- The mouse moved from one window to another.
     CrossingEvent {..} -> do
       put @OldTime $ OldTime ev_time
@@ -180,17 +185,22 @@ mainLoop event = do
           | ev_event_type == enterNotify -> newFocus ev_window
           | ev_window == root -> newFocus root
           | otherwise -> return ()
+          
     -- Button in this case means mouse button. Used to trigger click to focus.
     ButtonEvent {..} -> do
       put @OldTime (OldTime ev_time)
       put @OldMouseButtons $ OMB None
       newFocus ev_window
+      
     -- The pointer moved and we probably want to resize something.
     MotionEvent {..} -> motion
+    
     -- A press of the keyboard.
     KeyEvent {..} -> put @OldTime (OldTime ev_time) >> keyDown ev_keycode ev_event_type >>= foldMap executeActions
+    
     -- This usually means the keyboard layout changed.
     MappingNotifyEvent {} -> reloadConf
+    
     -- Some other window sent us a message. Currently, we only care if they
     -- ask to be fullscreen.
     ClientMessageEvent {..} -> do
@@ -217,7 +227,7 @@ mainLoop event = do
   where
     -- Here we have executors for the various actions a user might
     -- have in their config. These go to Actions/Actions.hs
-    executeActions :: Action -> M ()
+    executeActions :: Action -> Eff _ ()
     executeActions action =
       log (LD "Action" $ show action) >> case action of
         RunCommand command -> execute command

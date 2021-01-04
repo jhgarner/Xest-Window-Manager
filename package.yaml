@@ -24,7 +24,6 @@ dependencies:
 - base-prelude
 - X11
 - text
-- monad-control
 - process
 - dhall
 - recursion-schemes
@@ -40,13 +39,12 @@ dependencies:
 - bifunctors
 - lens
 - time
-- capability
 - transformers
 - directory
 - regex-compat
 - semigroupoids
 - deepseq
-- witherable
+- freer-simple
 
 library:
   source-dirs: src

@@ -11,7 +11,6 @@ import           Test.QuickCheck.Arbitrary.Generic
 
 main :: IO ()
 main = do
-  quickCheck pushPopInverse
   quickCheck pushKeepsValid
   quickCheck makeFLWorks
   quickCheck focusWorks
@@ -22,13 +21,6 @@ main = do
 --   isController (InputController a) = a + 1
 --   isController a                   = sum a
 
--- The reverse is not true. Should it be?
-pushPopInverse :: Int -> FocusedList Int -> Direction -> Focus -> Property
-pushPopInverse i fl dir foc =
-  fromJust (snd (pop (Left dir) (push dir foc i fl)))
-    === fl
-    .&&. fromJust (snd (pop (Right foc) (push dir foc i fl)))
-    === fl
 
 pushKeepsValid :: Int -> Direction -> Focus -> FocusedList Int -> Property
 pushKeepsValid a dir foc fl =
@@ -44,12 +36,6 @@ focusWorks :: FAndIX FocusedList Int -> Property
 focusWorks (FAndIX ogfl i) =
   let fl = focusIndex i ogfl
    in isValid fl .&&. (head (focusOrder fl) === i)
-  where 
-    focusIndex :: Int -> FocusedList a -> FocusedList a
-    focusIndex i fl@FL {focusOrder = fo} =
-      fl
-        { focusOrder = if length fo > i then focusNE i fo else fo
-        }
 
 isValid :: FocusedList a -> Property
 isValid (FL vo fo ad) = label "Is valid" $

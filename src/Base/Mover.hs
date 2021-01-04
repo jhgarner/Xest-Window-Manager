@@ -1,14 +1,12 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Base.Mover where
 
-import Base.Executor
 import Base.Helpers
-import Base.Minimizer
 import Base.Property
+import Base.Minimizer
+import Base.Executor
 import Control.Monad.Cont
-import Control.Monad.Trans.Control
 import Graphics.X11.Types
 import Graphics.X11.Xlib.Event
 import Graphics.X11.Xlib.Extras
@@ -20,18 +18,20 @@ import Standard
 import Tiler.Tiler
 
 -- | Anything that changes where a window sits goes in here.
-class Mover m where
-  changeLocation :: ParentChild -> XRect -> m ()
+data Mover m where
+  ChangeLocation :: ParentChild -> XRect -> Mover ()
 
   -- | Like the above but asks on SDL windows
-  changeLocationS :: SDL.Window -> XRect -> m ()
+  ChangeLocationS :: SDL.Window -> XRect -> Mover ()
 
-  restack :: [Window] -> m ()
+  Restack :: [Window] -> Mover ()
 
   -- | A super light wrapper around actually configuring stuff
-  configureWin :: Event -> m ()
+  ConfigureWin :: Event -> Mover ()
 
-  setFocus :: ParentChild -> m ()
+  SetFocus :: ParentChild -> Mover ()
+
+makeEffect ''Mover
 
 -- A whole bunch of types used for caching.
 type LocCache = Map Window XRect
@@ -44,8 +44,9 @@ newtype FocusedCache = FocusedCache Window
   deriving (Eq, Show)
 
 -- Move windows using IO
-instance Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] ++ '[Minimizer, Executor, Property, Input RootWindow, MonadIO, Input Display]) m => Mover m where
-  changeLocation (ParentChild p c pWin) r@(Rect x y h w) = do
+runMover :: Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] ++ '[Minimizer, Executor, Property, Input RootWindow, IO, Input Display]) m => Eff (Mover ': m) a -> Eff m a
+runMover = interpret \case
+  ChangeLocation (ParentChild p c pWin) r@(Rect x y h w) -> do
     -- Every window will have change location called every "frame".
     -- The cache makes sure we don't send more wark to X than we need.
     locCache <- get @LocCache
@@ -74,7 +75,7 @@ instance Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] +
             restore p
     modify @LocCache $ set (at c) $ Just r
 
-  changeLocationS win r@(Rect x y h w) = do
+  ChangeLocationS win r@(Rect x y h w) -> do
     -- Avoid moving the SDL windows more than we need to
     sdlLocCache <- get @SDLLocCache
     unless (sdlLocCache ^. at win == Just r) $ do
@@ -82,7 +83,7 @@ instance Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] +
       SDL.windowSize win SDL.$= SDL.V2 (fromIntegral h) (fromIntegral w)
     modify @SDLLocCache $ set (at win) $ Just r
 
-  restack wins = do
+  Restack wins -> do
     d <- input
     -- The sync here fixes a race condition between SDL and Xest.
     -- We need the SDL bufferSwap function to run after the restack.
@@ -90,7 +91,7 @@ instance Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] +
     -- temporarily under another window.
     void . liftIO $ restackWindows d wins >> sync d False
 
-  configureWin ConfigureRequestEvent {..} = do
+  ConfigureWin ConfigureRequestEvent {..} -> do
     d <- input
     tiler <- get @Tiler
     void . liftIO $ try @SomeException do
@@ -110,9 +111,9 @@ instance Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] +
           setConfigureEvent pe ev_window ev_window wa_x wa_y wa_width wa_height wa_border_width none False
           sendEvent d ev_window False noEventMask pe
         else configureWindow d ev_window ev_value_mask wc
-  configureWin _ = error "Don't call Configure Window with other events"
+  ConfigureWin _ -> error "Don't call Configure Window with other events"
 
-  setFocus (ParentChild p c _) =
+  SetFocus (ParentChild p c _) ->
     input @Display >>= \d -> do
       root <- get @Tiler
       rootWin <- input @RootWindow
@@ -120,7 +121,7 @@ instance Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] +
       wm_take_focus <- getAtom False "WM_TAKE_FOCUS"
       wm_protocols <- getAtom False "WM_PROTOCOLS"
       protocols <- liftIO $ getWMProtocols d c
-      Rect _ _ width height <- gets @LocCache (fromMaybe (Rect 0 0 0 0) . (view $ at c))
+      Rect _ _ width height <- gets @LocCache $ fromMaybe (Rect 0 0 0 0) . view (at c)
       focusCache <- get @FocusedCache
       unless (focusCache == FocusedCache c) $ do
         when ((width /= 0 && height /= 0) || rootWin == c) $ do
@@ -156,21 +157,12 @@ instance Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] +
             none
       grabOthers _ _ t = sequence_ t
 
-newtype FakeMover m a = FakeMover {runFakeMover :: m a}
-  deriving (Functor, Applicative, Monad, MonadIO)
-
-instance MonadTrans FakeMover where
-  lift = FakeMover
-
-instance MonadTransControl FakeMover where
-  type StT FakeMover a = a
-  liftWith f = FakeMover $ f runFakeMover
-  restoreT = lift
 
 -- | Run a mover when you don't actually want to do anything
-instance Monad m => Mover (FakeMover m) where
-  changeLocation _ _ = return ()
-  changeLocationS _ _ = return ()
-  restack _ = return ()
-  configureWin _ = return ()
-  setFocus _ = return ()
+runFakeMover :: Eff (Mover ': m) a -> Eff m a
+runFakeMover = interpret \case
+  ChangeLocation _ _ -> return ()
+  ChangeLocationS _ _ -> return ()
+  Restack _ -> return ()
+  ConfigureWin _ -> return ()
+  SetFocus _ -> return ()

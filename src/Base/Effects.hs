@@ -1,5 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -8,65 +8,68 @@
 -- other places.
 module Base.Effects where
 
-import Capability.Sink
-import Capability.Source
-import Capability.State
 import Control.DeepSeq (force)
-import Control.Monad.Reader
-import Data.Coerce (Coercible, coerce)
-import Data.Kind (Constraint, Type)
-import Data.Proxy (Proxy (Proxy))
 import Data.Text
 import Data.Text.IO (appendFile)
 import Data.Time
 import Data.Time.Format.ISO8601 (formatShow, iso8601Format)
-import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 import Prelude hiding (appendFile, log)
+import Control.Monad.Freer hiding (Members)
+import Control.Monad.Freer.State
+import Control.Monad
+import Data.Kind
+import Data.IORef
+import Control.Applicative
 
--- Defines a series of effects.
--- Used all over the effectful code.
-type family Members (effects :: [(Type -> Type) -> Constraint]) (m :: Type -> Type) :: Constraint where
-  Members '[] m = Monad m
-  Members (effect ': rest) m = (effect m, Members rest m)
+type family Members (as :: [Type -> Type]) r :: Constraint where
+  Members '[] _ = ()
+  Members (IO ': as) r = (LastMember IO r, Members as r)
+  Members (a ': as) r = (Member a r, Members as r)
 
--- These are alternative names that match Polysemy. They also hide the tag
--- parameter to match Polysemy even more.
-type Input a = HasSource a a
+data Input i a where
+  Input :: Input i i
 
-input :: forall i m. Input i m => m i
-input = await @i
+input :: Member (Input i) m => Eff m i
+input = send Input
 
-inputs :: Input i m => (i -> a) -> m a
+runInput :: i -> Eff (Input i ': m) a -> Eff m a
+runInput i = interpret \case
+  Input -> pure i
+
+
+inputs :: Member (Input i) m => (i -> a) -> Eff m a
 inputs f = f <$> input
 
-type Output a = HasSink a a
+data Output o a where
+  Output :: o -> Output o ()
 
-output :: forall i m. Output i m => i -> m ()
-output o = yield @i o
+output :: Member (Output o) m => o -> Eff m ()
+output o = send $ Output o
 
-type State s = HasState s s
+runOutput :: Eff (Output i ': m) a -> Eff m a
+runOutput = interpret \case
+  Output _ -> pure ()
 
-type Log l = HasSink l l
+runStateIORef :: LastMember IO m => IORef s -> Eff (State s ': m) a -> Eff m a
+runStateIORef io = interpret \case
+  Put s -> send $ writeIORef io s
+  Get -> send $ readIORef io
 
-log :: forall l m. Log l m => l -> m ()
-log = yield @l
 
--- This defines a Sink where every write gets logged.
-newtype LoggedSink (name :: Symbol) (s :: Type) (m :: Type -> Type) n a = LoggedSink {runLoggedState :: (m a)}
-  deriving (Functor, Applicative, Monad)
+type Log = Output 
 
-instance HasSource k s m => HasSource k s (LoggedSink name s m n) where
-  await_ p = LoggedSink $ await_ p
+log :: forall l m. Member (Log l) m => l -> Eff m ()
+log = output @l
 
-instance (forall a. Coercible (n a) (m a), Log LogData n, State s m, Show s, KnownSymbol name) => HasSink k s (LoggedSink name s m n) where
-  yield_ _ a = LoggedSink do
-    oldValue <- (await @s)
-    () <- coerce $ log @LogData @n (LD (pack $ symbolVal (Proxy @name) <> " From") $ pack $ show oldValue)
-    () <- coerce $ log @LogData @n (LD "to" $ pack $ show a)
-    put @s a
-
-instance (State s m, HasSink s s (LoggedSink name s m n)) => HasState s s (LoggedSink name s m n) where
-  state_ p s = LoggedSink $ state_ p s
+runStateLogged :: forall r s a. (Show s, Member (Log LogData) r) => (s, Text) -> Eff (State s ': r) a -> Eff r a
+runStateLogged (s, t) = evalState s . logState t
+  where
+        logState :: Member (Log LogData) r' => Text -> Eff (State s ': r') x -> Eff (State s ': r') x
+        logState name = reinterpret $ \case
+          Put a -> do
+            oldValue <- get @s
+            log (LD (name <> " From") $ pack $ show oldValue) >> log (LD "to" $ pack $ show a) >> put a
+          Get -> get
 
 data LogData = LD
   { prefix :: Text,
@@ -74,21 +77,22 @@ data LogData = LD
   }
   deriving (Show)
 
-type LogLines = [Text]
 
--- The logging implementation
-newtype Logger m a = Logger {runLogger :: m a}
-  deriving (Functor, Applicative, Monad, MonadIO)
-
-instance Members '[Input Bool, State [Text], MonadIO] m => HasSink k LogData (Logger m) where
-  yield_ _ (LD prefix msg) = Logger do
-    timeZone <- liftIO getCurrentTimeZone
-    timeUtc <- liftIO getCurrentTime
+runLogger :: Members '[State Bool, State [Text], IO] m => Eff (Log LogData ': m) a -> Eff m a
+runLogger = interpret \case
+  Output (LD prefix msg) -> do
+    timeZone <- send getCurrentTimeZone
+    timeUtc <- send getCurrentTime
     let timeStamp = "[" <> pack (formatShow iso8601Format (utcToLocalTime timeZone timeUtc)) <> "]"
         prefixWrap = "[" <> prefix <> "]"
         -- This memory leaks without a force
         fullMsg = force $ prefixWrap <> timeStamp <> msg
     modify @[Text] $ force . Prelude.take 100 . (:) fullMsg
-    shouldLog <- input @Bool
+    shouldLog <- get @Bool
     when shouldLog $
-      liftIO $ appendFile "/tmp/xest.log" (fullMsg <> "\n")
+      send $ appendFile "/tmp/xest.log" (fullMsg <> "\n")
+
+instance Semigroup a => Semigroup (Eff r a) where
+  (<>) = liftA2 (<>)
+instance Monoid a => Monoid (Eff r a) where
+  mempty = pure mempty

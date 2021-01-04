@@ -29,7 +29,7 @@ refresh ::
   Members [Mover, Property, Colorer, GlobalX, Log LogData, Minimizer, Unmanaged, EventFlags] m =>
   Members (Inputs [Window, Screens, Pointer, [XineramaScreenInfo], ActiveScreen]) m =>
   Members (States [Tiler, Mode, [SubTiler], ShouldRedraw, OldTime, Screens, DockState, Docks]) m =>
-  m ()
+  Eff m ()
 refresh = do
   -- Unbind the crossing events during the rerendering
 
@@ -158,7 +158,7 @@ placeWindow root =
 getWindowByClass ::
   Members [Property, GlobalX, Log LogData] m =>
   Text ->
-  m [Window]
+  Eff m [Window]
 getWindowByClass wName = do
   childrenList <- getTree
   names <- traverse getClassName childrenList
@@ -171,7 +171,7 @@ getWindowByClass wName = do
 getWindowByProperty ::
   Members [Property, GlobalX, Log LogData] m =>
   Text ->
-  m [Window]
+  Eff m [Window]
 getWindowByProperty propertyT = do
   wm_state <- getAtom False "_NET_WM_STATE"
   property <- getAtom False propertyT
@@ -187,7 +187,7 @@ render ::
     Members (States [Tiler, Mode, [SubTiler]]) m,
     Members [Mover, Colorer, GlobalX, Log LogData, Minimizer, Property] m
   ) =>
-  m [ParentChild]
+  Eff m [ParentChild]
 render = do
   screens <- input @Screens
   activeScreen <- input @ActiveScreen
@@ -208,10 +208,10 @@ render = do
   return $ uncurry (++) $ fold winOrder
   where
     -- The main part of this function.
-    draw :: Base (Cofree TilerF (XRect, Int)) (([ParentChild], [ParentChild]), m ()) -> (([ParentChild], [ParentChild]), m ())
+    draw :: Base (Cofree TilerF (XRect, Int)) (([ParentChild], [ParentChild]), Eff m ()) -> (([ParentChild], [ParentChild]), Eff m ())
     draw (CofreeF (Rect {..}, _) (Wrap pc@(ParentChild _ c pWin))) =
       ( ([], [pc]), do
-          mode <- input @Mode
+          mode <- get @Mode
           if hasButtons mode
             then restack [pWin, c]
             else restack [c, pWin]
@@ -284,7 +284,7 @@ render = do
 -- | Writes the path to the topmost border.
 writePath ::
   Members '[State Tiler, Colorer, Property] m =>
-  m ()
+  Eff m ()
 writePath = do
   (_, u, _, _) <- gets @Tiler getBorders
   root <- get @Tiler
@@ -293,7 +293,7 @@ writePath = do
 -- | Focus the window our Tilers are focusing
 xFocus ::
   Members [State Tiler, Mover, Input Window, State OldTime] m =>
-  m ()
+  Eff m ()
 xFocus = do
   root <- get @Tiler
   rWin <- input @Window
@@ -307,7 +307,7 @@ xFocus = do
 -- | Set the current screen number based on pointer position.
 setScreenFromMouse ::
   Members [Input Pointer, State ActiveScreen, State Screens] m =>
-  m ()
+  Eff m ()
 setScreenFromMouse = do
   pointer <- input @Pointer
   screens <- get @Screens
@@ -315,10 +315,10 @@ setScreenFromMouse = do
 
 -- | Add a bunch of properties to our root window to comply with EWMH
 initEwmh ::
-  (Property m, Monad m) =>
+  Member Property m =>
   RootWindow ->
   Window ->
-  m ()
+  Eff m ()
 initEwmh root upper = do
   a <- getAtom False "_NET_SUPPORTED"
   nswc <- getAtom False "_NET_SUPPORTING_WM_CHECK"
@@ -345,7 +345,7 @@ initEwmh root upper = do
 writeWorkspaces ::
   Members '[Property, Input Window] m =>
   ([Text], Int) ->
-  m ()
+  Eff m ()
 writeWorkspaces (names, i) = do
   root <- input
   ndn <- getAtom False "_NET_DESKTOP_NAMES"
@@ -360,7 +360,7 @@ writeWorkspaces (names, i) = do
 -- | Writes all of the clients we're managing for others to see.
 setClientList ::
   Members '[State Tiler, Input Window, Property] m =>
-  m ()
+  Eff m ()
 setClientList = do
   root <- input
   tilers <- get @Tiler
@@ -373,7 +373,7 @@ setClientList = do
 -- | Writes the active window to the root window.
 writeActiveWindow ::
   Members '[State Tiler, Input Window, Property] m =>
-  m ()
+  Eff m ()
 writeActiveWindow = do
   root <- input
   tilers <- gets @Tiler Fix

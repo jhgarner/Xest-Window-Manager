@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Base.Property where
 
@@ -18,9 +18,9 @@ import Standard
 --
 --  It's worth noting that these properties are very untyped so be careful
 --  with what you pass in and try to get out.
-class Property m where
+data Property m where
   -- | Gets a property from a window's dictionary
-  getProperty ::
+  GetProperty ::
     Storable a =>
     -- | The number of bits in the property
     Int ->
@@ -29,10 +29,10 @@ class Property m where
     -- | The window who's properties we want to look at
     Window ->
     -- | A list of values found at the key
-    m [a]
+    Property [a]
 
   -- | Writes to a property in a window's dictionary
-  putProperty ::
+  PutProperty ::
     -- | The number of bits in the property
     Int ->
     -- | The property key we want to write to
@@ -42,67 +42,70 @@ class Property m where
     -- | A string representing the type of the data
     Atom ->
     [Int] -> -- The data we want to write
-    m ()
+    Property ()
 
   -- | Although most properties are only loosely defined, the class property
   --  is built into Xlib for some reason.
-  getClassName ::
+  GetClassName ::
     -- | The Window we're interested in
     Window ->
     -- | The window's class
-    m Text
+    Property Text
 
   -- | Technically not a property but it kind of fits...
-  getChildX ::
+  GetChildX ::
     -- | The parent
     Window ->
     -- | The child
-    m (Maybe Window)
+    Property (Maybe Window)
 
-  isOverrideRedirect ::
+  IsOverrideRedirect ::
     Window ->
-    m Bool
+    Property Bool
 
   -- | Turns a Text into an X11 managed Atom. Think of atoms as pointers to
   --  strings.
-  getAtom ::
+  GetAtom ::
     -- | Should we not create it if it doesn't exist?
     Bool ->
     -- | The atom's name
     Text ->
     -- | The atom created/retrieved from X11
-    m Atom
+    Property Atom
 
   -- | Gives you the name of some Atom.
-  fromAtom ::
+  FromAtom ::
     Atom ->
-    m Text
+    Property Text
 
   -- | Check if a window is transient for something else based on the
   --  ICCM protocol.
-  getTransientFor ::
+  GetTransientFor ::
     -- | The window being analyzed
     Window ->
     -- | The parent window
-    m (Maybe Window)
+    Property (Maybe Window)
 
-  getSizeHints ::
+  GetSizeHints ::
     -- | The window being analyzed
     Window ->
-    m SizeHints
+    Property SizeHints
+
+makeEffect ''Property
 
 type AtomCache = Map Text Atom
 
 type RootPropCache = Map Atom [Int]
 
 -- | Runs a propertiy using IO
-instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ Inputs '[RootWindow, Display]) m => Property m where
-  getProperty i atom win =
+runProperty :: Members (Executor ': IO ': States [AtomCache, RootPropCache] ++ Inputs '[RootWindow, Display]) m => Eff (Property ': m) a -> Eff m a
+runProperty = interpret \case
+  GetProperty i atom win ->
     input >>= \d ->
       liftIO $
         fromMaybe [] <$> rawGetWindowProperty i d atom win
 
-  putProperty i atomContent w atomType msg = do
+  PutProperty i atomContent w atomType msg -> do
     d <- input
     rootWin <- input
     rootPropCache <- get @RootPropCache
@@ -110,21 +113,21 @@ instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ In
       let longMsg = map fromIntegral msg
           charMsg = map fromIntegral msg
       liftIO $ case i of
-        8 -> changeProperty8 d w atomContent atomType propModeReplace $ charMsg
-        32 -> changeProperty32 d w atomContent atomType propModeReplace $ longMsg
+        8 -> changeProperty8 d w atomContent atomType propModeReplace charMsg
+        32 -> changeProperty32 d w atomContent atomType propModeReplace longMsg
         _ -> error "Can only write 32 and 8 bit values to properties right now"
     when (rootWin == w) $
       modify @RootPropCache (M.insert atomContent msg)
 
-  getClassName win =
+  GetClassName win ->
     input >>= \d -> liftIO $ getClassHint d win >>= \(ClassHint _ n) -> return (fromString n)
 
-  isOverrideRedirect win =
+  IsOverrideRedirect win ->
     input >>= \d ->
       liftIO $
         either (const False) wa_override_redirect <$> try @SomeException (getWindowAttributes d win)
 
-  getChildX win = do
+  GetChildX win -> do
     display <- input @Display
     -- For some reason, xQueryTree hasn't been abstracted at all
     liftIO $ alloca
@@ -135,7 +138,7 @@ instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ In
             numChildren <- peek numChildrenPtr
             headMay <$> (peek childrenListPtr >>= peekArray (fromIntegral numChildren))
 
-  getAtom shouldCreate name@(Text sName) =
+  GetAtom shouldCreate name@(Text sName) ->
     input >>= \d -> do
       maybeAtom <- (M.!? name) <$> get @(Map Text Atom)
       case maybeAtom of
@@ -145,24 +148,24 @@ instance Members (Executor ': MonadIO ': States [AtomCache, RootPropCache] ++ In
           return atom
         Just atom -> return atom
 
-  fromAtom atom =
+  FromAtom atom ->
     input >>= \d ->
       liftIO $ fromMaybe "" . map fromString <$> getAtomName d atom
 
-  getTransientFor w = do
+  GetTransientFor w -> do
     d <- input @Display
     liftIO $ getTransientForHint d w
 
-  getSizeHints w = do
+  GetSizeHints w -> do
     d <- input @Display
     liftIO $ getWMNormalHints d w
 
 getRealName ::
-  (Monad m, Property m) =>
+  Member Property m =>
   -- | The Window we're interested in
   Window ->
   -- | The window's name
-  m Text
+  Eff m Text
 getRealName win = do
   netwmname <- getAtom False "_NET_WM_NAME"
   wmname <- getAtom False "WM_NAME"

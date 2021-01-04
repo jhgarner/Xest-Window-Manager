@@ -76,9 +76,8 @@ things up into reasonable pieces but there are probably still improvements to
 make. Other than Lib.hs, the files in here are the only ones that can do actual
 IO.
 
-Base defines a bunch of typeclasses used by the Capability library. Capability
-is not a particularly well known package so I should probably provide some context
-about whey I use it.
+Xest uses `freer-simple` because it doesn't memory leak and it's well supported.
+There have been a handful of effect systems used by Xest in the past.
 
 Near the beginning of the project, Xest had something that looked a lot like the
 X monad. In an attempt to refactor the project and make things less unwieldy,
@@ -88,13 +87,10 @@ style but with a massive stack and overlapping instances. Instead of having a
 single large state object, Xest had a large number of stacked `StateT`
 transformers where each stored a different part of the state. Unfortunately,
 this design brought out a GHC bug that made compiling with optimizations
-infeasible. A fix for that bug should be in GHC 9.0. Until then, Xest uses
+infeasible. A fix for that bug should be in GHC 9.0. For a while Xest used
 Capability to flatten the transformer stack into a single large record.
-
-If someone wanted to replace Capability, I wouldn't be opposed. Everything is
-pretty well abstracted by the `Member` type function so it's likely not too
-extensive of a refactor.
-
+Unfortunately, that library doesn't build on GHC 8.10. Now, Xest uses
+`freer-simple` because it feels like Polysemy but without the memory leak.
 
 
 ## FocusList.hs
@@ -127,7 +123,3 @@ file is pretty much orthogonal to everything else so don't worry too much about
 it. It's got tons of comments though if you want to look inside. In general, I
 found writing the TH code relatively painless once I gave up on quasiquotes and
 Coercible.
-
-It also has some code to reduce the duplication required by the Capability
-library and the lack of partially applied types in GHC. I'm not totally sure
-that the end result is more readable and am happy to consider other options.

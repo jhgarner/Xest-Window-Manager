@@ -3,49 +3,7 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages:
-- completed:
-    hackage: capability-0.3.0.0@sha256:0f198c6523b940517670c0ba62e4ee19622c3bb3d8c1b80293e5a882a150b41f,3262
-    pantry-tree:
-      size: 2449
-      sha256: cf5c08faf8fbfd281edb67381fb5a4ebc15c51a4b4785d6072327a67061b8eba
-  original:
-    hackage: capability-0.3.0.0
-- completed:
-    hackage: constraints-0.11.2@sha256:d028005d93f891b48b61ff0c82c6f868859eb728010dea3e355b0c55d0f57cf9,2219
-    pantry-tree:
-      size: 867
-      sha256: 3c71f74be6758642190c7d116d43eb980f4128e1595a849af4295610f752745c
-  original:
-    hackage: constraints-0.11.2@sha256:d028005d93f891b48b61ff0c82c6f868859eb728010dea3e355b0c55d0f57cf9,2219
-- completed:
-    hackage: generic-lens-1.2.0.1@sha256:faecffd513340cd570866aa8f3e0e139d3f9240ecd3eb766357cdf47f550004c,6550
-    pantry-tree:
-      size: 4315
-      sha256: ea2099153bc65265915f206f08d25eed0d21270412505ea6470665df74b7f5ec
-  original:
-    hackage: generic-lens-1.2.0.1@sha256:faecffd513340cd570866aa8f3e0e139d3f9240ecd3eb766357cdf47f550004c,6550
-- completed:
-    hackage: witherable-0.3.5@sha256:6590a15735b50ac14dcc138d4265ff1585d5f3e9d3047d5ebc5abf4cd5f50084,1476
-    pantry-tree:
-      size: 271
-      sha256: b99f21dbac28da031eb7c787fbffbe5e77e0aee42b64b5dda082470e907d5ab5
-  original:
-    hackage: witherable-0.3.5@sha256:6590a15735b50ac14dcc138d4265ff1585d5f3e9d3047d5ebc5abf4cd5f50084,1476
-- completed:
-    hackage: monoidal-containers-0.6.0.1@sha256:7d776942659eb4d70d8b8da5d734396374a6eda8b4622df9e61e26b24e9c8e40,2501
-    pantry-tree:
-      size: 569
-      sha256: c354e916cb3aa9a0728a60f08440dc589a9e6d8275f047dbe9ab73f168247561
-  original:
-    hackage: monoidal-containers-0.6.0.1@sha256:7d776942659eb4d70d8b8da5d734396374a6eda8b4622df9e61e26b24e9c8e40,2501
-- completed:
-    hackage: these-1.0.1@sha256:7ff0f309978604015d978fb155ac4dc10a98e3d70a99aa2be8f755eb0cca4324,3191
-    pantry-tree:
-      size: 351
-      sha256: 3257ef64424e9a07e2ae750eff7affcd459811c4669cb67a5e4f43ab833c5aba
-  original:
-    hackage: these-1.0.1@sha256:7ff0f309978604015d978fb155ac4dc10a98e3d70a99aa2be8f755eb0cca4324,3191
+packages: []
 snapshots:
 - completed:
     size: 532382

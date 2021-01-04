@@ -21,6 +21,7 @@ pkgs.mkShell {
     pkgs.haskellPackages.ormolu
     pkgs.haskellPackages.floskell
     pkgs.haskellPackages.brittany
+    pkgs.cabal2nix
   ];
   shellHook = ''
   export TEST="IN HERE!"

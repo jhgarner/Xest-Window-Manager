@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: df924c8c742096eb6582bc5c867e7088231f8b1d5a0759030923b0b49922c637
+-- hash: 28fce628b07e50c31b2748b0771290d8005f5d7d57cd0beb4cadf7def0b65842
 
 name:           xest
 version:        0.1.0.0
@@ -71,7 +71,6 @@ library
     , base >=4.7 && <5
     , base-prelude
     , bifunctors
-    , capability
     , chunked-data
     , comonad
     , containers
@@ -80,8 +79,8 @@ library
     , dhall
     , directory
     , free
+    , freer-simple
     , lens
-    , monad-control
     , mtl
     , process
     , recursion-schemes
@@ -93,7 +92,6 @@ library
     , text
     , time
     , transformers
-    , witherable
   default-language: Haskell2010
 
 executable xest-exe
@@ -108,7 +106,6 @@ executable xest-exe
     , base >=4.7 && <5
     , base-prelude
     , bifunctors
-    , capability
     , chunked-data
     , comonad
     , containers
@@ -117,8 +114,8 @@ executable xest-exe
     , dhall
     , directory
     , free
+    , freer-simple
     , lens
-    , monad-control
     , mtl
     , process
     , recursion-schemes
@@ -130,7 +127,6 @@ executable xest-exe
     , text
     , time
     , transformers
-    , witherable
     , xest
   default-language: Haskell2010
 
@@ -148,7 +144,6 @@ test-suite xest-test
     , base >=4.7 && <5
     , base-prelude
     , bifunctors
-    , capability
     , chunked-data
     , comonad
     , containers
@@ -157,9 +152,9 @@ test-suite xest-test
     , dhall
     , directory
     , free
+    , freer-simple
     , generic-arbitrary
     , lens
-    , monad-control
     , mtl
     , process
     , quickcheck-instances
@@ -172,6 +167,5 @@ test-suite xest-test
     , text
     , time
     , transformers
-    , witherable
     , xest
   default-language: Haskell2010

@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Base.EventFlags where
 
@@ -17,33 +17,35 @@ newtype PointerTaker = PointerTaker Window
 
 -- | Controls the various event flags we can set on windows. See the Xlib docs for
 --  a description of what those are.
-class EventFlags m where
+data EventFlags a where
   -- | Directly ask for flags on a window
-  selectFlags ::
+  SelectFlags ::
     -- | The Window to set these flags on
     Window ->
     -- | The flags (represented as a bitmask) to grab
     Mask ->
-    m ()
+    EventFlags ()
 
   -- | Grab all of the key events on the root window
-  rebindKeys ::
+  RebindKeys ::
     -- | The mode we want to unbind keys for
     Mode ->
     -- | The mode we want to bind keys for
     Mode ->
-    m ()
+    EventFlags ()
+makeEffect ''EventFlags
 
 newtype XCursor = XCursor Cursor
 
 -- | Runs the event using IO
-instance Members (MonadIO ': States [Screens, OldMouseButtons] ++ Inputs [RootWindow, Conf, Display, XCursor]) m => EventFlags m where
-  selectFlags w flags =
+runEventFlags :: Members (IO ': States [Screens, OldMouseButtons] ++ Inputs [RootWindow, Conf, Display, XCursor]) m => Eff (EventFlags ': m) a -> Eff m a
+runEventFlags = interpret \case
+  SelectFlags w flags ->
     input >>= \d -> liftIO $ do
       sync d False
       selectInput d w flags
 
-  rebindKeys oldMode activeMode = do
+  RebindKeys oldMode activeMode -> do
     Conf kb _ _ _ <- input @Conf
     d <- input @Display
     win <- input @RootWindow

@@ -17,6 +17,7 @@ module FocusList
     vOrder,
     vTraverse,
     fTraverse,
+    focusIndex,
     focusElem,
     focusVIndex,
     visualFIndex,
@@ -61,8 +62,6 @@ data FocusedList a = FL
   }
   -- Begin deriving the laundry list of things we want to use
   deriving (Eq, Show, Functor, Generic, Foldable, Traversable)
-
-data NextPair a = NextPair a (NextPair a) (NextPair a)
 
 deriveShow1 ''FocusedList
 deriveEq1 ''FocusedList

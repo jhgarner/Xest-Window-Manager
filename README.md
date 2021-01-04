@@ -53,9 +53,10 @@ ICCCM and EWMH are protocols built on top of X11 and tend to get sprinkled
 around the src/XEvents.hs code. The official documentations for those protocols
 are probably the best resources for learning about them.
 
-Xest uses an effect system library called "Capability". The "src/Base/DoAll.hs"
-file contains the scary bits needed for that library. Code that needs to run
-some kind of effect asks for it as a constraint on the Monad that gets returned.
-You can see this in the "src/XEvents.hs" and "src/Actions/Actions.hs" files. The
-effects themselves are the other files defined in src/Base and are represented
-as typeclasses.
+Xest currently uses `freer-simple` as its effect system. If you've never seen
+free monad based effects before then it might look a little weird. Luckily, a
+lot of people have written about free monads and `freer-simple` so there should
+be good tutorials online for it. You can avoid most of the gross effect code by
+staying out of the `base/DoAll.hs` file. You'll see stuff like
+`Members '[Thing, Thing2, etc] m` in a few different files. Basically, that lets
+you operate in a monad that has the capabilities defined in the list.

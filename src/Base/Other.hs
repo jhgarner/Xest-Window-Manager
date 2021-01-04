@@ -1,12 +1,7 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE UndecidableInstances #-}
-
 module Base.Other where
 
 import Base.Helpers
 import Control.Monad.Trans
-import Control.Monad.Trans.Control
 import Foreign.C.String
 import Graphics.X11.Types
 import Graphics.X11.Xinerama
@@ -28,19 +23,9 @@ import Tiler.TilerTypes
 -- module might need a closer look to improve it.
 
 -- | Gets the current button presses from the Xserver
-newtype FakeMouseButtons m a = FakeMouseButtons {runFakeMouseButtons :: m a}
-  deriving (Functor, Applicative, Monad, MonadIO)
-
-instance MonadTrans FakeMouseButtons where
-  lift = FakeMouseButtons
-
-instance MonadTransControl FakeMouseButtons where
-  type StT FakeMouseButtons a = a
-  liftWith f = FakeMouseButtons $ f runFakeMouseButtons
-  restoreT = lift
-
-instance Members (MonadIO ': Inputs [RootWindow, Display]) m => HasSource MouseButtons MouseButtons (FakeMouseButtons m) where
-  await_ _ = FakeMouseButtons do
+runFakeMouseButtons :: Members (IO ': Inputs [RootWindow, Display]) m => Eff (Input MouseButtons ': m) a -> Eff m a
+runFakeMouseButtons = interpret \case
+  Input -> do
     d <- input @Display
     root <- input @RootWindow
     liftIO $ do
@@ -55,41 +40,21 @@ instance Members (MonadIO ': Inputs [RootWindow, Display]) m => HasSource MouseB
           | b .&. button3Mask /= 0 -> RightButton (xLoc, yLoc)
           | otherwise -> None
 
-newtype FakeScreens m a = FakeScreens {runFakeScreens :: m a}
-  deriving (Functor, Applicative, Monad, MonadIO)
-
-instance MonadTrans FakeScreens where
-  lift = FakeScreens
-
-instance MonadTransControl FakeScreens where
-  type StT FakeScreens a = a
-  liftWith f = FakeScreens $ f runFakeScreens
-  restoreT = lift
-
-instance Members [Input Display, MonadIO] m => HasSource [XineramaScreenInfo] [XineramaScreenInfo] (FakeScreens m) where
-  await_ _ = FakeScreens $ do
+runFakeScreens :: Members [Input Display, IO] m => Eff (Input [XineramaScreenInfo] ': m) a -> Eff m a
+runFakeScreens = interpret \case
+  Input -> do
     d <- input @Display
     liftIO $ sync d False
     liftIO $ join . toList <$> xineramaQueryScreens d
-
-newtype FakeBorders m a = FakeBorders {runFakeBorders :: m a}
-  deriving (Functor, Applicative, Monad, MonadIO)
-
-instance MonadTrans FakeBorders where
-  lift = FakeBorders
-
-instance MonadTransControl FakeBorders where
-  type StT FakeBorders a = a
-  liftWith f = FakeBorders $ f runFakeBorders
-  restoreT = lift
 
 newtype NewBorders = NewBorders Borders
 
 newtype XestBorders = XestBorders [Window]
 
-instance (MonadIO m, Input Display m) => HasSource NewBorders NewBorders (FakeBorders m) where
-  await_ _ = do
-    display <- lift $ input @Display
+runNewBorders :: (Members '[Input Display, IO] m) => Eff (Input NewBorders ': m) a -> Eff m a
+runNewBorders = interpret \case
+  Input -> do
+    display <- input @Display
     windows <- liftIO $ replicateM 4 $ SI.Window <$> withCString "fakeWindowDontManage" (\s -> Raw.createWindow s 10 10 10 10 524288)
     -- TODO this way of handling borders is a little sketchy...
     let [lWin, dWin, uWin, rWin] = windows
@@ -98,20 +63,10 @@ instance (MonadIO m, Input Display m) => HasSource NewBorders NewBorders (FakeBo
     liftIO $ sync display False
     return nb
 
-newtype FakePointer m a = FakePointer {runFakePointer :: m a}
-  deriving (Functor, Applicative, Monad, MonadIO)
-
-instance MonadTrans FakePointer where
-  lift = FakePointer
-
-instance MonadTransControl FakePointer where
-  type StT FakePointer a = a
-  liftWith f = FakePointer $ f runFakePointer
-  restoreT = lift
-
 -- | Gets the pointer location
-instance Members (MonadIO ': Inputs [RootWindow, Display]) m => HasSource (Int32, Int32) (Int32, Int32) (FakePointer m) where
-  await_ _ = FakePointer do
+runFakePointer :: Members (IO ': Inputs [RootWindow, Display]) m => Eff (Input (Int32, Int32) ': m) a -> Eff m a
+runFakePointer = interpret \case
+  Input -> do
     d <- input
     root <- input @RootWindow
     (_, _, _, px, py, _, _, _) <- liftIO $ queryPointer d root
@@ -120,33 +75,22 @@ instance Members (MonadIO ': Inputs [RootWindow, Display]) m => HasSource (Int32
 screenError :: a
 screenError = error "Tried to switch to a screen that doesn't exist"
 
-newtype FakeTiler m a = FakeTiler {runFakeTiler :: m a}
-  deriving (Functor, Applicative, Monad, MonadIO)
-
-instance MonadTrans FakeTiler where
-  lift = FakeTiler
-
-instance MonadTransControl FakeTiler where
-  type StT FakeTiler a = a
-  liftWith f = FakeTiler $ f runFakeTiler
-  restoreT = lift
-
-instance Members [State ActiveScreen, State Screens] m => HasSink Tiler Tiler (FakeTiler m) where
-  yield_ _ p = FakeTiler do
+runFakeTiler :: Members [State ActiveScreen, State Screens] m => Eff (State Tiler ': m) a -> Eff m a
+runFakeTiler = interpret \case
+  Put p -> do
     activeScreen <- get @ActiveScreen
     modify @Screens $ set (at activeScreen) $ Just p
 
-instance Members [State ActiveScreen, State Screens] m => HasSource Tiler Tiler (FakeTiler m) where
-  await_ _ = FakeTiler do
+  Get -> do
     activeScreen <- get @ActiveScreen
     fromMaybe screenError . view (at activeScreen) <$> get @Screens
 
-instance Members [State ActiveScreen, State Screens] m => HasState Tiler Tiler (FakeTiler m) where
-  state_ p s = do
-    oldState <- await_ p
-    let (a, newState) = s oldState
-    yield_ p newState
-    pure a
+-- class Members [State ActiveScreen, State Screens] m => HasState Tiler Tiler (FakeTiler m) where
+--   state_ p s = do
+--     oldState <- await_ p
+--     let (a, newState) = s oldState
+--     yield_ p newState
+--     pure a
 
 newtype OldMouseButtons = OMB MouseButtons
   deriving (Show)

@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Base.Executor where
 
@@ -8,28 +8,30 @@ import Standard
 import System.Process
 
 -- | Actions that modify the world outside of X11 go here
-class Executor m where
+data Executor a where
   -- | Run a command
-  execute :: Text -> m ()
+  Execute :: Text -> Executor ()
 
   -- | Toggle logging
-  toggleLogs :: m ()
+  ToggleLogs :: Executor ()
 
   -- | Prints in a controlled way
-  reloadConf :: m ()
+  ReloadConf :: Executor ()
+makeEffect ''Executor
 
 -- | Do it in IO
-instance Members [MonadIO, State Bool, State Conf, Input Display] m => Executor m where
-  execute (Text s) = void . liftIO $ spawnCommand s
+runExecutor :: Members [IO, State Bool, State Conf, Input Display] m => Eff (Executor ': m) a -> Eff m a
+runExecutor = interpret \case
+  Execute (Text s) -> void . liftIO $ spawnCommand s
 
-  toggleLogs = do
+  ToggleLogs -> do
     shouldLog <- get @Bool
     unless shouldLog $
       -- Empty the last run of logging
       liftIO $ Standard.writeFile "/tmp/xest.log" ""
     modify @Bool not
 
-  reloadConf = do
+  ReloadConf -> do
     display <- input @Display
     newConf <- liftIO $ reloadConfig display
     put @Conf newConf

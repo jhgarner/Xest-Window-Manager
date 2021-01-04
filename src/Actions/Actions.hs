@@ -19,8 +19,8 @@ import Tiler.Tiler
 -- usually won't change, you will change the Tiler that will receive actions
 -- and events.
 zoomInInput ::
-  State Tiler m =>
-  m ()
+  Member (State Tiler) m =>
+  Eff m ()
 zoomInInput =
   modify @Tiler $
     unfix . cata \case
@@ -31,8 +31,8 @@ zoomInInput =
 
 -- | Nearly identical to zooming in the input controller.
 zoomInMonitor ::
-  State Tiler m =>
-  m ()
+  Member (State Tiler) m =>
+  Eff m ()
 zoomInMonitor =
   modify @Tiler $
     unfix . cata \case
@@ -42,8 +42,8 @@ zoomInMonitor =
 
 -- | Move the input controller towards the root
 zoomOutInput ::
-  State Tiler m =>
-  m ()
+  Member (State Tiler) m =>
+  Eff m ()
 zoomOutInput = do
   -- The unless guards against zooming the controller out of existence
   rootTiler <- gets @Tiler Fix
@@ -65,8 +65,8 @@ zoomOutInput = do
 
 -- | A smart zoomer which moves the monitor to wherever the input controller is.
 zoomMonitorToInput ::
-  State Tiler m =>
-  m ()
+  Member (State Tiler) m =>
+  Eff m ()
 zoomMonitorToInput = do
   loc <-
     gets @Tiler $
@@ -82,8 +82,8 @@ zoomMonitorToInput = do
 
 -- | A smart zoomer which moves the input controller to wherever the monitor is.
 zoomInputToMonitor ::
-  State Tiler m =>
-  m ()
+  Member (State Tiler) m =>
+  Eff m ()
 zoomInputToMonitor = do
   bords <-
     gets @Tiler $
@@ -100,8 +100,8 @@ zoomInputToMonitor = do
 
 -- | Very similar to zoomOutInput.
 zoomOutMonitor ::
-  State Tiler m =>
-  m ()
+  Member (State Tiler) m =>
+  Eff m ()
 zoomOutMonitor = do
   -- Don't want to zoom the monitor out of existence
   rootTiler <- gets @Tiler Fix
@@ -123,7 +123,7 @@ zoomOutMonitor = do
 
 -- | changes a mode. For example, I usually configure the windows key to change
 --  from Insert mode to Normal mode.
-changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] m => Mode -> m ()
+changeModeTo :: Members '[State Mode, EventFlags, State KeyStatus] m => Mode -> Eff m ()
 changeModeTo newM = do
   -- Unbind the keys from the old mode and bind the ones for the new mode.
   currentMode <- get @Mode
@@ -139,9 +139,9 @@ changeModeTo newM = do
 
 -- | Make a change to a Many Tiler if it comes after the InputController.
 changeMany ::
-  State Tiler m =>
+  Member (State Tiler) m =>
   (ManyHolder SubTiler -> ManyHolder SubTiler) ->
-  m ()
+  Eff m ()
 changeMany f =
   modify @Tiler $
     applyInput $ map \case
@@ -159,12 +159,12 @@ moveDir :: Direction -> ManyHolder SubTiler -> ManyHolder SubTiler
 moveDir dir mh = withFl' mh $ focusDir dir
 
 moveToLoc :: Int -> ManyHolder SubTiler -> ManyHolder SubTiler
-moveToLoc to mh = withFl' mh $ visualFIndex 0 (to - 1)
+moveToLoc toLoc mh = withFl' mh $ visualFIndex 0 (toLoc - 1)
 
 changeMods ::
-  State Tiler m =>
+  Member (State Tiler) m =>
   ManyMods ->
-  m ()
+  Eff m ()
 changeMods newMod =
   modify @Tiler $
     applyInput $ map \case
@@ -173,8 +173,8 @@ changeMods newMod =
 
 -- | Move the input controller to create a new, empty item.
 makeEmptySpot ::
-  State Tiler m =>
-  m ()
+  Member (State Tiler) m =>
+  Eff m ()
 makeEmptySpot =
   modify @Tiler $ \root ->
     let newInput = flip InputController Nothing $ getIC root
@@ -221,7 +221,7 @@ makeEmptySpot =
 --  something similar to minimization.
 popTiler ::
   Members (States '[Tiler, [SubTiler]]) m =>
-  m ()
+  Eff m ()
 popTiler = do
   root <- get @Tiler
 
@@ -232,7 +232,7 @@ popTiler = do
 --  of popTiler.
 pushTiler ::
   Members (States '[Tiler, [SubTiler]]) m =>
-  m ()
+  Eff m ()
 pushTiler = do
   popped <- get @[SubTiler]
 
@@ -255,23 +255,23 @@ pushTiler = do
 --  Note that this is not called when a new window is created.
 --  That would be the pushOrAdd function.
 insertTiler ::
-  State Tiler m =>
-  m ()
+  Member (State Tiler) m =>
+  Eff m ()
 insertTiler =
   modify @Tiler $ applyInput (map toTiler)
   where
     toTiler focused = Many (Horiz $ makeFL (Sized 1 focused :| []) 0) NoMods
 
 toggleDocks ::
-  State DockState m =>
-  m ()
+  Member (State DockState) m =>
+  Eff m ()
 toggleDocks =
   modify @DockState \d -> if d == Visible then Hidden else Visible
 
 -- | Kill the active window
 killActive ::
   Members '[State Tiler, State Tiler, GlobalX, Log LogData, State ShouldRedraw] m =>
-  m ()
+  Eff m ()
 killActive = do
   root <- get @Tiler
 
