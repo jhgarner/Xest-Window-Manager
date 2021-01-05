@@ -20,8 +20,19 @@ let
   xest-package = import (builtins.fetchGit {
     url = https://github.com/jhgarner/Xest-Window-Manager.git;
     ref = "master";
+    rev = "a7bf611ff9efa11ecde58a2595e6d3ad91fe5f46";
   }) {pkgs = oldPkgs;};
 in {
+  options.services.xest = {
+    useIntel = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        When true, forces xest to use the mesa drives. Useful on Nvidia Optimus
+        devices that break the heuristic.
+      '';
+    };
+  };
   # options.services.xest = {
   #   enable = mkOption {
   #     type = types.bool;
@@ -37,7 +48,7 @@ in {
     services.xserver.windowManager.session = [{
         name  = "xest-git";
         start = ''
-          ${nixgl.nixGLDefault}/bin/nixGLDefault ${xest-package}/bin/xest-exe &> /tmp/xest.error &
+          ${if cfg.useIntel then nixgl.nixGLCommon nixgl.nixGLIntel else nixgl.nixGLDefault}/bin/nixGL ${xest-package}/bin/xest-exe &> /tmp/xest.error &
           waitPID=$!
         '';
       }];
