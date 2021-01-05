@@ -4,9 +4,14 @@ with lib;
 
 let
   cfg = config.services.xest;
-  xest-package = import (builtins.fetchTarball https://github.com/jhgarner/Xest-Window-Manager/archive/master.tar.gz);
+  oldPkgs = import (builtins.fetchGit {
+    url = "https://github.com/nixos/nixpkgs/";
+    ref = "refs/heads/nixos-20.09";
+    rev = "c5c6009fb436efe5732e07cd0e5692f495321752";
+  }) {};
+  nixgl = import (builtins.fetchTarball https://github.com/guibou/nixGL/archive/master.tar.gz) {pkgs = oldPkgs;};
+  xest-package = import (builtins.fetchTarball https://github.com/jhgarner/Xest-Window-Manager/archive/master.tar.gz) {pkgs = oldPkgs;};
 in {
-  # TODO add options
   # options.services.xest = {
   #   enable = mkOption {
   #     type = types.bool;
@@ -22,7 +27,7 @@ in {
     services.xserver.windowManager.session = [{
         name  = "xest-git";
         start = ''
-          ${xest-package}/bin/xest-exe &
+          ${nixgl.nixGLDefault}/bin/nixGLDefault ${xest-package}/bin/xest-exe &> /tmp/xest.error &
           waitPID=$!
         '';
       }];
