@@ -4,13 +4,16 @@ let
   gitignoreSrc = pkgs.fetchFromGitHub { 
     owner = "hercules-ci";
     repo = "gitignore";
-    # put the latest commit sha of gitignore Nix library here:
     rev = "c4662e662462e7bf3c2a968483478a665d00e717";
-    # use what nix suggests in the mismatch message here:
     sha256 = "sha256:1npnx0h6bd0d7ql93ka7azhj40zgjp815fw2r6smg8ch9p7mzdlx";
   };
   inherit (import gitignoreSrc { inherit (pkgs) lib; }) gitignoreSource;
-  # pkgs = import <nixpkgs> {};
-  # Use 20.09 since unstable has moved to 8.10 and something's wrong with ghc 8.10 and Xest
+  # If you don't pass in a pinned nixpkgs, this might fail. See xest.nix for an
+  # example.
   xest-package = pkgs.pkgs.haskell.packages.ghc884.callPackage (import (./release.nix)) {inherit gitignoreSource;};
-in xest-package
+  with-config = xest-package.overrideAttrs (old: {
+    postInstall = ''
+      cp -r config/ $out
+      '';
+  });
+in with-config
