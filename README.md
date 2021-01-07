@@ -60,3 +60,21 @@ be good tutorials online for it. You can avoid most of the gross effect code by
 staying out of the `base/DoAll.hs` file. You'll see stuff like
 `Members '[Thing, Thing2, etc] m` in a few different files. Basically, that lets
 you operate in a monad that has the capabilities defined in the list.
+
+## Why not Wayland?
+
+X11 is a bit of a mess and Wayland is almost certainly better. I chose not to
+make a Wayland compositor because the Haskell tooling is extremely immature.
+This was my first foray into Linux window management and having to deal with all
+sorts of new technologies and lacking documentation would have been awful.
+
+The other reason I didn't pick Wayland is that I expect my window manager to be
+fairly flashy. On X11 I can use Compton to get really nice blurring, fading,
+vsync, and shadows. On Wayland I would have to write all of that code myself.
+Since I have Nvidia cards in my devices, I also have to deal with all of the
+problems they've created.
+
+For those reasons, Wayland seemed like too much to tackle. With that said, I am
+happy to work on making Xest more backend agnostic and adopting Wayland when it
+looks like there's a path forward for the tooling on Haskell. If someone knows
+that path, please share it with me.
