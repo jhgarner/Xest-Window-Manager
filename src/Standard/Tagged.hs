@@ -6,6 +6,8 @@ import Control.Comonad
 -- | Tagged is a lot like Either except more optimistic. In Either, a single
 --  failure propogates upwards. With Tagged, a single Success propogates
 --  upwards.
+--  TODO I think Tagged exists somewhere in base which means this probably
+--  needs to be renamed.
 data Tagged a = Failed a | Succeeded a
   deriving (Show, Eq, Read, Functor, Foldable, Traversable)
 

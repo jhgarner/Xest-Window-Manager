@@ -26,4 +26,4 @@ instance Eq a => Eq (Sized a) where
 instance Comonad Sized where
   extract (Sized _ a) = a
 
-  duplicate = Sized 0
+  duplicate s@(Sized size _) = Sized size s
