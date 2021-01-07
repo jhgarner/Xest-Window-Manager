@@ -287,11 +287,11 @@ If a Many Tiler is the direct child of the Input Controller, this will create a
 new child for that Many Tiler and will place the Input Controller inside of it.
 If the Many Tiler has the full modifier set, this could be seen as creating a new workspace.
 
-### MoveToFront
+### MoveToLoc (n: Nat)
 
 If a Many Tiler is the direct child of the Input Controller, this will move
-whatever the currently focused child is to the "front" of the Tiler. What the
-front means depends on the style and modifiers of the Tiler.
+whatever the currently focused child is to the n'th index of the Tiler. N here
+is 1 indexed to better match a user's keyboard.
 
 ### ChangeToHorizontal
 
@@ -353,7 +353,6 @@ Moves the Monitor so that it is right behind the Input Controller.
 ### ZoomInputToMonitor
 
 Moves the Input Controller so that it is right in front of the Monitor.
-
 
 ### ToggleDocks
 

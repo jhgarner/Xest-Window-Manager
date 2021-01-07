@@ -39,7 +39,7 @@ you need another workspace for one of them? Is moving between everything easy?
 Is it easier just to close everything related to one project while you work on
 the other?
 
-The solution to this problem is nested workspaces. At the top level, you have
+A solution to this problem is nested workspaces. At the top level, you have
 two workspaces open: one for the research paper and one for programming.
 Inside of those, you have workspaces for each project. You can now pretend like
 only one of the projects exists at a time making it easier to work without
@@ -50,10 +50,10 @@ can always be on the first workspace no matter what you're working on.
   <source src=/images/nested.mp4>
 </video>
 
-There's a little bit more going on in this video compared to the others. The
-important part is that you can reuse workspaces with only a couple
-extra key presses when switching projects. Once you've switched projects,
-everything is muscle memory.
+There's a little bit more going on in this video compared to the others. If the
+key presses don't make sense, don't worry! The important part is that you can
+reuse workspaces with only a couple key strokes when switching projects. Once
+you've switched projects, everything is muscle memory.
 
 Although desktop environments like Plasma offer nested workspaces built in, Xest
 offers something more generic with its tree structure. In theory, you can nest
@@ -70,13 +70,27 @@ could mean losing work. Make sure to save often! Check out the
 various files with "xest" in the name in your "/tmp/" directory if something
 goes wrong. All logs get output there.
 
+If you run into any problems, either let me know in the chat or open up an issue
+on Github.
+
 # I want to try it out!
 
-If you're using arch, you can grab the package from the
+## Nixos
+
+Download or copy the `xest.nix` file from
+[here](https://github.com/jhgarner/Xest-Window-Manager/blob/master/xest.nix) and
+add it as an import to your `configuration.nix` file. When you reboot, you
+should see `xest-git` as an option in your display manager.
+
+## Arch
+
+You can grab the package from the
 [AUR](https://aur.archlinux.org/packages/xest-window-manager-git/). You can
 install it using yay with "yay -S xest-window-manager-git". Since it builds the
 package from source, the first install might take a while. Updates will go much
 faster.
+
+## Source
 
 If you want to run Xest from source, clone
 https://github.com/jhgarner/Xest-Window-Manager and either install nix or setup
@@ -84,6 +98,6 @@ the dependencies yourself. The stack build tool should make the binary. For
 actually creating the menus in your display manager, more work will be needed.
 Look at the Arch package and try to get the non-binary files into the right
 places. I can probably throw together a package for your distro if you send a
-message on the Matrix chat.
+message on the Matrix chat or open an issue on Github.
 
-If you're interested in Xest, check out the user guide and join the Matrix chat.
+If you're interested in Xest, check out the user guide and join the Matrix chat!
