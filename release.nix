@@ -3,13 +3,14 @@
 , free, freer-simple, generic-arbitrary, hpack, lens, mtl, process
 , QuickCheck, quickcheck-instances, recursion-schemes, regex-compat
 , sdl2, sdl2-ttf, semigroupoids, stdenv, template-haskell, text
-, time, transformers, X11, gitignoreSource
+, time, transformers, X11, gitignoreSource, sourceFilesBySuffices
 }:
 let
 in mkDerivation {
   pname = "xest";
   version = "0.1.0.0";
-  src = gitignoreSource ./.;
+  # It's annoying having to rebuild the project because the nix files change
+  src = sourceFilesBySuffices (gitignoreSource ./.) ["cabal" "hs" "yaml" "lock"];
   isLibrary = true;
   isExecutable = true;
   libraryHaskellDepends = [
