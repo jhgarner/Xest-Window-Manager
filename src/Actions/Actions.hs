@@ -13,6 +13,7 @@ import Data.Either ()
 import FocusList
 import Standard
 import Tiler.Tiler
+import Graphics.X11.Xinerama
 
 -- | Zooms inwards, AKA away from the root. This function operates on
 -- the Input Controller, not the Monitor. This means that although the layout
@@ -300,3 +301,14 @@ killActive = do
     makeList (InputControllerOrMonitor _ (Just t)) = ContinueF $ coerce t
     makeList (InputControllerOrMonitor _ Nothing) = EndF Nothing
     makeList t = ContinueF (coerce $ getFocused t)
+
+changeActiveScreen :: Members '[State ActiveScreen, Input [XineramaScreenInfo]] m => Direction -> Eff m ()
+changeActiveScreen d = do
+  active <- gets @ActiveScreen fromIntegral
+  screens <- input @[XineramaScreenInfo]
+  let sorted = sortOn (\(XineramaScreenInfo _ x y _ _) -> (y, x)) screens
+  let (_, XineramaScreenInfo newId _ _ _ _) =
+        fromMaybe (undefined, XineramaScreenInfo active 0 0 0 0) $ case d of
+          Front -> find (\(XineramaScreenInfo i _ _ _ _, _) -> i == active) $ zip (fromJust $ tailMay sorted) sorted
+          Back -> find (\(XineramaScreenInfo i _ _ _ _, _) -> i == active) $ zip sorted (fromJust $ tailMay sorted)
+  put @ActiveScreen $ fromIntegral newId

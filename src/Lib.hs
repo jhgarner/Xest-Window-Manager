@@ -163,44 +163,44 @@ mainLoop event = do
 
     -- Called when a window actually dies.
     DestroyWindowEvent {..} -> killed ev_window
-    
+
     -- Called when a window is dying. Because X is asynchronous, there's a chance
     -- the window will be dead by the time we get this event.
     UnmapEvent {..} -> unmapWin ev_window
-    
+
     -- The window tried to change it's own position. Here, we try to deny the
     -- request in a way that doesn't upset the caller.
     cre@ConfigureRequestEvent {} -> configureWin cre
-    
+
     -- This is usually called when a monitor is connected or disconnected.
     ConfigureEvent {} -> rootChange
-    
+
     -- The mouse moved from one window to another.
     CrossingEvent {..} -> do
       put @OldTime $ OldTime ev_time
       root <- input @RootWindow
-      -- Why the if statement? Well we want to focus the root window
-      -- if no other windows are currently focused.
       if
           | ev_event_type == enterNotify -> newFocus ev_window
-          | ev_window == root -> newFocus root
-          | otherwise -> return ()
-          
+          -- This means we left a window. We're either going to get an
+          -- enterNotify event which immediately overwrites this action, or we
+          -- moved from one monitor to another and want to change screens.
+          | otherwise -> setScreenFromMouse
+
     -- Button in this case means mouse button. Used to trigger click to focus.
     ButtonEvent {..} -> do
       put @OldTime (OldTime ev_time)
       put @OldMouseButtons $ OMB None
       newFocus ev_window
-      
+
     -- The pointer moved and we probably want to resize something.
     MotionEvent {..} -> motion
-    
+
     -- A press of the keyboard.
     KeyEvent {..} -> put @OldTime (OldTime ev_time) >> keyDown ev_keycode ev_event_type >>= foldMap executeActions
-    
+
     -- This usually means the keyboard layout changed.
     MappingNotifyEvent {} -> reloadConf
-    
+
     -- Some other window sent us a message. Currently, we only care if they
     -- ask to be fullscreen.
     ClientMessageEvent {..} -> do
@@ -257,3 +257,4 @@ mainLoop event = do
         SetFull -> changeMods Full
         SetNoMod -> changeMods NoMods
         ToggleDocks -> toggleDocks
+        ChangeActiveScreen d -> changeActiveScreen d

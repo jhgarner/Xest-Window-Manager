@@ -62,8 +62,8 @@ in {
       , {key = "z", actions = [Action.ZoomMonitorToInput]}
       , {key = "s", actions = [Action.MakeEmpty]}
       , {key = "w", actions = [Action.ToggleLogging]}
-      , {key = "Left", actions = [Action.Move Front]}
-      , {key = "Right", actions = [Action.Move Back]}
+      , {key = "Left", actions = [Action.ChangeActiveScreen Front]}
+      , {key = "Right", actions = [Action.ChangeActiveScreen Back]}
       ] # mkDesktops 9)
     #
     newKey NormalS

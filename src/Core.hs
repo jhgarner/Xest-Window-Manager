@@ -20,6 +20,7 @@ import Graphics.X11.Xlib.Atom
 import qualified SDL (Window)
 import Standard
 import Tiler.Tiler
+import Data.IntMap (toAscList, keys)
 
 -- | Creates a new "frame" for the window manager. Note that this function isn't
 --  called every literal frame; Xest doesn't have to do anything if it's
@@ -311,7 +312,7 @@ setScreenFromMouse ::
 setScreenFromMouse = do
   pointer <- input @Pointer
   screens <- get @Screens
-  put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ zip [0 ..] $ toList $ map getScreens screens
+  put @ActiveScreen $ maybe 0 fst $ whichScreen pointer $ toAscList $ map getScreens screens
 
 -- | Add a bunch of properties to our root window to comply with EWMH
 initEwmh ::

@@ -35,6 +35,7 @@ data Action
   | SetFull
   | SetNoMod
   | ToggleDocks
+  | ChangeActiveScreen Direction
   deriving (Show, Generic, Interpret)
 
 -- | Modes similar to modes in vim
