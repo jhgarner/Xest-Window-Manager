@@ -12,7 +12,7 @@ import Graphics.X11.Xlib.Event
 import Graphics.X11.Xlib.Extras
 import Graphics.X11.Xlib.Misc
 import Graphics.X11.Xlib.Types
-import Graphics.X11.Xlib.Window
+import Graphics.X11.Xlib.Window hiding (mapWindow)
 import qualified SDL
 import Standard
 import Tiler.Tiler
@@ -46,7 +46,7 @@ newtype FocusedCache = FocusedCache Window
 -- Move windows using IO
 runMover :: Members (States [LocCache, SDLLocCache, Tiler, FocusedCache, OldTime] ++ '[Minimizer, Executor, Property, Input RootWindow, IO, Input Display]) m => Eff (Mover ': m) a -> Eff m a
 runMover = interpret \case
-  ChangeLocation (ParentChild p c pWin) r@(Rect x y h w) -> do
+  ChangeLocation (ParentChild p c pWin _) r@(Rect x y h w) -> do
     -- Every window will have change location called every "frame".
     -- The cache makes sure we don't send more wark to X than we need.
     locCache <- get @LocCache
@@ -105,15 +105,20 @@ runMover = interpret \case
               ev_border_width
               ev_above
               ev_detail
-      if findWindow ev_window tiler
-        then allocaXEvent $ \pe -> do
-          setEventType pe configureNotify
-          setConfigureEvent pe ev_window ev_window wa_x wa_y wa_width wa_height wa_border_width none False
-          sendEvent d ev_window False noEventMask pe
-        else configureWindow d ev_window ev_value_mask wc
+      case findWindow ev_window tiler of
+        Just _ -> allocaXEvent $ \pe -> do
+            setEventType pe configureNotify
+            setConfigureEvent pe ev_window ev_window wa_x wa_y wa_width wa_height wa_border_width none False
+            sendEvent d ev_window False noEventMask pe
+        Nothing -> configureWindow d ev_window ev_value_mask wc
+    -- TODO Copying what is essentially the case above seems wrong
+    case findWindow ev_window tiler of
+      Just ParentChild {getConfiguredSize = r} -> do
+        modify @Tiler (mapWindow ev_window $ \pc -> pc {getConfiguredSize = r})
+      Nothing -> pure ()
   ConfigureWin _ -> error "Don't call Configure Window with other events"
 
-  SetFocus (ParentChild p c _) ->
+  SetFocus (ParentChild p c _ _) ->
     input @Display >>= \d -> do
       root <- get @Tiler
       rootWin <- input @RootWindow
@@ -141,7 +146,7 @@ runMover = interpret \case
           put @FocusedCache $ FocusedCache c
       liftIO $ allowEvents d replayPointer currentTime >> sync d False
     where
-      grabOthers d target (Wrap (ParentChild parent child _))
+      grabOthers d target (Wrap (ParentChild parent child _ _))
         | child == target = ungrabButton d anyButton anyModifier parent
         | otherwise =
           grabButton

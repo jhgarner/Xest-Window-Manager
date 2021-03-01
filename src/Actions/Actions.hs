@@ -297,7 +297,7 @@ killActive = do
       _ <- kill True parent
       modify @Tiler $ ripOut killed
   where
-    makeList (Wrap (ParentChild window w' _)) = EndF $ Just (window, w')
+    makeList (Wrap (ParentChild window w' _ _)) = EndF $ Just (window, w')
     makeList (InputControllerOrMonitor _ (Just t)) = ContinueF $ coerce t
     makeList (InputControllerOrMonitor _ Nothing) = EndF Nothing
     makeList t = ContinueF (coerce $ getFocused t)

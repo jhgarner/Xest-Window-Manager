@@ -20,7 +20,7 @@ import Graphics.X11.Xlib.Atom
 import qualified SDL (Window)
 import Standard
 import Tiler.Tiler
-import Data.IntMap (toAscList, keys)
+import Data.IntMap (toAscList)
 
 -- | Creates a new "frame" for the window manager. Note that this function isn't
 --  called every literal frame; Xest doesn't have to do anything if it's
@@ -210,7 +210,7 @@ render = do
   where
     -- The main part of this function.
     draw :: Base (Cofree TilerF (XRect, Int)) (([ParentChild], [ParentChild]), Eff m ()) -> (([ParentChild], [ParentChild]), Eff m ())
-    draw (CofreeF (Rect {..}, _) (Wrap pc@(ParentChild _ c pWin))) =
+    draw (CofreeF (Rect {..}, _) (Wrap pc@(ParentChild _ c pWin _))) =
       ( ([], [pc]), do
           mode <- get @Mode
           if hasButtons mode
@@ -298,7 +298,7 @@ xFocus ::
 xFocus = do
   root <- get @Tiler
   rWin <- input @Window
-  let w = fromMaybe (ParentChild rWin rWin rWin) $ hylo getEnd makeList root
+  let w = fromMaybe (ParentChild rWin rWin rWin mempty) $ hylo getEnd makeList root
   setFocus w
   where
     makeList (Wrap pc) = EndF $ Just pc
@@ -368,7 +368,7 @@ setClientList = do
   ncl <- getAtom False "_NET_CLIENT_LIST"
   putProperty 32 ncl root wINDOW $ cata winList $ Fix tilers
   where
-    winList (Wrap (ParentChild _ w _)) = [fromIntegral w]
+    winList (Wrap (ParentChild _ w _ _)) = [fromIntegral w]
     winList t = concat t
 
 -- | Writes the active window to the root window.
@@ -381,7 +381,7 @@ writeActiveWindow = do
   naw <- getAtom False "_NET_ACTIVE_WINDOW"
   putProperty 32 naw root wINDOW [fromMaybe (fromIntegral root) $ hylo getEnd makeList tilers]
   where
-    makeList (Fix (Wrap (ParentChild _ w _))) = EndF . Just $ fromIntegral w
+    makeList (Fix (Wrap (ParentChild _ w _ _))) = EndF . Just $ fromIntegral w
     makeList (Fix (InputControllerOrMonitor _ (Just t))) = ContinueF t
     makeList (Fix (InputControllerOrMonitor _ Nothing)) = EndF Nothing
     makeList (Fix t) = ContinueF (getFocused t)

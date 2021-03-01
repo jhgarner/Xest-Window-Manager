@@ -36,7 +36,7 @@ reparentWin window = do
   -- Just like on the root window, we need to register some events
   -- on the parent.
   selectFlags newWin (substructureNotifyMask .|. substructureRedirectMask .|. enterWindowMask .|. leaveWindowMask)
-  return $ ParentChild newWin window pWin
+  return $ ParentChild newWin window pWin mempty
 
 deriving instance Show SizeHints
 
@@ -47,7 +47,7 @@ mapWin ::
   Members (States [Screens, Tiler, ShouldRedraw, ActiveScreen, Screens, LostWindow, OldTime, DockState]) m =>
   ParentChild ->
   Eff m ()
-mapWin pc@(ParentChild newWin window _) = do
+mapWin pc@(ParentChild newWin window _ _) = do
   log $ LD "MapWin" "Mapping a window"
   let tWin :: SubTiler = Wrap pc
 
@@ -74,7 +74,7 @@ mapWin pc@(ParentChild newWin window _) = do
           log $ LD "MapWin" "Found a transient window!"
           SizeHints {..} <- getSizeHints window
           let idealSize = maybe (-1, -1) (over both fromIntegral) sh_min_size
-              tilerParent = Wrap $ ParentChild parent parent parent
+              tilerParent = Wrap $ ParentChild parent parent parent mempty
               -- First try to run usingFloating on the parameters and see if it
               -- succeeds. If it succeeds then we're done. Otherwise, run
               -- makeFloating.
@@ -378,7 +378,7 @@ makeFullscreen window isSet = do
       root <- get @Tiler
       modify @Tiler $
         coerce . fromMaybe (coerce root) . cata \case
-          Wrap pc@(ParentChild _ child _)
+          Wrap pc@(ParentChild _ child _ _)
             | child == window -> Just $ Monitor loc $ Just $ InputController bords $ Just $ Wrap pc
           InputControllerOrMonitor _ t -> coerce $ join t
           t -> coerce $ reduce t
@@ -387,11 +387,11 @@ makeFullscreen window isSet = do
       put @DockState Hidden
     else do
       putProperty 32 wm_state window aTOM $ map fromIntegral (mfilter (/= wm_full) currentState)
-      changeLocation (ParentChild window window window) $ Rect 1 1 1 1
+      changeLocation (ParentChild window window window mempty) $ Rect 1 1 1 1
       put @DockState Visible
 
 setScreenFromWindow :: Members '[State Screens, State ActiveScreen] m => Window -> MaybeT (Eff m) ()
 setScreenFromWindow window = do
   tilers <- lift $ gets @Screens $ zip [0 ..] . screensToTilers
-  (i, _) <- MaybeT $ return $ find snd $ map (second $ findWindow window) tilers
+  (i, _) <- MaybeT $ return $ find snd $ map (second $ isJust . findWindow window) tilers
   lift $ put @ActiveScreen i

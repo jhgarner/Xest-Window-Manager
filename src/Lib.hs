@@ -25,7 +25,7 @@ import qualified SDL.Font as Font
 import Standard
 import qualified System.Environment as Env
 import Text.Regex (mkRegex, subRegex)
-import Tiler.Tiler
+import Tiler.Tiler hiding (mapWindow)
 import XEvents
 
 -- | Wraps Xest in some basic logging and error handling.
@@ -158,7 +158,7 @@ mainLoop event = do
         then addUM ev_window >> put @ShouldRedraw (Just UnsafeRedraw)
         else do
           rootTiler <- get @Tiler
-          unless (findWindow ev_window rootTiler) $
+          unless (isJust $ findWindow ev_window rootTiler) $
             reparentWin ev_window >>= mapWin
 
     -- Called when a window actually dies.

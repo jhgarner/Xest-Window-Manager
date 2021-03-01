@@ -30,7 +30,7 @@ runUnmanaged :: Members [State Docks, Input RootWindow, State DockState, Mover, 
 runUnmanaged = interpret \case
   FocusUM win -> do
     root <- input @RootWindow
-    setFocus (ParentChild root win root)
+    setFocus (ParentChild root win root mempty)
 
   AddUM win -> do
     restore win

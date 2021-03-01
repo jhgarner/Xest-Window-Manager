@@ -53,9 +53,9 @@ ripOut :: Window -> Tiler -> Tiler
 ripOut toDelete = project . fromMaybe (error "No root!") . cata isEqual
   where
     isEqual :: TilerF (Maybe SubTiler) -> Maybe SubTiler
-    isEqual (Wrap (ParentChild parent window pointerWin))
+    isEqual (Wrap (ParentChild parent window pointerWin configuredSize))
       | window == toDelete = Nothing
-      | otherwise = Just . embed . Wrap $ ParentChild parent window pointerWin
+      | otherwise = Just . embed . Wrap $ ParentChild parent window pointerWin configuredSize
     isEqual t = coerce $ reduce t
 
 -- | Removes empty Tilers
@@ -241,7 +241,7 @@ getFocusList (Wrap _) = "Window"
 findParent :: Window -> Tiler -> Maybe Window
 findParent w = cata step
   where
-    step (Wrap (ParentChild ww ww' _))
+    step (Wrap (ParentChild ww ww' _ _))
       | ww' == w = Just ww
       | otherwise = Nothing
     step t = foldl' (<|>) Nothing t
@@ -254,7 +254,7 @@ findAllLeaves s = screensToTilers s >>= cata \case
 -- | Get all parents from the tree
 getAllParents :: Tiler -> [Window]
 getAllParents = cata \case
-  Wrap (ParentChild p _ _) -> pure p
+  Wrap (ParentChild p _ _ _) -> pure p
   t -> fold t
 
 -- | Do some geometry to figure out which screen we're on. What's up with the
@@ -276,10 +276,15 @@ whichScreen (mx, my) = asum . map findOverlap
 fixMonitor :: Tiler -> Tiler
 fixMonitor = fromMaybe (error "Can't be empty") . moveToIC
 
-findWindow :: Window -> Tiler -> Bool
+findWindow :: Window -> Tiler -> Maybe ParentChild
 findWindow w = cata $ \case
-  (Wrap w') -> inParentChild w w'
-  t -> or t
+  (Wrap w') -> if inParentChild w w' then Just w' else Nothing
+  t -> asum t
+
+mapWindow :: Window -> (ParentChild -> ParentChild) -> Tiler -> Tiler
+mapWindow w f root = unfix $ cata (\case
+  t@(Wrap w') -> if inParentChild w w' then Wrap (f w') else Fix t
+  t -> Fix t) root
 
 getBorders :: Tiler -> Borders
 getBorders =
@@ -305,7 +310,7 @@ getTilerFromScreen p screens =
 
 getTilerWithWindow :: Window -> Screens -> Maybe Tiler
 getTilerWithWindow w = getTilerFromScreen \case
-  Wrap (ParentChild _ c _) -> c == w
+  Wrap (ParentChild _ c _ _) -> c == w
   _ -> False
 
 screensToTilers :: Screens -> [Tiler]
@@ -317,9 +322,11 @@ fixFloating root = unfix $ flip cata root \case
     Many (Floating (map fixRect fl)) mods
   t -> Fix t
   where
-    Just (Rect {..}) = flip cata root \case
+    Just Rect {..} = flip cata root \case
       Monitor r _ -> Just $ bimap fromIntegral fromIntegral r
       t -> asum t
+    fixRect (WithRect (Rect _ _ (-1) (-1)) t@(Wrap ParentChild {getConfiguredSize = r}))
+      | r /= mempty = WithRect r t
     fixRect (WithRect (Rect _ _ (-1) (-1)) t) =
       WithRect (Rect (x + w / 4) (y + h / 4) (w / 2) (h / 2)) t
     fixRect wr = wr
