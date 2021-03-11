@@ -354,7 +354,7 @@ writeWorkspaces (names, i) = do
   nnod <- getAtom False "_NET_NUMBER_OF_DESKTOPS"
   ncd <- getAtom False "_NET_CURRENT_DESKTOP"
   putProperty 8 ndn root utf8 $
-    concatMap (map ord . view _Text) names
+    concatMap ((++ [0]) . map ord . view _Text) names
   putProperty 32 nnod root cARDINAL [length names]
   putProperty 32 ncd root cARDINAL [i]
 
